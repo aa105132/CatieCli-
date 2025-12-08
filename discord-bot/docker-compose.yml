@@ -1,0 +1,9 @@
+version: '3'
+services:
+  discord-bot:
+    build: .
+    container_name: catiecli-discord-bot
+    restart: always
+    environment:
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - API_BASE_URL=${API_BASE_URL}
