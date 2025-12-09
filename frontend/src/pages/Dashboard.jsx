@@ -1,9 +1,11 @@
 import {
     Activity,
+    BarChart2,
     Cat,
     Check,
     CheckCircle,
     Copy,
+    Download,
     ExternalLink,
     Gift,
     LogOut,
@@ -12,6 +14,7 @@ import {
     Settings,
     Shield,
     Users,
+    X,
     Zap
 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
