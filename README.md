@@ -533,6 +533,63 @@ docker build -t catiecli-bot .
 docker run -d --env-file .env catiecli-bot
 ```
 
+## 🔄 更新指南
+
+### 拉取最新代码
+
+```bash
+cd /opt/CatieCli  # 你的安装目录
+git pull
+```
+
+如果有冲突，强制更新：
+
+```bash
+git fetch --all
+git reset --hard origin/main
+```
+
+### 重启服务
+
+**Docker Compose 方式：**
+
+```bash
+docker-compose down
+docker-compose up -d --build
+```
+
+**1Panel 方式：**
+
+进入 1Panel → 网站 → 运行环境 → 找到你的应用 → 点击「重启」
+
+### 清除浏览器缓存
+
+更新后如果页面没变化或报错，需要清除浏览器缓存：
+
+- **Windows/Linux**: `Ctrl + Shift + R` 或 `Ctrl + F5`
+- **Mac**: `Cmd + Shift + R`
+- **或者**: 打开开发者工具（F12）→ 右键刷新按钮 → 「清空缓存并硬性重新加载」
+
+## ❓ 常见问题
+
+### Q: 页面报错 `xxx is not defined`
+
+**原因**: 浏览器加载了旧的缓存文件
+
+**解决**: 清除浏览器缓存后刷新（`Ctrl+Shift+R`）
+
+### Q: 更新后没有变化
+
+**解决**:
+
+1. 确认 `git pull` 成功
+2. 重启服务
+3. 清除浏览器缓存
+
+### Q: 数据库数据会丢失吗？
+
+**不会**。数据库文件在 `data/` 目录，更新代码不影响数据。
+
 ## 📄 开源协议
 
 MIT License
