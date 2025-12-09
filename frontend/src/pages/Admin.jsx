@@ -561,8 +561,9 @@ export default function Admin() {
                   <div className="flex gap-3">
                     <input
                       type="number"
+                      min="0"
                       value={defaultQuota}
-                      onChange={(e) => setDefaultQuota(parseInt(e.target.value) || 0)}
+                      onChange={(e) => setDefaultQuota(Math.max(0, parseInt(e.target.value) || 0))}
                       className="w-32 px-4 py-2 bg-dark-800 border border-dark-600 rounded-lg text-white"
                     />
                     <button onClick={updateDefaultQuota} className="btn btn-primary">
@@ -580,8 +581,9 @@ export default function Admin() {
                   <div className="flex gap-3">
                     <input
                       type="number"
+                      min="0"
                       value={batchQuota}
-                      onChange={(e) => setBatchQuota(e.target.value)}
+                      onChange={(e) => setBatchQuota(Math.max(0, parseInt(e.target.value) || 0))}
                       placeholder="输入配额值"
                       className="w-32 px-4 py-2 bg-dark-800 border border-dark-600 rounded-lg text-white placeholder-gray-500"
                     />
