@@ -41,6 +41,8 @@ export default function Dashboard() {
   const [uploadFiles, setUploadFiles] = useState([])
   const [uploadPublic, setUploadPublic] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [quotaModal, setQuotaModal] = useState(null)
+  const [loadingQuota, setLoadingQuota] = useState(false)
 
   // 处理 OAuth 回调消息
   useEffect(() => {
@@ -213,6 +215,35 @@ export default function Dashboard() {
       fetchMyCredentials()
     } catch (err) {
       console.error('删除失败', err)
+    }
+  }
+
+  const fetchQuota = async (id) => {
+    setLoadingQuota(true)
+    try {
+      const res = await api.get(`/api/manage/credentials/${id}/quota`)
+      setQuotaModal(res.data)
+    } catch (err) {
+      alert('获取配额失败: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setLoadingQuota(false)
+    }
+  }
+
+  const exportCred = async (id, email) => {
+    try {
+      const res = await api.get(`/api/auth/credentials/${id}/export`)
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `credential_${email || id}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('导出失败: ' + (err.response?.data?.detail || err.message))
     }
   }
 
@@ -495,7 +526,17 @@ export default function Dashboard() {
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2 ml-4">
+                      <div className="flex items-center gap-2 ml-4 flex-wrap">
+                        {/* 配额按钮 */}
+                        <button
+                          onClick={() => fetchQuota(cred.id)}
+                          disabled={loadingQuota}
+                          className="px-3 py-1.5 rounded text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 flex items-center gap-1"
+                          title="查看配额"
+                        >
+                          <BarChart2 size={12} />
+                          配额
+                        </button>
                         {/* 检测按钮 */}
                         <button
                           onClick={() => verifyCred(cred.id)}
@@ -508,6 +549,15 @@ export default function Dashboard() {
                             <CheckCircle size={12} />
                           )}
                           检测
+                        </button>
+                        {/* 导出按钮 */}
+                        <button
+                          onClick={() => exportCred(cred.id, cred.email)}
+                          className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1"
+                          title="导出凭证"
+                        >
+                          <Download size={12} />
+                          导出
                         </button>
                         {/* 启用/禁用开关 */}
                         <button
@@ -623,6 +673,95 @@ export default function Dashboard() {
           </>
         )}
       </div>
+
+      {/* 配额弹窗 */}
+      {quotaModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-800 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-dark-600">
+              <div>
+                <h3 className="text-lg font-semibold flex items-center gap-2">
+                  <BarChart2 className="text-indigo-400" />
+                  模型配额信息
+                </h3>
+                <p className="text-sm text-gray-400 mt-1">{quotaModal.email || quotaModal.credential_name}</p>
+              </div>
+              <button onClick={() => setQuotaModal(null)} className="p-2 hover:bg-dark-600 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="px-4 pt-3">
+              <span className={`text-xs px-2 py-1 rounded ${quotaModal.account_type === 'pro' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-600/50 text-gray-400'}`}>
+                {quotaModal.account_type === 'pro' ? '⭐ Pro 账号' : '普通账号'}
+              </span>
+            </div>
+            
+            {quotaModal.flash && (
+              <div className="p-4 border-b border-dark-600">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="font-semibold text-cyan-400">2.5-flash 配额</span>
+                  <span className={`font-bold ${quotaModal.flash.percentage > 50 ? 'text-green-400' : quotaModal.flash.percentage > 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {quotaModal.flash.percentage}%
+                  </span>
+                </div>
+                <div className="h-3 bg-dark-600 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${quotaModal.flash.percentage > 50 ? 'bg-cyan-500' : quotaModal.flash.percentage > 20 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${quotaModal.flash.percentage}%` }} />
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
+                  <span>已用 {quotaModal.flash.used} / {quotaModal.flash.limit}</span>
+                  <span>剩余 {quotaModal.flash.remaining}</span>
+                </div>
+              </div>
+            )}
+            
+            {quotaModal.premium && (
+              <div className="p-4 border-b border-dark-600">
+                <div className="flex items-center justify-between text-sm mb-2">
+                  <span className="font-semibold text-purple-400">2.5-pro / 3.0 配额</span>
+                  <span className={`font-bold ${quotaModal.premium.percentage > 50 ? 'text-green-400' : quotaModal.premium.percentage > 20 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {quotaModal.premium.percentage}%
+                  </span>
+                </div>
+                <div className="h-3 bg-dark-600 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${quotaModal.premium.percentage > 50 ? 'bg-purple-500' : quotaModal.premium.percentage > 20 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${quotaModal.premium.percentage}%` }} />
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
+                  <span>已用 {quotaModal.premium.used} / {quotaModal.premium.limit}</span>
+                  <span>剩余 {quotaModal.premium.remaining}</span>
+                </div>
+                <div className="text-xs text-purple-400/60 mt-1">{quotaModal.premium.note}</div>
+              </div>
+            )}
+            
+            <div className="p-4 overflow-y-auto max-h-[40vh]">
+              <div className="text-xs text-gray-500 mb-2">各模型使用情况</div>
+              {quotaModal.models?.filter(m => m.used > 0).length === 0 ? (
+                <div className="text-center text-gray-500 py-4">今日暂无使用记录</div>
+              ) : quotaModal.models?.filter(m => m.used > 0).map(item => (
+                <div key={item.model} className="flex items-center justify-between py-2 border-b border-dark-700 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{item.model}</span>
+                    {item.is_premium && <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">高级</span>}
+                  </div>
+                  <span className="text-gray-400 text-sm">{item.used} 次</span>
+                </div>
+              ))}
+            </div>
+            
+            <div className="p-4 border-t border-dark-600 flex items-center justify-between">
+              <div className="text-xs text-gray-500">重置: {new Date(quotaModal.reset_time).toLocaleString()}</div>
+              <div className="flex gap-2">
+                <button onClick={() => fetchQuota(quotaModal.credential_id)} disabled={loadingQuota} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm flex items-center gap-2 disabled:opacity-50">
+                  {loadingQuota ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  刷新
+                </button>
+                <button onClick={() => setQuotaModal(null)} className="px-4 py-2 bg-dark-600 hover:bg-dark-500 text-white rounded-lg text-sm">关闭</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
