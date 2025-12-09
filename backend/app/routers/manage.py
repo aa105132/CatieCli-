@@ -345,13 +345,17 @@ async def verify_all_credentials(
                     print(f"[检测] {cred.email} 检测账号类型失败: {e}", flush=True)
             
             cred.is_active = is_valid
-            cred.model_tier = "3" if supports_3 else "2.5"
+            # Pro 账户直接标记为 tier 3，否则根据模型检测结果
+            if account_type == "pro":
+                cred.model_tier = "3"
+            else:
+                cred.model_tier = "3" if supports_3 else "2.5"
             # 暂时存储在 last_error 字段（后续可以添加专用字段）
             if account_type != "unknown":
                 cred.last_error = f"account_type:{account_type}"
             
             # 确保变更被追踪并立即写入
-            print(f"[检测] 设置 {cred.email} model_tier={cred.model_tier}, supports_3={supports_3}", flush=True)
+            print(f"[检测] 设置 {cred.email} model_tier={cred.model_tier}, account_type={account_type}, supports_3={supports_3}", flush=True)
             await db.merge(cred)
             await db.flush()
             

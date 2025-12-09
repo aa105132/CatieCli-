@@ -135,10 +135,12 @@ async def list_credentials(
             {
                 "id": c.id,
                 "name": c.name,
-                "api_key": c.api_key[:20] + "..." if len(c.api_key) > 20 else c.api_key,
+                "email": c.email,
+                "api_key": c.api_key[:20] + "..." if c.api_key and len(c.api_key) > 20 else (c.api_key or ""),
+                "model_tier": c.model_tier,
                 "is_active": c.is_active,
-                "total_requests": c.total_requests,
-                "failed_requests": c.failed_requests,
+                "total_requests": c.total_requests or 0,
+                "failed_requests": c.failed_requests or 0,
                 "last_used_at": c.last_used_at,
                 "last_error": c.last_error,
                 "created_at": c.created_at

@@ -414,7 +414,8 @@ async def list_my_credentials(user: User = Depends(get_current_user), db: AsyncS
             "is_active": c.is_active,
             "model_tier": c.model_tier or "2.5",
             "account_type": parse_account_type(c.last_error),
-            "total_requests": c.total_requests,
+            "total_requests": c.total_requests or 0,
+            "last_used_at": c.last_used_at,
             "created_at": c.created_at
         }
         for c in creds
