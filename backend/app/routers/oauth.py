@@ -337,7 +337,7 @@ async def credential_from_callback_url(
         
         # 奖励用户额度（如果捐赠到公共池且凭证有效）
         reward_quota = 0
-        if data.is_public:
+        if data.is_public and is_valid:
             reward_quota = settings.credential_reward_quota
             user.daily_quota += reward_quota
             print(f"[凭证奖励] 用户 {user.username} 获得 {reward_quota} 额度奖励", flush=True)
