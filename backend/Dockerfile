@@ -13,7 +13,7 @@ COPY . .
 RUN mkdir -p /app/data
 
 # 暴露端口
-EXPOSE 8000
+EXPOSE 5001
 
 # 启动命令
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5001"]
