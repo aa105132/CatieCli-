@@ -19,6 +19,9 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None
     daily_quota: Optional[int] = None
+    flash_quota: Optional[int] = None
+    pro25_quota: Optional[int] = None
+    pro30_quota: Optional[int] = None
 
 
 @router.get("/users")
@@ -84,6 +87,12 @@ async def update_user(
         user.is_admin = data.is_admin
     if data.daily_quota is not None:
         user.daily_quota = data.daily_quota
+    if data.flash_quota is not None:
+        user.flash_quota = data.flash_quota
+    if data.pro25_quota is not None:
+        user.pro25_quota = data.pro25_quota
+    if data.pro30_quota is not None:
+        user.pro30_quota = data.pro30_quota
     
     await db.commit()
     await notify_user_update()
