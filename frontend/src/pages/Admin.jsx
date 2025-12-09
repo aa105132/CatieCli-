@@ -2,6 +2,7 @@ import {
     ArrowLeft,
     Cat,
     Check,
+    Download,
     ExternalLink,
     Key,
     Plus,
