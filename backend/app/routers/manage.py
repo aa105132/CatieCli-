@@ -51,9 +51,9 @@ async def get_credentials_status(
                 "is_public": c.is_public,
                 "total_requests": c.total_requests,
                 "failed_requests": c.failed_requests,
-                "last_used_at": c.last_used_at.isoformat() if c.last_used_at else None,
+                "last_used_at": (c.last_used_at.isoformat() + "Z") if c.last_used_at else None,
                 "last_error": c.last_error,
-                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "created_at": (c.created_at.isoformat() + "Z") if c.created_at else None,
             }
             for c in credentials
         ]

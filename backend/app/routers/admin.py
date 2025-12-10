@@ -141,9 +141,9 @@ async def list_credentials(
                 "is_active": c.is_active,
                 "total_requests": c.total_requests or 0,
                 "failed_requests": c.failed_requests or 0,
-                "last_used_at": c.last_used_at,
+                "last_used_at": (c.last_used_at.isoformat() + "Z") if c.last_used_at else None,
                 "last_error": c.last_error,
-                "created_at": c.created_at
+                "created_at": (c.created_at.isoformat() + "Z") if c.created_at else None
             }
             for c in credentials
         ],
