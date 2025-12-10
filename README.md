@@ -120,7 +120,41 @@ CatieCli/
 
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/NWD8X9)
 
-点击按钮 → 登录 Zeabur → 设置管理员密码 → 完成！
+<details>
+<summary><strong>📖 详细步骤</strong>（点击展开）</summary>
+
+#### 1️⃣ 点击上方按钮，登录 Zeabur
+
+- 没有账号？用 GitHub / Google / 邮箱注册一个
+- 新用户有免费额度可用
+
+#### 2️⃣ 填写环境变量
+
+| 变量                  | 说明                  | 示例            |
+| --------------------- | --------------------- | --------------- |
+| `ADMIN_PASSWORD`      | **必填！** 管理员密码 | `MySecure@2024` |
+| `ADMIN_USERNAME`      | 管理员用户名          | `admin`（默认） |
+| `DEFAULT_DAILY_QUOTA` | 用户每日配额          | `100`（默认）   |
+| `ALLOW_REGISTRATION`  | 是否开放注册          | `true`（默认）  |
+
+> ⚠️ `ADMIN_PASSWORD` 必须设置！不要用简单密码！
+
+#### 3️⃣ 点击部署，等待构建完成
+
+- 大约 2-3 分钟
+- 状态变成 **Running** 就成功了
+
+#### 4️⃣ 绑定域名
+
+1. 点击服务卡片 → **网络** 标签
+2. 点击 **生成域名**（免费的 `.zeabur.app` 域名）
+3. 或者绑定自己的域名（需要添加 DNS 记录）
+
+#### 5️⃣ 访问你的服务
+
+打开生成的域名，用 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 登录！
+
+</details>
 
 ---
 
