@@ -25,7 +25,6 @@ OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/drive.metadata.readonly",  # 用于检测 Pro 账号存储空间
 ]
 
 # 存储 OAuth state (生产环境应使用 Redis)
