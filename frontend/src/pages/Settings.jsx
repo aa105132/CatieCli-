@@ -193,18 +193,24 @@ export default function Settings() {
               className="w-full bg-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500"
             >
               <option value="private">🔒 私有模式 - 只能用自己的凭证</option>
-              <option value="tier3_shared">⚡ 3.0共享 - 有3.0凭证的用户可用公共3.0池</option>
-              <option value="full_shared">🍲 大锅饭 - 捐赠凭证即可用所有公共池</option>
+              <option value="tier3_shared">⚡ 3.0小锅饭 - 适合凭证较少时</option>
+              <option value="full_shared">🍲 大锅饭 - 适合凭证较多时</option>
             </select>
-            <div className="mt-2 text-sm">
+            <div className="mt-2 text-sm space-y-1">
               {config?.credential_pool_mode === 'private' && (
-                <p className="text-yellow-400">⚠️ 私有模式下用户只能使用自己上传的凭证</p>
+                <p className="text-yellow-400">⚠️ 用户只能使用自己上传的凭证</p>
               )}
               {config?.credential_pool_mode === 'tier3_shared' && (
-                <p className="text-blue-400">💎 用户有3.0凭证时可共享使用公共3.0池</p>
+                <>
+                  <p className="text-blue-400">💎 有3.0凭证 → 可用公共3.0池 + 自己的</p>
+                  <p className="text-cyan-400">📘 无3.0凭证 → 可用公共2.5凭证</p>
+                </>
               )}
               {config?.credential_pool_mode === 'full_shared' && (
-                <p className="text-green-400">🎉 用户捐赠任意凭证后可使用所有公共凭证</p>
+                <>
+                  <p className="text-green-400">🎉 捐赠凭证后可使用所有公共凭证（2.5+3.0）</p>
+                  <p className="text-gray-400">🚫 未捐赠只能用自己的凭证</p>
+                </>
               )}
             </div>
           </div>
