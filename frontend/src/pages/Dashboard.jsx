@@ -63,7 +63,7 @@ export default function Dashboard() {
   useEffect(() => {
     const oauth = searchParams.get('oauth')
     if (oauth === 'success') {
-      setOauthMessage({ type: 'success', text: '🎉 凭证上传成功！感谢您的支持！' })
+      setOauthMessage({ type: 'success', text: '🎉 凭证上传成功！' })
       setSearchParams({})
     } else if (oauth === 'error') {
       const msg = searchParams.get('msg') || '未知错误'
@@ -310,7 +310,7 @@ export default function Dashboard() {
               )}
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
-              <span className="text-gray-300 text-sm sm:text-base hidden sm:inline">欢迎，{user?.username}</span>
+              <span className="text-gray-300 text-sm sm:text-base hidden sm:inline">欢迎，{user?.discord_name || user?.username}</span>
               <button onClick={logout} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center gap-1 sm:gap-2 text-sm sm:text-base">
                 <LogOut size={16} />
                 <span className="hidden sm:inline">退出登录</span>
@@ -419,9 +419,9 @@ export default function Dashboard() {
                   <Gift className="w-12 h-12 text-purple-400" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold mb-1">上传凭证，共享使用</h3>
+                  <h3 className="text-lg font-semibold mb-1">获取凭证，上传使用</h3>
                   <p className="text-gray-400 text-sm">
-                    通过 Google OAuth 授权，将您的 Gemini API 凭证上传到公共池，让更多人免费使用
+                    通过 Google OAuth 授权，将您的 Gemini API 凭证上传平台使用。
                   </p>
                 </div>
                 <Link 
@@ -718,7 +718,7 @@ export default function Dashboard() {
                       <div className="text-gray-400 mb-1">在 SillyTavern / 酒馆 中使用</div>
                       <ol className="text-gray-300 space-y-1 list-decimal list-inside">
                         <li>打开连接设置 → Chat Completion</li>
-                        <li>选择 <span className="text-purple-400">兼容OpenAI</span> 或 <span className="text-purple-400">OpenAI</span></li>
+                        <li>选择 <span className="text-purple-400">兼容OpenAI</span> 或 <span className="text-purple-400">Gemini反代</span></li>
                         <li>API 端点填写上方地址</li>
                         <li>API Key 填写您的密钥</li>
                         <li>模型: <span className="text-purple-400">gemini-2.5-flash</span> 或 <span className="text-purple-400">gemini-2.5-pro</span></li>

@@ -363,9 +363,9 @@ async def credential_from_callback_url(
         if is_new_credential and data.is_public and is_valid:
             # 根据凭证等级细分奖励：2.5=flash+25pro, 3.0=flash+25pro+30pro
             if detected_tier == "3":
-                reward_quota = settings.quota_flash + settings.quota_25pro + settings.quota_30pro
+                reward_quota = settings.credential_reward_quota_30
             else:
-                reward_quota = settings.quota_flash + settings.quota_25pro
+                reward_quota = settings.credential_reward_quota_25
             user.daily_quota += reward_quota
             print(f"[凭证奖励] 用户 {user.username} 获得 {reward_quota} 额度奖励 (等级: {detected_tier})", flush=True)
         elif not is_new_credential:
@@ -574,9 +574,9 @@ async def credential_from_callback_url_discord(
         reward_quota = 0
         if is_new_credential and data.is_public and is_valid:
             if detected_tier == "3":
-                reward_quota = settings.quota_flash + settings.quota_25pro + settings.quota_30pro
+                reward_quota = settings.credential_reward_quota_30
             else:
-                reward_quota = settings.quota_flash + settings.quota_25pro
+                reward_quota = settings.credential_reward_quota_25
             user.daily_quota += reward_quota
             print(f"[Discord OAuth] 用户 {user.username} 获得 {reward_quota} 额度奖励", flush=True)
         

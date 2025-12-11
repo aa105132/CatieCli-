@@ -46,29 +46,64 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
         raise HTTPException(status_code=403, detail="账户已被禁用")
     
     # 检查配额
-    today = date.today()
-    result = await db.execute(
-        select(func.count(UsageLog.id))
-        .where(UsageLog.user_id == user.id)
-        .where(func.date(UsageLog.created_at) == today)
+    # 配额在北京时间 15:00 (UTC 07:00) 重置
+    now = datetime.utcnow()
+    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now < reset_time_utc:
+        start_of_day = reset_time_utc - timedelta(days=1)
+    else:
+        start_of_day = reset_time_utc
+
+    # 检查用户是否有有效凭证
+    from app.models.user import Credential
+    cred_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.user_id == user.id)
+        .where(Credential.is_active == True)
     )
-    today_usage = result.scalar() or 0
-    
-    # 确定有效配额：如果设置了无凭证用户配额限制，检查用户是否有有效凭证
-    effective_quota = user.daily_quota
-    if settings.no_credential_quota > 0:
-        from app.models.user import Credential
-        cred_result = await db.execute(
-            select(func.count(Credential.id))
-            .where(Credential.user_id == user.id)
-            .where(Credential.is_active == True)
+    has_credential = (cred_result.scalar() or 0) > 0
+
+    # 根据是否有凭证，应用不同的配额逻辑
+    if has_credential:
+        # 有凭证用户：检查总配额
+        total_usage_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(UsageLog.user_id == user.id)
+            .where(UsageLog.created_at >= start_of_day)
         )
-        has_credential = (cred_result.scalar() or 0) > 0
-        if not has_credential:
-            effective_quota = min(user.daily_quota, settings.no_credential_quota)
-    
-    if today_usage >= effective_quota:
-        raise HTTPException(status_code=429, detail="已达到今日配额限制")
+        if (total_usage_result.scalar() or 0) >= user.daily_quota:
+            raise HTTPException(status_code=429, detail="已达到今日总配额限制")
+    else:
+        # 无凭证用户：按模型检查配额
+        body = await request.json()
+        model = body.get("model", "gemini-2.5-flash")
+        
+        # 确定模型类型和对应配额
+        required_tier = CredentialPool.get_required_tier(model)
+        quota_limit = 0
+        if required_tier == "3":
+            quota_limit = settings.no_cred_quota_30pro
+        elif "pro" in model:
+            quota_limit = settings.no_cred_quota_25pro
+        else: # 默认 flash
+            quota_limit = settings.no_cred_quota_flash
+
+        if quota_limit > 0:
+            # 查询该用户今天对该等级模型的使用量
+            model_usage_query = select(func.count(UsageLog.id)).where(
+                UsageLog.user_id == user.id,
+                UsageLog.created_at >= start_of_day
+            )
+            if required_tier == "3":
+                model_usage_query = model_usage_query.where(UsageLog.model.like('%3%'))
+            elif "pro" in model:
+                model_usage_query = model_usage_query.where(UsageLog.model.like('%pro%'))
+            else: # flash
+                model_usage_query = model_usage_query.where(UsageLog.model.notlike('%pro%'))
+
+            model_usage_result = await db.execute(model_usage_query)
+            if (model_usage_result.scalar() or 0) >= quota_limit:
+                raise HTTPException(status_code=429, detail=f"已达到该模型等级的每日配额限制 ({quota_limit}次)")
     
     return user
 
@@ -93,12 +128,14 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
     from app.models.user import Credential
     
     # 检查是否有可用的 3.0 凭证
+    has_tier3_creds = await CredentialPool.has_tier3_credentials(user, db)
+    
     has_tier3 = await CredentialPool.has_tier3_credentials(user, db)
     
     # 基础模型 (Gemini 2.5+)
     base_models = [
         "gemini-2.5-pro",
-        "gemini-2.5-flash", 
+        "gemini-2.5-flash",
     ]
     
     # 只有有 3.0 凭证时才添加 3.0 模型

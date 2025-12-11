@@ -120,11 +120,17 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
 async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """获取当前用户信息"""
     # 获取今日使用量
-    today = date.today()
+    now = datetime.utcnow()
+    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now < reset_time_utc:
+        start_of_day = reset_time_utc - timedelta(days=1)
+    else:
+        start_of_day = reset_time_utc
+        
     result = await db.execute(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user.id)
-        .where(func.date(UsageLog.created_at) == today)
+        .where(UsageLog.created_at >= start_of_day)
     )
     today_usage = result.scalar() or 0
     
@@ -421,9 +427,9 @@ async def upload_credentials(
             # 3.0凭证 = quota_flash + quota_25pro + quota_30pro
             if actual_public and is_valid:
                 if model_tier == "3":
-                    reward = settings.quota_flash + settings.quota_25pro + settings.quota_30pro
+                    reward = settings.credential_reward_quota_30
                 else:
-                    reward = settings.quota_flash + settings.quota_25pro
+                    reward = settings.credential_reward_quota_25
                 user.daily_quota += reward
                 print(f"[上传凭证] 用户 {user.username} 获得 {reward} 额度奖励 (等级: {model_tier})", flush=True)
             
@@ -520,9 +526,9 @@ async def update_my_credential(
             # 捐赠奖励配额（只有从私有变公开才奖励，根据凭证等级）
             if not cred.is_public:
                 if cred.model_tier == "3":
-                    reward = settings.quota_flash + settings.quota_25pro + settings.quota_30pro
+                    reward = settings.credential_reward_quota_30
                 else:
-                    reward = settings.quota_flash + settings.quota_25pro
+                    reward = settings.credential_reward_quota_25
                 user.daily_quota += reward
                 print(f"[凭证捐赠] 用户 {user.username} 获得 {reward} 额度奖励 (等级: {cred.model_tier})", flush=True)
         else:
@@ -533,9 +539,9 @@ async def update_my_credential(
                     raise HTTPException(status_code=400, detail="站长已锁定捐赠，有效凭证不能取消捐赠")
                 # 根据凭证等级扣除额度
                 if cred.model_tier == "3":
-                    deduct = settings.quota_flash + settings.quota_25pro + settings.quota_30pro
+                    deduct = settings.credential_reward_quota_30
                 else:
-                    deduct = settings.quota_flash + settings.quota_25pro
+                    deduct = settings.credential_reward_quota_25
                 # 仅在当前额度包含奖励部分时才回收，避免把自定义额度打回默认
                 if user.daily_quota - settings.default_daily_quota >= deduct:
                     user.daily_quota = max(
@@ -569,9 +575,9 @@ async def delete_my_credential(
     # 如果是公开凭证，删除时根据凭证等级扣除配额
     if cred.is_public:
         if cred.model_tier == "3":
-            deduct = settings.quota_flash + settings.quota_25pro + settings.quota_30pro
+            deduct = settings.credential_reward_quota_30
         else:
-            deduct = settings.quota_flash + settings.quota_25pro
+            deduct = settings.credential_reward_quota_25
         # 仅在当前额度包含奖励部分时才回收，避免把自定义额度打回默认
         if user.daily_quota - settings.default_daily_quota >= deduct:
             user.daily_quota = max(
@@ -1045,13 +1051,14 @@ async def discord_callback(code: str, db: AsyncSession = Depends(get_db)):
         if not settings.allow_registration:
             raise HTTPException(status_code=403, detail="注册已关闭")
         
-        # 用 Discord ID 作为用户名
-        username = f"discord_{discord_id}"
+        # 使用 Discord 用户名作为站点用户名
+        username = discord_name
         
         # 检查用户名是否已存在
         existing = await db.execute(select(User).where(User.username == username))
         if existing.scalar_one_or_none():
-            username = f"discord_{discord_id}_{int(datetime.utcnow().timestamp())}"
+            # 如果存在，添加 discord id 的后4位作为后缀
+            username = f"{discord_name}_{discord_id[-4:]}"
         
         user = User(
             username=username,
@@ -1065,10 +1072,31 @@ async def discord_callback(code: str, db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(user)
     else:
-        # 更新 Discord 名称
+        # 用户已存在，检查是否需要更新信息
+        should_commit = False
         if user.discord_name != discord_name:
             user.discord_name = discord_name
+            should_commit = True
+
+        # 如果是旧格式的用户名 (discord_...), 尝试更新为新的 Discord 用户名
+        if user.username.startswith("discord_"):
+            new_username = discord_name
+            # 检查新用户名是否已被他人使用
+            existing_check = await db.execute(select(User).where(User.username == new_username, User.id != user.id))
+            if existing_check.scalar_one_or_none():
+                # 如果冲突，添加后缀
+                new_username = f"{discord_name}_{discord_id[-4:]}"
+            
+            if user.username != new_username:
+                # 再次检查，确保后缀版本不冲突
+                existing_check_2 = await db.execute(select(User).where(User.username == new_username, User.id != user.id))
+                if not existing_check_2.scalar_one_or_none():
+                    user.username = new_username
+                    should_commit = True
+
+        if should_commit:
             await db.commit()
+            await db.refresh(user)
     
     if not user.is_active:
         raise HTTPException(status_code=403, detail="账户已被禁用")

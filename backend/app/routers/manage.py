@@ -856,14 +856,20 @@ async def get_global_stats(
 ):
     """获取全站统计（按模型分类）"""
     now = datetime.utcnow()
-    today = now.date()
     hour_ago = now - timedelta(hours=1)
     day_ago = now - timedelta(days=1)
+    
+    # 计算今天的开始时间（UTC 07:00）
+    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now < reset_time_utc:
+        start_of_day = reset_time_utc - timedelta(days=1)
+    else:
+        start_of_day = reset_time_utc
     
     # 按模型分类统计（今日）
     model_stats_result = await db.execute(
         select(UsageLog.model, func.count(UsageLog.id).label("count"))
-        .where(func.date(UsageLog.created_at) == today)
+        .where(UsageLog.created_at >= start_of_day)
         .group_by(UsageLog.model)
         .order_by(func.count(UsageLog.id).desc())
     )
@@ -882,14 +888,14 @@ async def get_global_stats(
     
     # 今日总请求数
     today_result = await db.execute(
-        select(func.count(UsageLog.id)).where(func.date(UsageLog.created_at) == today)
+        select(func.count(UsageLog.id)).where(UsageLog.created_at >= start_of_day)
     )
     today_requests = today_result.scalar() or 0
     
     # 今日成功/失败统计
     today_success_result = await db.execute(
         select(func.count(UsageLog.id))
-        .where(func.date(UsageLog.created_at) == today)
+        .where(UsageLog.created_at >= start_of_day)
         .where(UsageLog.status_code == 200)
     )
     today_success = today_success_result.scalar() or 0
@@ -911,9 +917,22 @@ async def get_global_stats(
     )
     tier3_creds = tier3_cred_result.scalar() or 0
     
-    # 全站总额度（所有用户的daily_quota总和）
-    total_quota_result = await db.execute(select(func.sum(User.daily_quota)))
-    total_quota = total_quota_result.scalar() or 0
+    # 全站总额度（基于有效凭证计算）
+    total_quota_flash = 0
+    total_quota_25pro = 0
+    total_quota_30pro = 0
+    
+    active_creds_result = await db.execute(
+        select(Credential.model_tier).where(Credential.is_active == True)
+    )
+    for tier in active_creds_result.scalars().all():
+        if tier == "3":
+            total_quota_flash += settings.quota_flash
+            total_quota_25pro += settings.quota_25pro
+            total_quota_30pro += settings.quota_30pro
+        else: # 默认按 2.5 计算
+            total_quota_flash += settings.quota_flash
+            total_quota_25pro += settings.quota_25pro
     
     # 活跃用户数（最近24小时）
     active_users_result = await db.execute(
@@ -932,7 +951,7 @@ async def get_global_stats(
                 "flash": flash_count,
                 "pro_2.5": pro_count,
                 "tier_3": tier3_count,
-            }
+            },
         },
         "credentials": {
             "total": total_creds.scalar() or 0,
@@ -943,7 +962,13 @@ async def get_global_stats(
         "users": {
             "active_24h": active_users,
         },
-        "total_quota": total_quota,  # 全站总额度
+        "total_quota": {
+            "flash": total_quota_flash,
+            "pro_2.5": total_quota_25pro,
+            "tier_3": total_quota_30pro,
+        },
         "models": model_stats[:10],  # Top 10 模型
         "pool_mode": settings.credential_pool_mode,
     }
+
+
