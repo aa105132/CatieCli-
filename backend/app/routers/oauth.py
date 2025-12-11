@@ -279,6 +279,7 @@ async def credential_from_callback_url(
             print(f"获取项目列表失败: {e}", flush=True)
         
         # 检查是否已存在相同邮箱的凭证（去重）
+        from sqlalchemy import select
         from app.services.crypto import encrypt_credential
         existing_cred = await db.execute(
             select(Credential).where(
@@ -504,6 +505,7 @@ async def credential_from_callback_url_discord(
             print(f"[Discord OAuth] 获取项目失败: {e}", flush=True)
         
         # 检查是否已存在相同邮箱的凭证（去重）
+        from sqlalchemy import select
         from app.services.crypto import encrypt_credential
         existing_cred = await db.execute(
             select(Credential).where(
