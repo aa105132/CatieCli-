@@ -939,7 +939,10 @@ async def get_global_stats(
         select(func.count(Credential.id)).where(Credential.is_active == True)
     )
     public_creds = await db.execute(
-        select(func.count(Credential.id)).where(Credential.is_public == True)
+        select(func.count(Credential.id)).where(
+            Credential.is_public == True,
+            Credential.is_active == True
+        )
     )
     
     tier3_cred_result = await db.execute(
