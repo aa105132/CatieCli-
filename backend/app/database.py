@@ -40,6 +40,8 @@ async def init_db():
         migrations = [
             "ALTER TABLE usage_logs ADD COLUMN credential_id INTEGER REFERENCES credentials(id)",
             "ALTER TABLE users ADD COLUMN bonus_quota INTEGER DEFAULT 0",
+            "ALTER TABLE credentials ADD COLUMN client_id TEXT",
+            "ALTER TABLE credentials ADD COLUMN client_secret TEXT",
         ]
         for sql in migrations:
             try:
