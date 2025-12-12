@@ -689,6 +689,7 @@ async def get_config(user: User = Depends(get_current_admin)):
         "no_cred_quota_flash": settings.no_cred_quota_flash,
         "no_cred_quota_25pro": settings.no_cred_quota_25pro,
         "no_cred_quota_30pro": settings.no_cred_quota_30pro,
+        "cred25_quota_30pro": settings.cred25_quota_30pro,
         "credential_reward_quota": settings.credential_reward_quota,
         "credential_reward_quota_25": settings.credential_reward_quota_25,
         "credential_reward_quota_30": settings.credential_reward_quota_30,
@@ -746,6 +747,7 @@ async def update_config(
     no_cred_quota_flash: Optional[int] = Form(None),
     no_cred_quota_25pro: Optional[int] = Form(None),
     no_cred_quota_30pro: Optional[int] = Form(None),
+    cred25_quota_30pro: Optional[int] = Form(None),
     credential_reward_quota: Optional[int] = Form(None),
     credential_reward_quota_25: Optional[int] = Form(None),
     credential_reward_quota_30: Optional[int] = Form(None),
@@ -800,6 +802,10 @@ async def update_config(
         settings.no_cred_quota_30pro = no_cred_quota_30pro
         await save_config_to_db("no_cred_quota_30pro", no_cred_quota_30pro)
         updated["no_cred_quota_30pro"] = no_cred_quota_30pro
+    if cred25_quota_30pro is not None:
+        settings.cred25_quota_30pro = cred25_quota_30pro
+        await save_config_to_db("cred25_quota_30pro", cred25_quota_30pro)
+        updated["cred25_quota_30pro"] = cred25_quota_30pro
     if credential_reward_quota is not None:
         settings.credential_reward_quota = credential_reward_quota
         await save_config_to_db("credential_reward_quota", credential_reward_quota)

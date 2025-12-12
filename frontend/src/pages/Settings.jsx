@@ -40,6 +40,7 @@ export default function Settings() {
       formData.append('no_cred_quota_flash', config.no_cred_quota_flash ?? 100)
       formData.append('no_cred_quota_25pro', config.no_cred_quota_25pro ?? 50)
       formData.append('no_cred_quota_30pro', config.no_cred_quota_30pro ?? 0)
+      formData.append('cred25_quota_30pro', config.cred25_quota_30pro ?? 0)
       formData.append('credential_reward_quota', config.credential_reward_quota)
       formData.append('quota_flash', config.quota_flash || 1000)
       formData.append('quota_25pro', config.quota_25pro || 500)
@@ -211,6 +212,21 @@ export default function Settings() {
             </div>
             <p className="text-gray-500 text-sm mt-2">
               💡 设为 0 表示禁止无凭证用户使用该类模型
+            </p>
+          </div>
+
+          {/* 2.5凭证用户的3.0配额 */}
+          <div>
+            <h3 className="font-semibold mb-2">2.5凭证用户 3.0 配额 🎯</h3>
+            <p className="text-gray-400 text-sm mb-3">只有2.5凭证（无3.0凭证）的用户可使用的3.0模型配额（0 = 禁止）</p>
+            <input
+              type="number"
+              value={config?.cred25_quota_30pro ?? ''}
+              onChange={(e) => setConfig({ ...config, cred25_quota_30pro: e.target.value === '' ? '' : parseInt(e.target.value) })}
+              className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+            <p className="text-gray-500 text-sm mt-2">
+              💡 允许2.5凭证用户体验3.0模型，设为0则只有3.0凭证用户可用
             </p>
           </div>
 
