@@ -1002,13 +1002,14 @@ async def get_global_stats(
     active_count = active_creds.scalar() or 0
     public_active_count = public_creds.scalar() or 0
     
-    # 计算总额度（根据账号类型区分配额）
-    # Flash 额度：Pro号×750 + 非Pro号×1300
-    total_quota_flash = pro_creds * settings.stats_pro_flash + free_creds * settings.stats_free_flash
-    # 2.5 Pro 额度（与 3.0 共用）：Pro号×250 + 非Pro号×200
-    total_quota_25pro = pro_creds * settings.stats_pro_premium + free_creds * settings.stats_free_premium
-    # 3.0 额度（与 2.5 共用同一池）：只有 3.0 凭证可用
-    total_quota_30pro = tier3_pro * settings.stats_pro_premium + tier3_free * settings.stats_free_premium
+    # 计算总额度（使用前端可配置的值，0表示使用默认值）
+    flash_per_cred = settings.stats_quota_flash if settings.stats_quota_flash > 0 else settings.stats_free_flash
+    pro25_per_cred = settings.stats_quota_25pro if settings.stats_quota_25pro > 0 else settings.stats_free_premium
+    pro30_per_cred = settings.stats_quota_30pro if settings.stats_quota_30pro > 0 else settings.stats_free_premium
+    
+    total_quota_flash = active_count * flash_per_cred
+    total_quota_25pro = active_count * pro25_per_cred
+    total_quota_30pro = tier3_creds * pro30_per_cred
     
     # 活跃用户数（最近24小时）
     active_users_result = await db.execute(
