@@ -1030,6 +1030,15 @@ async def get_global_stats(
     )
     tier3_creds = tier3_cred_result.scalar() or 0
     
+    # 公共池中的3.0凭证数量
+    public_tier3_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.model_tier == "3")
+        .where(Credential.is_active == True)
+        .where(Credential.is_public == True)
+    )
+    public_tier3_creds = public_tier3_result.scalar() or 0
+    
     # 按账号类型统计凭证数量
     pro_creds_result = await db.execute(
         select(func.count(Credential.id))
@@ -1055,10 +1064,15 @@ async def get_global_stats(
     tier3_pro = tier3_pro_result.scalar() or 0
     tier3_free = tier3_creds - tier3_pro
     
-    # 全站总额度（基于所有活跃凭证计算）
+    # 全站总额度（基于公共池活跃凭证计算）
     total_count = total_creds.scalar() or 0
     active_count = active_creds.scalar() or 0
     public_active_count = public_creds.scalar() or 0
+    
+    # 简化配额计算：基于公共池凭证数量
+    total_quota_flash = public_active_count * settings.quota_flash
+    total_quota_25pro = public_active_count * settings.quota_25pro
+    total_quota_30pro = public_tier3_creds * settings.quota_30pro
     
     # 按用户类型统计数量
     # 总用户数
@@ -1091,99 +1105,24 @@ async def get_global_stats(
     # 2.5凭证数（非3.0的活跃凭证）
     creds_25_count = active_count - tier3_creds
     
-    # 计算每个用户的真实配额并汇总
-    # 获取所有活跃用户及其凭证数量
-    from sqlalchemy import case, literal
-    from sqlalchemy.orm import aliased
+    # 按凭证类型分解配额统计
+    # 公共池2.5凭证数（非3.0的凭证）
+    public_25_creds = public_active_count - public_tier3_creds
     
-    # 子查询：每个用户的凭证统计
-    user_cred_stats = (
-        select(
-            Credential.user_id,
-            func.count(Credential.id).label('total_creds'),
-            func.sum(case((Credential.model_tier == "3", 1), else_=0)).label('creds_30')
-        )
-        .where(Credential.is_active == True)
-        .where(Credential.user_id.isnot(None))
-        .group_by(Credential.user_id)
-    ).subquery()
+    # 2.5凭证提供的配额（只提供flash和2.5pro）
+    cred25_flash = public_25_creds * settings.quota_flash
+    cred25_25pro = public_25_creds * settings.quota_25pro
+    cred25_30pro = 0  # 2.5凭证不提供3.0配额
     
-    # 查询所有用户的真实配额
-    users_with_quota = await db.execute(
-        select(
-            User.id,
-            User.quota_flash,
-            User.quota_25pro,
-            User.quota_30pro,
-            func.coalesce(user_cred_stats.c.total_creds, 0).label('total_creds'),
-            func.coalesce(user_cred_stats.c.creds_30, 0).label('creds_30')
-        )
-        .outerjoin(user_cred_stats, User.id == user_cred_stats.c.user_id)
-        .where(User.is_active == True)
-    )
+    # 3.0凭证提供的配额（提供全部三种）
+    cred30_flash = public_tier3_creds * settings.quota_flash
+    cred30_25pro = public_tier3_creds * settings.quota_25pro
+    cred30_30pro = public_tier3_creds * settings.quota_30pro
     
-    # 计算每个用户的真实配额并分类汇总
-    total_quota_flash = 0
-    total_quota_25pro = 0
-    total_quota_30pro = 0
+    # 无凭证用户的配额占位（实际不参与公共池配额计算）
     no_cred_flash = 0
     no_cred_25pro = 0
     no_cred_30pro = 0
-    cred25_flash = 0
-    cred25_25pro = 0
-    cred25_30pro = 0
-    cred30_flash = 0
-    cred30_25pro = 0
-    cred30_30pro = 0
-    
-    for row in users_with_quota:
-        user_total_creds = row.total_creds or 0
-        user_creds_30 = row.creds_30 or 0
-        has_cred = user_total_creds > 0
-        has_30_cred = user_creds_30 > 0
-        
-        # 计算用户的真实配额
-        if row.quota_flash and row.quota_flash > 0:
-            user_flash = row.quota_flash
-        elif has_cred:
-            user_flash = user_total_creds * settings.quota_flash
-        else:
-            user_flash = settings.no_cred_quota_flash
-        
-        if row.quota_25pro and row.quota_25pro > 0:
-            user_25pro = row.quota_25pro
-        elif has_cred:
-            user_25pro = user_total_creds * settings.quota_25pro
-        else:
-            user_25pro = settings.no_cred_quota_25pro
-        
-        if row.quota_30pro and row.quota_30pro > 0:
-            user_30pro = row.quota_30pro
-        elif has_30_cred:
-            user_30pro = user_creds_30 * settings.quota_30pro
-        elif has_cred:
-            user_30pro = settings.cred25_quota_30pro
-        else:
-            user_30pro = settings.no_cred_quota_30pro
-        
-        # 累加到总配额
-        total_quota_flash += user_flash
-        total_quota_25pro += user_25pro
-        total_quota_30pro += user_30pro
-        
-        # 按用户类型分类
-        if not has_cred:
-            no_cred_flash += user_flash
-            no_cred_25pro += user_25pro
-            no_cred_30pro += user_30pro
-        elif has_30_cred:
-            cred30_flash += user_flash
-            cred30_25pro += user_25pro
-            cred30_30pro += user_30pro
-        else:
-            cred25_flash += user_flash
-            cred25_25pro += user_25pro
-            cred25_30pro += user_30pro
     
     # 活跃用户数（最近24小时）
     active_users_result = await db.execute(
