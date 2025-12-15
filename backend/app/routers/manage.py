@@ -301,6 +301,64 @@ async def verify_credential(
     }
 
 
+@router.post("/credentials/start-all")
+async def start_all_credentials(
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """一键启动所有凭证（刷新所有 OAuth 凭证的 access_token）"""
+    from app.services.credential_pool import CredentialPool
+    
+    result = await db.execute(
+        select(Credential).where(
+            Credential.credential_type == "oauth",
+            Credential.refresh_token.isnot(None)
+        )
+    )
+    creds = result.scalars().all()
+    
+    results = {"total": len(creds), "success": 0, "failed": 0, "details": []}
+    
+    for cred in creds:
+        try:
+            access_token = await CredentialPool.refresh_access_token(cred)
+            if access_token:
+                # 更新 access_token
+                from app.services.crypto import encrypt_credential
+                cred.api_key = encrypt_credential(access_token)
+                cred.is_active = True
+                cred.last_error = None
+                await db.merge(cred)
+                results["success"] += 1
+                results["details"].append({
+                    "id": cred.id,
+                    "email": cred.email,
+                    "status": "success"
+                })
+                print(f"[启动凭证] ✅ {cred.email} 刷新成功", flush=True)
+            else:
+                results["failed"] += 1
+                results["details"].append({
+                    "id": cred.id,
+                    "email": cred.email,
+                    "status": "failed",
+                    "reason": "刷新 token 失败"
+                })
+                print(f"[启动凭证] ❌ {cred.email} 刷新失败", flush=True)
+        except Exception as e:
+            results["failed"] += 1
+            results["details"].append({
+                "id": cred.id,
+                "email": cred.email,
+                "status": "error",
+                "reason": str(e)[:50]
+            })
+            print(f"[启动凭证] ❌ {cred.email} 异常: {e}", flush=True)
+    
+    await db.commit()
+    return results
+
+
 @router.post("/credentials/verify-all")
 async def verify_all_credentials(
     user: User = Depends(get_current_admin),

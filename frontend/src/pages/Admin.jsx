@@ -33,6 +33,8 @@ export default function Admin() {
   const [newCredKey, setNewCredKey] = useState('')
   const [verifyingAll, setVerifyingAll] = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
+  const [startingAll, setStartingAll] = useState(false)
+  const [startResult, setStartResult] = useState(null)
   
   // 凭证分页
   const [credPage, setCredPage] = useState(1)
@@ -189,6 +191,30 @@ export default function Admin() {
         }
       } finally {
         setVerifyingAll(false)
+      }
+    })
+  }
+
+  const startAllCredentials = () => {
+    showConfirm('启动凭证', '确定要一键启动所有凭证？将刷新所有 OAuth 凭证的 access_token。', async () => {
+      setStartingAll(true)
+      setStartResult(null)
+      showAlert('启动中', '正在刷新所有凭证的 token，请稍候...', 'info')
+      try {
+        const res = await api.post('/api/manage/credentials/start-all', null, {
+          timeout: 300000 // 5分钟超时
+        })
+        setStartResult(res.data)
+        fetchData()
+        showAlert('启动完成', `总计: ${res.data.total}\n成功: ${res.data.success}\n失败: ${res.data.failed}`, 'success')
+      } catch (err) {
+        if (err.code === 'ECONNABORTED') {
+          showAlert('启动超时', '操作时间过长，请稍后刷新页面查看结果', 'error')
+        } else {
+          showAlert('启动失败', err.response?.data?.detail || err.message, 'error')
+        }
+      } finally {
+        setStartingAll(false)
       }
     })
   }
@@ -545,6 +571,19 @@ export default function Admin() {
                     >
                       {verifyingAll ? <RefreshCw size={16} className="animate-spin" /> : <Check size={16} />}
                       {verifyingAll ? '检测中...' : '开始检测'}
+                    </button>
+                  </div>
+                  
+                  <div className="bg-orange-600/20 border border-orange-500/30 rounded-xl p-4">
+                    <div className="font-medium text-orange-400 mb-1">🚀 一键启动</div>
+                    <p className="text-sm text-gray-400 mb-3">刷新所有凭证的Token</p>
+                    <button
+                      onClick={startAllCredentials}
+                      disabled={startingAll}
+                      className="btn bg-orange-600 hover:bg-orange-500 text-white flex items-center gap-2 disabled:opacity-50 w-full justify-center"
+                    >
+                      {startingAll ? <RefreshCw size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                      {startingAll ? '启动中...' : '一键启动'}
                     </button>
                   </div>
                   
