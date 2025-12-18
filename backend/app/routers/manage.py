@@ -581,10 +581,8 @@ async def get_credential_quota(
     # 如果当前时间还没到 UTC 07:00，则从昨天 07:00 开始
     today_start = today_7am if now >= today_7am else today_7am - timedelta(days=1)
     
-    # 判断账号类型（从 last_error 字段解析，格式: account_type:pro）
-    is_pro = False
-    if cred.last_error and "account_type:pro" in cred.last_error:
-        is_pro = True
+    # 判断账号类型（从 account_type 字段读取）
+    is_pro = cred.account_type == "pro"
     quota_config = QUOTA_LIMITS["pro"] if is_pro else QUOTA_LIMITS["free"]
     
     # 查询今天该凭证按模型的使用次数

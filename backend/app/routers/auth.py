@@ -560,12 +560,6 @@ async def list_my_credentials(user: User = Depends(get_current_user), db: AsyncS
     )
     creds = result.scalars().all()
     
-    def parse_account_type(last_error):
-        """从 last_error 解析账号类型"""
-        if last_error and last_error.startswith("account_type:"):
-            return last_error.replace("account_type:", "")
-        return "unknown"
-    
     return [
         {
             "id": c.id,
@@ -574,7 +568,7 @@ async def list_my_credentials(user: User = Depends(get_current_user), db: AsyncS
             "is_public": c.is_public,
             "is_active": c.is_active,
             "model_tier": c.model_tier or "2.5",
-            "account_type": parse_account_type(c.last_error),
+            "account_type": c.account_type or "free",
             "total_requests": c.total_requests or 0,
             "last_used_at": (c.last_used_at.isoformat() + "Z") if c.last_used_at else None,
             "created_at": (c.created_at.isoformat() + "Z") if c.created_at else None
@@ -857,13 +851,11 @@ async def verify_my_credential(
         # 更新凭证状态
         cred.is_active = is_valid
         cred.model_tier = "3" if supports_3 else "2.5"
-        # 保存 account_type，error_msg 附加在后面
+        # 正确使用 account_type 字段存储账号类型
         if account_type != "unknown":
-            cred.last_error = f"account_type:{account_type}"
-            if error_msg:
-                cred.last_error += f" | {error_msg}"
-        elif error_msg:
-            cred.last_error = error_msg
+            cred.account_type = account_type
+        # last_error 只存储真正的错误信息
+        cred.last_error = error_msg if error_msg else None
         await db.commit()
         
         # 获取存储空间信息
