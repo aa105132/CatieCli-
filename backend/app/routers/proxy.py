@@ -194,6 +194,7 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
     # 只有有 3.0 凭证时才添加 3.0 模型
     if has_tier3:
         base_models.append("gemini-3-pro-preview")
+        base_models.append("gemini-3-flash-preview")
     
     # Thinking 后缀
     thinking_suffixes = ["-maxthinking", "-nothinking"]
@@ -475,6 +476,7 @@ async def list_gemini_models(request: Request, user: User = Depends(get_user_fro
     base_models = ["gemini-2.5-pro", "gemini-2.5-flash"]
     if has_tier3:
         base_models.append("gemini-3-pro-preview")
+        base_models.append("gemini-3-flash-preview")
     
     models = []
     for base in base_models:
