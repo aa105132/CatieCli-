@@ -1112,6 +1112,36 @@ async def get_global_stats(
     today_success = today_success_result.scalar() or 0
     today_failed = today_requests - today_success
     
+    # 报错统计（按错误码分类，今日）
+    error_stats_result = await db.execute(
+        select(UsageLog.status_code, func.count(UsageLog.id).label("count"))
+        .where(UsageLog.created_at >= start_of_day)
+        .where(UsageLog.status_code != 200)
+        .group_by(UsageLog.status_code)
+        .order_by(func.count(UsageLog.id).desc())
+    )
+    error_by_code = {str(row[0]): row[1] for row in error_stats_result.all()}
+    
+    # 最近的报错详情（最近10条非200的记录）
+    recent_errors_result = await db.execute(
+        select(UsageLog, User.username)
+        .join(User, UsageLog.user_id == User.id)
+        .where(UsageLog.status_code != 200)
+        .order_by(UsageLog.created_at.desc())
+        .limit(10)
+    )
+    recent_errors = [
+        {
+            "id": log.UsageLog.id,
+            "username": log.username,
+            "model": log.UsageLog.model,
+            "status_code": log.UsageLog.status_code,
+            "cd_seconds": log.UsageLog.cd_seconds,
+            "created_at": log.UsageLog.created_at.isoformat() + "Z"
+        }
+        for log in recent_errors_result.all()
+    ]
+    
     # 凭证统计
     total_creds = await db.execute(select(func.count(Credential.id)))
     active_creds = await db.execute(
@@ -1302,6 +1332,10 @@ async def get_global_stats(
         },
         "models": model_stats[:10],  # Top 10 模型
         "pool_mode": settings.credential_pool_mode,
+        "errors": {
+            "by_code": error_by_code,
+            "recent": recent_errors,
+        },
     }
 
 

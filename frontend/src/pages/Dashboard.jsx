@@ -502,6 +502,43 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+
+                {/* 报错统计 */}
+                {stats?.errors && Object.keys(stats.errors.by_code || {}).length > 0 && (
+                  <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 mt-4">
+                    <h3 className="text-sm font-medium text-gray-300 mb-3">📊 今日报错统计</h3>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {Object.entries(stats.errors.by_code).map(([code, count]) => (
+                        <span key={code} className={`px-2 py-1 rounded text-sm ${
+                          code === '429' ? 'bg-orange-500/20 text-orange-400' :
+                          code === '401' || code === '403' ? 'bg-red-500/20 text-red-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {code}: {count}次
+                        </span>
+                      ))}
+                    </div>
+                    {stats.errors.recent?.length > 0 && (
+                      <>
+                        <h4 className="text-xs text-gray-500 mb-2">最近报错</h4>
+                        <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                          {stats.errors.recent.slice(0, 5).map(err => (
+                            <div key={err.id} className="flex justify-between text-gray-400">
+                              <span>
+                                <span className={err.status_code === 429 ? 'text-orange-400' : 'text-red-400'}>
+                                  {err.status_code}
+                                </span>
+                                {err.cd_seconds && <span className="ml-1 text-orange-400">CD:{err.cd_seconds}s</span>}
+                                <span className="ml-2">{err.model}</span>
+                              </span>
+                              <span>{new Date(err.created_at).toLocaleTimeString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </>
