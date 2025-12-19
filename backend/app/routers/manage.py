@@ -1165,15 +1165,26 @@ async def get_global_stats(
     tier3_pro = tier3_pro_result.scalar() or 0
     tier3_free = tier3_creds - tier3_pro
     
-    # 全站总额度（基于公共池活跃凭证计算）
+    # 全站总额度计算
     total_count = total_creds.scalar() or 0
     active_count = active_creds.scalar() or 0
     public_active_count = public_creds.scalar() or 0
     
-    # 简化配额计算：基于公共池凭证数量
-    total_quota_flash = public_active_count * settings.quota_flash
-    total_quota_25pro = public_active_count * settings.quota_25pro
-    total_quota_30pro = public_tier3_creds * settings.quota_30pro
+    # 根据凭证池模式决定配额计算方式
+    pool_mode = settings.credential_pool_mode
+    if pool_mode == "private":
+        # 私有模式：基于所有活跃凭证计算（每个用户只能用自己的）
+        quota_base_count = active_count
+        quota_tier3_count = tier3_creds
+    else:
+        # 共享模式：基于公共池凭证计算
+        quota_base_count = public_active_count
+        quota_tier3_count = public_tier3_creds
+    
+    # 配额计算
+    total_quota_flash = quota_base_count * settings.quota_flash
+    total_quota_25pro = quota_base_count * settings.quota_25pro
+    total_quota_30pro = quota_tier3_count * settings.quota_30pro
     
     # 按用户类型统计数量
     # 总用户数
@@ -1206,19 +1217,25 @@ async def get_global_stats(
     # 2.5凭证数（非3.0的活跃凭证）
     creds_25_count = active_count - tier3_creds
     
-    # 按凭证类型分解配额统计
-    # 公共池2.5凭证数（非3.0的凭证）
-    public_25_creds = public_active_count - public_tier3_creds
+    # 按凭证类型分解配额统计（根据模式使用不同的凭证数）
+    if pool_mode == "private":
+        # 私有模式：用所有活跃凭证
+        creds_25_for_quota = creds_25_count
+        creds_30_for_quota = tier3_creds
+    else:
+        # 共享模式：用公共池凭证
+        creds_25_for_quota = public_active_count - public_tier3_creds
+        creds_30_for_quota = public_tier3_creds
     
     # 2.5凭证提供的配额（只提供flash和2.5pro）
-    cred25_flash = public_25_creds * settings.quota_flash
-    cred25_25pro = public_25_creds * settings.quota_25pro
+    cred25_flash = creds_25_for_quota * settings.quota_flash
+    cred25_25pro = creds_25_for_quota * settings.quota_25pro
     cred25_30pro = 0  # 2.5凭证不提供3.0配额
     
     # 3.0凭证提供的配额（提供全部三种）
-    cred30_flash = public_tier3_creds * settings.quota_flash
-    cred30_25pro = public_tier3_creds * settings.quota_25pro
-    cred30_30pro = public_tier3_creds * settings.quota_30pro
+    cred30_flash = creds_30_for_quota * settings.quota_flash
+    cred30_25pro = creds_30_for_quota * settings.quota_25pro
+    cred30_30pro = creds_30_for_quota * settings.quota_30pro
     
     # 无凭证用户的配额占位（实际不参与公共池配额计算）
     no_cred_flash = 0
