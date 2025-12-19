@@ -28,6 +28,7 @@ export default function Admin() {
   const [credentials, setCredentials] = useState([])
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [errorStats, setErrorStats] = useState({ by_code: {}, recent: [] })
 
   // 添加凭证表单
   const [newCredName, setNewCredName] = useState('')
@@ -82,6 +83,9 @@ export default function Admin() {
       } else if (tab === 'logs') {
         const res = await api.get('/api/admin/logs?limit=100')
         setLogs(res.data.logs)
+      } else if (tab === 'errors') {
+        const res = await api.get('/api/manage/stats')
+        setErrorStats(res.data.errors || { by_code: {}, recent: [] })
       }
     } catch (err) {
       console.error('获取数据失败', err)
@@ -329,6 +333,7 @@ export default function Admin() {
     { id: 'users', label: '用户管理', icon: Users },
     { id: 'credentials', label: '凭证池', icon: Key },
     { id: 'logs', label: '使用日志', icon: ScrollText },
+    { id: 'errors', label: '报错统计', icon: AlertTriangle },
     { id: 'settings', label: '配额设置', icon: Settings },
   ]
 
@@ -943,6 +948,112 @@ export default function Admin() {
                     </button>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* 报错统计 */}
+            {tab === 'errors' && (
+              <div className="space-y-6">
+                {/* 今日报错统计 */}
+                <div className="card">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-orange-400" />
+                      今日报错统计
+                    </h3>
+                    <button
+                      onClick={fetchData}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      <RefreshCw size={18} />
+                    </button>
+                  </div>
+                  
+                  {Object.keys(errorStats.by_code || {}).length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p>今日暂无报错 🎉</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-3 mb-6">
+                        {Object.entries(errorStats.by_code).map(([code, count]) => (
+                          <div key={code} className={`px-4 py-3 rounded-lg ${
+                            code === '429' ? 'bg-orange-500/20 border border-orange-500/50' :
+                            code === '401' || code === '403' ? 'bg-red-500/20 border border-red-500/50' :
+                            code === '500' ? 'bg-purple-500/20 border border-purple-500/50' :
+                            'bg-gray-500/20 border border-gray-500/50'
+                          }`}>
+                            <div className={`text-2xl font-bold ${
+                              code === '429' ? 'text-orange-400' :
+                              code === '401' || code === '403' ? 'text-red-400' :
+                              code === '500' ? 'text-purple-400' :
+                              'text-gray-400'
+                            }`}>{count}</div>
+                            <div className="text-sm text-gray-400">
+                              {code === '429' ? '限速 (429)' :
+                               code === '401' ? '未认证 (401)' :
+                               code === '403' ? '禁止访问 (403)' :
+                               code === '500' ? '服务器错误 (500)' :
+                               `错误 (${code})`}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="text-sm text-gray-500 mb-2">
+                        总计：{Object.values(errorStats.by_code).reduce((a, b) => a + b, 0)} 次报错
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {/* 最近报错详情 */}
+                <div className="card">
+                  <h3 className="font-semibold mb-4">最近报错详情</h3>
+                  {(errorStats.recent || []).length === 0 ? (
+                    <div className="text-center py-6 text-gray-500">暂无报错记录</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="table w-full">
+                        <thead>
+                          <tr>
+                            <th>时间</th>
+                            <th>用户</th>
+                            <th>模型</th>
+                            <th>状态码</th>
+                            <th>CD</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {errorStats.recent.map(err => (
+                            <tr key={err.id}>
+                              <td className="text-gray-400 text-sm whitespace-nowrap">
+                                {new Date(err.created_at).toLocaleString()}
+                              </td>
+                              <td>{err.username}</td>
+                              <td className="font-mono text-sm">{err.model}</td>
+                              <td>
+                                <span className={
+                                  err.status_code === 429 ? 'text-orange-400' :
+                                  err.status_code === 401 || err.status_code === 403 ? 'text-red-400' :
+                                  'text-gray-400'
+                                }>
+                                  {err.status_code}
+                                </span>
+                              </td>
+                              <td>
+                                {err.cd_seconds ? (
+                                  <span className="text-orange-400">{err.cd_seconds}s</span>
+                                ) : '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
