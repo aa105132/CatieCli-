@@ -253,10 +253,17 @@ async def chat_completions(
     """Chat Completions (OpenAI兼容)"""
     start_time = time.time()
     
+    # 获取客户端信息
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
+    user_agent = request.headers.get("User-Agent", "")[:500]
+    
     try:
         body = await request.json()
     except:
         raise HTTPException(status_code=400, detail="无效的JSON请求体")
+    
+    # 保存请求内容摘要（截断到2000字符）
+    request_body_str = json.dumps(body, ensure_ascii=False)[:2000] if body else None
     
     model = body.get("model", "gemini-2.5-flash")
     messages = body.get("messages", [])
@@ -336,7 +343,7 @@ async def chat_completions(
         client = GeminiClient(access_token, project_id)
         
         # 记录使用日志
-        async def log_usage(status_code: int = 200, cred=credential):
+        async def log_usage(status_code: int = 200, cred=credential, error_msg: str = None):
             latency = (time.time() - start_time) * 1000
             log = UsageLog(
                 user_id=user.id,
@@ -344,7 +351,11 @@ async def chat_completions(
                 model=model,
                 endpoint="/v1/chat/completions",
                 status_code=status_code,
-                latency_ms=latency
+                latency_ms=latency,
+                error_message=error_msg[:2000] if error_msg else None,
+                request_body=request_body_str if status_code != 200 else None,
+                client_ip=client_ip,
+                user_agent=user_agent
             )
             db.add(log)
             await db.commit()
@@ -420,7 +431,7 @@ async def chat_completions(
                                         continue
                             
                             # 无法重试，输出错误
-                            await log_usage(500, cred=credential)
+                            await log_usage(500, cred=credential, error_msg=error_str)
                             yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error_str}'})}\n\n"
                             return
                 
@@ -451,7 +462,7 @@ async def chat_completions(
                 print(f"[Proxy] ⚠️ 请求失败: {error_str}，切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                 continue
             
-            await log_usage(500)
+            await log_usage(500, error_msg=error_str)
             raise HTTPException(status_code=500, detail=f"API调用失败 (已重试 {retry_attempt + 1} 次): {error_str}")
     
     # 所有重试都失败

@@ -18,7 +18,7 @@ from app.services.auth import get_current_user, get_current_admin
 from app.services.crypto import encrypt_credential, decrypt_credential
 from app.services.websocket import notify_stats_update
 from app.config import settings
-from app.cache import cache
+
 
 router = APIRouter(prefix="/api/manage", tags=["管理功能"])
 
@@ -1348,5 +1348,138 @@ async def get_global_stats(
     cache.set("stats:global", result, ttl=5)
     
     return result
+
+
+@router.get("/logs/{log_id}")
+async def get_log_detail(
+    log_id: int,
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取日志详情（包含错误信息、请求内容等）"""
+    result = await db.execute(
+        select(UsageLog, User.username, Credential.email.label("credential_email"))
+        .join(User, UsageLog.user_id == User.id)
+        .outerjoin(Credential, UsageLog.credential_id == Credential.id)
+        .where(UsageLog.id == log_id)
+    )
+    row = result.first()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="日志不存在")
+    
+    log = row.UsageLog
+    return {
+        "id": log.id,
+        "username": row.username,
+        "credential_email": row.credential_email,
+        "model": log.model,
+        "endpoint": log.endpoint,
+        "status_code": log.status_code,
+        "latency_ms": log.latency_ms,
+        "cd_seconds": log.cd_seconds,
+        "error_message": log.error_message,
+        "request_body": log.request_body,
+        "client_ip": log.client_ip,
+        "user_agent": log.user_agent,
+        "created_at": log.created_at.isoformat() + "Z" if log.created_at else None
+    }
+
+
+@router.get("/stats/errors")
+async def get_error_stats(
+    page: int = 1,
+    page_size: int = 50,
+    status_code: Optional[int] = None,
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取详细的报错统计"""
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # 按错误码分类统计（今日），并包含每个错误码下的用户+模型详情
+    error_stats_result = await db.execute(
+        select(UsageLog.status_code, func.count(UsageLog.id).label("count"))
+        .where(UsageLog.created_at >= start_of_day)
+        .where(UsageLog.status_code != 200)
+        .group_by(UsageLog.status_code)
+        .order_by(func.count(UsageLog.id).desc())
+    )
+    error_by_code = []
+    for row in error_stats_result.all():
+        code = row[0]
+        count = row[1]
+        
+        # 获取该错误码下的用户+模型详情（最近5条）
+        details_result = await db.execute(
+            select(UsageLog, User.username)
+            .join(User, UsageLog.user_id == User.id)
+            .where(UsageLog.status_code == code)
+            .where(UsageLog.created_at >= start_of_day)
+            .order_by(UsageLog.created_at.desc())
+            .limit(10)
+        )
+        details = [
+            {
+                "id": log.UsageLog.id,
+                "username": log.username,
+                "model": log.UsageLog.model,
+                "created_at": log.UsageLog.created_at.isoformat() + "Z"
+            }
+            for log in details_result.all()
+        ]
+        
+        error_by_code.append({
+            "status_code": code,
+            "count": count,
+            "details": details
+        })
+    
+    # 报错记录分页查询
+    query = (
+        select(UsageLog, User.username, Credential.email.label("credential_email"))
+        .join(User, UsageLog.user_id == User.id)
+        .outerjoin(Credential, UsageLog.credential_id == Credential.id)
+        .where(UsageLog.status_code != 200)
+    )
+    
+    if status_code:
+        query = query.where(UsageLog.status_code == status_code)
+    
+    # 总数
+    count_query = select(func.count(UsageLog.id)).where(UsageLog.status_code != 200)
+    if status_code:
+        count_query = count_query.where(UsageLog.status_code == status_code)
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # 分页
+    query = query.order_by(UsageLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    
+    errors = [
+        {
+            "id": row.UsageLog.id,
+            "username": row.username,
+            "credential_email": row.credential_email,
+            "model": row.UsageLog.model,
+            "endpoint": row.UsageLog.endpoint,
+            "status_code": row.UsageLog.status_code,
+            "latency_ms": row.UsageLog.latency_ms,
+            "cd_seconds": row.UsageLog.cd_seconds,
+            "client_ip": row.UsageLog.client_ip,
+            "created_at": row.UsageLog.created_at.isoformat() + "Z" if row.UsageLog.created_at else None
+        }
+        for row in result.all()
+    ]
+    
+    return {
+        "error_by_code": error_by_code,
+        "errors": errors,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size
+    }
 
 

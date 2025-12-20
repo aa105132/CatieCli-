@@ -53,10 +53,23 @@ export default function Admin() {
   const [quotaModal, setQuotaModal] = useState({ open: false, userId: null, defaultValues: {} })
   const [credDetailModal, setCredDetailModal] = useState({ open: false, data: null, loading: false })
   const [duplicateModal, setDuplicateModal] = useState({ open: false, data: null, loading: false })
+  const [logDetailModal, setLogDetailModal] = useState({ open: false, data: null, loading: false })
 
   const showAlert = (title, message, type = 'info') => setAlertModal({ open: true, title, message, type })
   const showConfirm = (title, message, onConfirm, danger = false) => setConfirmModal({ open: true, title, message, onConfirm, danger })
   const showInput = (title, label, defaultValue, onSubmit) => setInputModal({ open: true, title, label, defaultValue, onSubmit })
+  
+  // 查看日志详情
+  const viewLogDetail = async (logId) => {
+    setLogDetailModal({ open: true, data: null, loading: true })
+    try {
+      const res = await api.get(`/api/manage/logs/${logId}`)
+      setLogDetailModal({ open: true, data: res.data, loading: false })
+    } catch (err) {
+      setLogDetailModal({ open: false, data: null, loading: false })
+      showAlert('错误', '获取日志详情失败', 'error')
+    }
+  }
 
   // WebSocket 实时更新
   const handleWsMessage = useCallback((data) => {
@@ -1111,6 +1124,7 @@ export default function Admin() {
                             <th>模型</th>
                             <th>状态码</th>
                             <th>CD</th>
+                            <th>操作</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1134,6 +1148,14 @@ export default function Admin() {
                                 {err.cd_seconds ? (
                                   <span className="text-orange-400">{err.cd_seconds}s</span>
                                 ) : '-'}
+                              </td>
+                              <td>
+                                <button
+                                  onClick={() => viewLogDetail(err.id)}
+                                  className="text-purple-400 hover:text-purple-300 text-sm"
+                                >
+                                  详情
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -1359,6 +1381,116 @@ export default function Admin() {
                   )}
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 日志详情弹窗 */}
+      {logDetailModal.open && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-800 rounded-xl w-full max-w-3xl max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b border-dark-600">
+              <h3 className="text-lg font-semibold">请求详情</h3>
+              <button onClick={() => setLogDetailModal({ open: false, data: null, loading: false })} className="text-gray-400 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(90vh-60px)]">
+              {logDetailModal.loading ? (
+                <div className="text-center py-8 text-gray-400">加载中...</div>
+              ) : logDetailModal.data ? (
+                <div className="space-y-4">
+                  {/* 基本信息 */}
+                  <div className="bg-dark-900 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-gray-400 mb-3">基本信息</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">时间</span>
+                        <p className="text-white">{logDetailModal.data.created_at ? new Date(logDetailModal.data.created_at).toLocaleString() : '-'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">状态</span>
+                        <p className={logDetailModal.data.status_code === 200 ? 'text-green-400' : logDetailModal.data.status_code === 429 ? 'text-orange-400' : 'text-red-400'}>
+                          {logDetailModal.data.status_code === 200 ? '成功' : '错误'} - {logDetailModal.data.status_code}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">耗时(ms)</span>
+                        <p className="text-white">{logDetailModal.data.latency_ms?.toFixed(0) || '-'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">用户</span>
+                        <p className="text-white">{logDetailModal.data.username}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">模型</span>
+                        <p className="text-white font-mono text-xs">{logDetailModal.data.model}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">凭证</span>
+                        <p className="text-white font-mono text-xs">{logDetailModal.data.credential_email || '-'}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">源IP</span>
+                        <p className="text-white font-mono text-xs">{logDetailModal.data.client_ip || '-'}</p>
+                      </div>
+                      {logDetailModal.data.cd_seconds && (
+                        <div>
+                          <span className="text-gray-500">CD时间</span>
+                          <p className="text-orange-400">{logDetailModal.data.cd_seconds}s</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 请求信息 */}
+                  {logDetailModal.data.endpoint && (
+                    <div className="bg-dark-900 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-400 mb-3">请求信息</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <span className="text-gray-500 text-sm">请求路径</span>
+                          <p className="text-white font-mono text-xs bg-dark-700 p-2 rounded mt-1">{logDetailModal.data.endpoint}</p>
+                        </div>
+                        {logDetailModal.data.user_agent && (
+                          <div>
+                            <span className="text-gray-500 text-sm">User Agent</span>
+                            <p className="text-white font-mono text-xs bg-dark-700 p-2 rounded mt-1 break-all">{logDetailModal.data.user_agent}</p>
+                          </div>
+                        )}
+                        {logDetailModal.data.request_body && (
+                          <div>
+                            <span className="text-gray-500 text-sm">请求内容</span>
+                            <pre className="text-white font-mono text-xs bg-dark-700 p-2 rounded mt-1 overflow-x-auto max-h-40">{
+                              (() => {
+                                try {
+                                  return JSON.stringify(JSON.parse(logDetailModal.data.request_body), null, 2)
+                                } catch {
+                                  return logDetailModal.data.request_body
+                                }
+                              })()
+                            }</pre>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 错误信息 */}
+                  {logDetailModal.data.error_message && (
+                    <div className="bg-dark-900 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-red-400 mb-3">错误信息</h4>
+                      <pre className="text-red-300 font-mono text-xs bg-red-900/20 border border-red-500/30 p-3 rounded overflow-x-auto max-h-60 whitespace-pre-wrap">{logDetailModal.data.error_message}</pre>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <div className="p-4 border-t border-dark-600 flex justify-end">
+              <button onClick={() => setLogDetailModal({ open: false, data: null, loading: false })} className="btn bg-dark-600 hover:bg-dark-500 text-white">
+                关闭
+              </button>
             </div>
           </div>
         </div>

@@ -68,6 +68,11 @@ class UsageLog(Base):
     latency_ms = Column(Float, nullable=True)
     cd_seconds = Column(Integer, nullable=True)  # 429 时设置的 CD 秒数
     created_at = Column(DateTime, default=datetime.utcnow)
+    # 详细报错信息
+    error_message = Column(Text, nullable=True)  # 错误信息
+    request_body = Column(Text, nullable=True)   # 请求内容（截断保存）
+    client_ip = Column(String(50), nullable=True)  # 客户端 IP
+    user_agent = Column(String(500), nullable=True)  # User Agent
     
     # 关系
     user = relationship("User", back_populates="usage_logs")

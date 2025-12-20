@@ -11,6 +11,15 @@ export default function Stats() {
   const [daily, setDaily] = useState([])
   const [loading, setLoading] = useState(true)
   const [days, setDays] = useState(7)
+  
+  // 报错统计相关状态
+  const [errorStats, setErrorStats] = useState(null)
+  const [errorPage, setErrorPage] = useState(1)
+  const [errorLoading, setErrorLoading] = useState(false)
+  const [expandedCodes, setExpandedCodes] = useState({})
+  const [selectedLog, setSelectedLog] = useState(null)
+  const [logDetailLoading, setLogDetailLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     fetchStats()
@@ -51,6 +60,62 @@ export default function Stats() {
     private: '🔒 私有模式',
     tier3_shared: '⚡ 3.0共享',
     full_shared: '🍲 大锅饭',
+  }
+
+  // 获取报错统计
+  const fetchErrorStats = async (page = 1) => {
+    setErrorLoading(true)
+    try {
+      const res = await api.get(`/api/manage/stats/errors?page=${page}&page_size=50`)
+      setErrorStats(res.data)
+      setErrorPage(page)
+    } catch (err) {
+      console.error('获取报错统计失败', err)
+    } finally {
+      setErrorLoading(false)
+    }
+  }
+
+  // 获取日志详情
+  const fetchLogDetail = async (logId) => {
+    setLogDetailLoading(true)
+    try {
+      const res = await api.get(`/api/manage/logs/${logId}`)
+      setSelectedLog(res.data)
+    } catch (err) {
+      console.error('获取日志详情失败', err)
+    } finally {
+      setLogDetailLoading(false)
+    }
+  }
+
+  // 切换展开/折叠
+  const toggleExpand = (code) => {
+    setExpandedCodes(prev => ({ ...prev, [code]: !prev[code] }))
+  }
+
+  // 复制到剪贴板
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  // 错误码颜色
+  const getStatusCodeColor = (code) => {
+    if (code >= 500) return 'text-red-400 bg-red-500/20'
+    if (code === 429) return 'text-orange-400 bg-orange-500/20'
+    if (code >= 400) return 'text-yellow-400 bg-yellow-500/20'
+    return 'text-gray-400 bg-gray-500/20'
   }
 
   if (loading) {
@@ -304,6 +369,267 @@ export default function Stats() {
             <span>{daily[daily.length - 1]?.date || ''}</span>
           </div>
         </div>
+
+        {/* 报错统计面板 */}
+        <div className="bg-gray-800 rounded-xl p-6 mt-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-yellow-400" />
+              今日报错统计
+            </h2>
+            <button
+              onClick={() => fetchErrorStats(1)}
+              disabled={errorLoading}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm flex items-center gap-2"
+            >
+              <RefreshCw size={14} className={errorLoading ? 'animate-spin' : ''} />
+              {errorStats ? '刷新' : '加载报错统计'}
+            </button>
+          </div>
+
+          {errorStats && (
+            <>
+              {/* 按错误码分类 - 可展开 */}
+              {errorStats.error_by_code?.length > 0 && (
+                <div className="space-y-2 mb-6">
+                  {errorStats.error_by_code.map((item, idx) => (
+                    <div key={idx} className="border border-gray-700 rounded-lg overflow-hidden">
+                      <button
+                        onClick={() => toggleExpand(item.status_code)}
+                        className="w-full flex items-center justify-between p-3 bg-gray-700/50 hover:bg-gray-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-gray-400 font-mono">{idx + 1}</span>
+                          <span className={`px-2 py-0.5 rounded text-sm font-medium ${getStatusCodeColor(item.status_code)}`}>
+                            {item.status_code === 429 ? '速率限制' : item.status_code >= 500 ? '服务器错误' : '错误'} ({item.status_code})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-400 text-sm">{item.count} 次</span>
+                          {expandedCodes[item.status_code] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                      </button>
+                      {expandedCodes[item.status_code] && (
+                        <div className="p-3 bg-gray-800/50 border-t border-gray-700">
+                          <div className="space-y-1 text-sm">
+                            {item.details?.map((detail, dIdx) => (
+                              <div key={dIdx} className="flex items-center justify-between text-gray-400 hover:text-white hover:bg-gray-700/50 px-2 py-1 rounded cursor-pointer"
+                                onClick={() => fetchLogDetail(detail.id)}>
+                                <span className="text-purple-400">{detail.username}</span>
+                                <span className="text-cyan-400 font-mono text-xs">{detail.model}</span>
+                                <span className="text-gray-500 text-xs">{new Date(detail.created_at).toLocaleTimeString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div className="text-xs text-gray-500 mt-2">
+                    总计: {errorStats.total} 次报错（点击展开详情）
+                  </div>
+                </div>
+              )}
+
+              {/* 最近报错详情表格 */}
+              <h3 className="text-lg font-semibold mb-3">最近报错详情</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-400 border-b border-gray-700">
+                      <th className="pb-2 pr-4">时间</th>
+                      <th className="pb-2 pr-4">用户</th>
+                      <th className="pb-2 pr-4">模型</th>
+                      <th className="pb-2 pr-4">状态码</th>
+                      <th className="pb-2 pr-4">CD</th>
+                      <th className="pb-2">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {errorStats.errors?.map((err) => (
+                      <tr key={err.id} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                        <td className="py-2 pr-4 text-gray-400">{new Date(err.created_at).toLocaleString()}</td>
+                        <td className="py-2 pr-4 text-purple-400">{err.username}</td>
+                        <td className="py-2 pr-4 text-cyan-400 font-mono text-xs">{err.model}</td>
+                        <td className="py-2 pr-4">
+                          <span className={`px-2 py-0.5 rounded text-xs ${getStatusCodeColor(err.status_code)}`}>
+                            {err.status_code}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-4 text-orange-400">{err.cd_seconds ? `${err.cd_seconds}s` : '-'}</td>
+                        <td className="py-2">
+                          <button
+                            onClick={() => fetchLogDetail(err.id)}
+                            className="text-blue-400 hover:text-blue-300 text-xs"
+                          >
+                            详情
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 分页 */}
+              {errorStats.total_pages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-4">
+                  <button
+                    onClick={() => fetchErrorStats(errorPage - 1)}
+                    disabled={errorPage <= 1 || errorLoading}
+                    className="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    上一页
+                  </button>
+                  <span className="text-gray-400 text-sm">
+                    {errorPage} / {errorStats.total_pages}
+                  </span>
+                  <button
+                    onClick={() => fetchErrorStats(errorPage + 1)}
+                    disabled={errorPage >= errorStats.total_pages || errorLoading}
+                    className="px-3 py-1 bg-gray-700 rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+
+          {!errorStats && !errorLoading && (
+            <div className="text-center text-gray-500 py-8">
+              点击上方按钮加载报错统计
+            </div>
+          )}
+        </div>
+
+        {/* 请求详情弹窗 */}
+        {selectedLog && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-800 rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold">请求详情</h3>
+                <button onClick={() => setSelectedLog(null)} className="text-gray-400 hover:text-white">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              {logDetailLoading ? (
+                <div className="p-8 text-center text-gray-400">
+                  <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                  加载中...
+                </div>
+              ) : (
+                <div className="p-4 space-y-4">
+                  {/* 基本信息 */}
+                  <div className="bg-gray-700/50 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-gray-300 mb-3">基本信息</h4>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                      <div>
+                        <span className="text-gray-500">时间</span>
+                        <div className="text-white">{selectedLog.created_at ? new Date(selectedLog.created_at).toLocaleString() : '-'}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">状态</span>
+                        <div className={`${getStatusCodeColor(selectedLog.status_code)} px-2 py-0.5 rounded inline-block`}>
+                          错误 - {selectedLog.status_code}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">耗时(ms)</span>
+                        <div className="text-white">{selectedLog.latency_ms?.toFixed(0) || '-'}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">分组</span>
+                        <div className="text-white">{selectedLog.username || '-'}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">模型</span>
+                        <div className="text-cyan-400 font-mono text-xs">{selectedLog.model || '-'}</div>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">源IP</span>
+                        <div className="text-white font-mono text-xs">{selectedLog.client_ip || '-'}</div>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-gray-500">凭证</span>
+                        <div className="text-white text-xs">{selectedLog.credential_email || '-'}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 请求信息 */}
+                  <div className="bg-gray-700/50 rounded-lg p-4">
+                    <h4 className="text-sm font-medium text-gray-300 mb-3">请求信息</h4>
+                    <div className="space-y-3">
+                      <div className="bg-gray-800 rounded p-3 relative group">
+                        <div className="text-gray-500 text-xs mb-1">请求路径</div>
+                        <div className="text-white font-mono text-sm break-all">{selectedLog.endpoint || '-'}</div>
+                        <button 
+                          onClick={() => copyToClipboard(selectedLog.endpoint || '')}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white"
+                        >
+                          {copied ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                      <div className="bg-gray-800 rounded p-3 relative group">
+                        <div className="text-gray-500 text-xs mb-1">User Agent</div>
+                        <div className="text-white font-mono text-xs break-all">{selectedLog.user_agent || '-'}</div>
+                      </div>
+                      {selectedLog.request_body && (
+                        <div className="bg-gray-800 rounded p-3 relative group">
+                          <div className="text-gray-500 text-xs mb-1">请求内容</div>
+                          <pre className="text-white font-mono text-xs overflow-x-auto max-h-40 whitespace-pre-wrap">
+                            {(() => {
+                              try {
+                                return JSON.stringify(JSON.parse(selectedLog.request_body), null, 2)
+                              } catch {
+                                return selectedLog.request_body
+                              }
+                            })()}
+                          </pre>
+                          <button 
+                            onClick={() => copyToClipboard(selectedLog.request_body || '')}
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white"
+                          >
+                            {copied ? <Check size={14} /> : <Copy size={14} />}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 错误信息 */}
+                  {selectedLog.error_message && (
+                    <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-red-400 mb-3">错误信息</h4>
+                      <div className="bg-gray-900 rounded p-3 relative group">
+                        <pre className="text-red-300 font-mono text-xs overflow-x-auto max-h-60 whitespace-pre-wrap">
+                          {selectedLog.error_message}
+                        </pre>
+                        <button 
+                          onClick={() => copyToClipboard(selectedLog.error_message || '')}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-white"
+                        >
+                          {copied ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="border-t border-gray-700 p-4 flex justify-end">
+                <button
+                  onClick={() => setSelectedLog(null)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+                >
+                  关闭
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
