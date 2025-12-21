@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date, timedelta
@@ -681,6 +681,10 @@ async def delete_my_credential(
             )
             print(f"[删除凭证] 用户 {user.username} 扣除 {deduct} 额度 (等级: {cred.model_tier})", flush=True)
     
+    # 先解除使用记录的外键引用，避免外键约束导致删除失败
+    await db.execute(
+        update(UsageLog).where(UsageLog.credential_id == cred_id).values(credential_id=None)
+    )
     await db.delete(cred)
     await db.commit()
     return {"message": "删除成功"}
@@ -702,6 +706,12 @@ async def delete_my_inactive_credentials(
     
     if not inactive_creds:
         return {"message": "没有失效凭证需要删除", "deleted_count": 0}
+    
+    # 先解除使用记录的外键引用，避免外键约束导致删除失败
+    cred_ids = [c.id for c in inactive_creds]
+    await db.execute(
+        update(UsageLog).where(UsageLog.credential_id.in_(cred_ids)).values(credential_id=None)
+    )
     
     deleted_count = 0
     for cred in inactive_creds:

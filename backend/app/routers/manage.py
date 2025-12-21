@@ -134,6 +134,12 @@ async def delete_inactive_credentials(
         return {"message": "没有无效凭证", "deleted_count": 0}
     
     deleted_count = len(inactive_creds)
+    cred_ids = [c.id for c in inactive_creds]
+    
+    # 先解除使用记录的外键引用，避免外键约束导致删除失败
+    await db.execute(
+        update(UsageLog).where(UsageLog.credential_id.in_(cred_ids)).values(credential_id=None)
+    )
     for cred in inactive_creds:
         await db.delete(cred)
     

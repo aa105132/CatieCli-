@@ -59,7 +59,7 @@ class UsageLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     api_key_id = Column(Integer, ForeignKey("api_keys.id"), nullable=True)
-    credential_id = Column(Integer, ForeignKey("credentials.id"), nullable=True)  # 使用的凭证
+    credential_id = Column(Integer, ForeignKey("credentials.id", ondelete="SET NULL"), nullable=True)  # 使用的凭证
     model = Column(String(100), nullable=True)
     endpoint = Column(String(200), nullable=True)
     tokens_input = Column(Integer, default=0)

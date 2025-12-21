@@ -280,6 +280,10 @@ async def delete_credential(
     if not credential:
         raise HTTPException(status_code=404, detail="凭证不存在")
     
+    # 先解除使用记录的外键引用，避免外键约束导致删除失败
+    await db.execute(
+        update(UsageLog).where(UsageLog.credential_id == credential_id).values(credential_id=None)
+    )
     await db.delete(credential)
     await db.commit()
     await notify_credential_update()
@@ -549,6 +553,10 @@ async def delete_duplicate_credentials(
     if not ids_to_delete:
         return {"deleted_count": 0, "message": "没有需要删除的重复凭证"}
     
+    # 先解除使用记录的外键引用，避免外键约束导致删除失败
+    await db.execute(
+        update(UsageLog).where(UsageLog.credential_id.in_(ids_to_delete)).values(credential_id=None)
+    )
     # 批量删除
     await db.execute(
         delete(Credential).where(Credential.id.in_(ids_to_delete))
