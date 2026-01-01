@@ -10,6 +10,8 @@ from app.models.user import User
 from app.services.auth import get_password_hash
 from app.config import settings, load_config_from_db
 from app.routers import auth, proxy, admin, oauth, ws, manage
+from app.routers.test import router as test_router
+from app.middleware.url_normalize import URLNormalizeMiddleware
 from sqlalchemy import select
 
 
@@ -74,6 +76,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# URL 规范化中间件（防呆设计：处理用户错误添加的 URL 前缀）
+# 注意：ASGI 中间件的执行顺序是后添加先执行，所以这个中间件会在 CORS 之后执行
+app.add_middleware(URLNormalizeMiddleware)
+
 # 注册路由
 app.include_router(auth.router)
 app.include_router(proxy.router)
@@ -81,6 +87,7 @@ app.include_router(admin.router)
 app.include_router(oauth.router)
 app.include_router(ws.router)
 app.include_router(manage.router)
+app.include_router(test_router)  # 测试接口（用于模拟报错场景）
 
 
 @app.get("/api/health")

@@ -13,6 +13,7 @@ from app.services.auth import get_user_by_api_key
 from app.services.credential_pool import CredentialPool
 from app.services.gemini_client import GeminiClient
 from app.services.websocket import notify_log_update, notify_stats_update
+from app.services.error_classifier import classify_error_simple, ErrorType
 from app.config import settings
 import re
 
@@ -188,10 +189,12 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
     return user
 
 
+# ===== CORS 预检请求处理 =====
+# 注意：由于 URL 规范化中间件的存在，用户输入的任意前缀（如 /ABC/v1/...）都会被自动修正
+# 因此这里只需要定义标准路径即可
+
 @router.options("/v1/chat/completions")
-@router.options("/chat/completions")
 @router.options("/v1/models")
-@router.options("/models")
 async def options_handler():
     """处理 CORS 预检请求"""
     return JSONResponse(content={}, headers={
@@ -202,7 +205,6 @@ async def options_handler():
 
 
 @router.get("/v1/models")
-@router.get("/models")
 async def list_models(request: Request, user: User = Depends(get_user_from_api_key), db: AsyncSession = Depends(get_db)):
     """列出可用模型 (OpenAI兼容)"""
     from app.models.user import Credential
@@ -264,7 +266,6 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
 
 
 @router.post("/v1/chat/completions")
-@router.post("/chat/completions")
 async def chat_completions(
     request: Request,
     user: User = Depends(get_user_from_api_key),
@@ -365,6 +366,13 @@ async def chat_completions(
         # 记录使用日志
         async def log_usage(status_code: int = 200, cred=credential, error_msg: str = None):
             latency = (time.time() - start_time) * 1000
+            
+            # 错误分类
+            error_type = None
+            error_code = None
+            if status_code != 200 and error_msg:
+                error_type, error_code = classify_error_simple(status_code, error_msg)
+            
             log = UsageLog(
                 user_id=user.id,
                 credential_id=cred.id,
@@ -373,6 +381,9 @@ async def chat_completions(
                 status_code=status_code,
                 latency_ms=latency,
                 error_message=error_msg[:2000] if error_msg else None,
+                error_type=error_type,
+                error_code=error_code,
+                credential_email=cred.email if cred else None,
                 request_body=request_body_str if status_code != 200 else None,
                 client_ip=client_ip,
                 user_agent=user_agent
@@ -390,6 +401,7 @@ async def chat_completions(
                 "username": user.username,
                 "model": model,
                 "status_code": status_code,
+                "error_type": error_type,
                 "latency_ms": round(latency, 0),
                 "created_at": datetime.utcnow().isoformat()
             })
@@ -492,11 +504,13 @@ async def chat_completions(
 
 
 # ===== Gemini 原生接口支持 =====
+# 注意：由于 URL 规范化中间件的存在，以下路径都会被自动匹配：
+# - /v1beta/models/... (标准路径)
+# - /v1/v1beta/models/... (SillyTavern 等客户端可能添加 /v1 前缀)
+# - /ABC/v1beta/models/... (用户错误添加任意前缀)
 
 @router.options("/v1beta/models/{model:path}:generateContent")
-@router.options("/v1/models/{model:path}:generateContent")
 @router.options("/v1beta/models/{model:path}:streamGenerateContent")
-@router.options("/v1/models/{model:path}:streamGenerateContent")
 async def gemini_options_handler(model: str):
     """Gemini 接口 CORS 预检"""
     return JSONResponse(content={}, headers={
@@ -507,7 +521,6 @@ async def gemini_options_handler(model: str):
 
 
 @router.get("/v1beta/models")
-@router.get("/v1/v1beta/models")
 async def list_gemini_models(request: Request, user: User = Depends(get_user_from_api_key), db: AsyncSession = Depends(get_db)):
     """Gemini 格式模型列表"""
     # 检查是否有可用的 3.0 凭证
@@ -534,8 +547,6 @@ async def list_gemini_models(request: Request, user: User = Depends(get_user_fro
 
 
 @router.post("/v1beta/models/{model:path}:generateContent")
-@router.post("/v1/models/{model:path}:generateContent")
-@router.post("/v1/v1beta/models/{model:path}:generateContent")
 async def gemini_generate_content(
     model: str,
     request: Request,
@@ -592,7 +603,26 @@ async def gemini_generate_content(
     # 记录日志
     async def log_usage(status_code: int = 200, cd_seconds: int = None, error_msg: str = None):
         latency = (time.time() - start_time) * 1000
-        log = UsageLog(user_id=user.id, credential_id=credential.id, model=model, endpoint="/v1beta/generateContent", status_code=status_code, latency_ms=latency, cd_seconds=cd_seconds, error_message=error_msg[:2000] if error_msg else None)
+        
+        # 错误分类
+        error_type = None
+        error_code = None
+        if status_code != 200 and error_msg:
+            error_type, error_code = classify_error_simple(status_code, error_msg)
+        
+        log = UsageLog(
+            user_id=user.id,
+            credential_id=credential.id,
+            model=model,
+            endpoint="/v1beta/generateContent",
+            status_code=status_code,
+            latency_ms=latency,
+            cd_seconds=cd_seconds,
+            error_message=error_msg[:2000] if error_msg else None,
+            error_type=error_type,
+            error_code=error_code,
+            credential_email=credential.email if credential else None
+        )
         db.add(log)
         credential.total_requests = (credential.total_requests or 0) + 1
         credential.last_used_at = datetime.utcnow()
@@ -606,7 +636,14 @@ async def gemini_generate_content(
         # 构建 payload
         request_body = {"contents": contents}
         if "generationConfig" in body:
-            request_body["generationConfig"] = body["generationConfig"]
+            gen_config = body["generationConfig"].copy() if isinstance(body["generationConfig"], dict) else body["generationConfig"]
+            # 防呆设计：topK 有效范围为 1-64（Gemini CLI API 支持范围为 1 inclusive 到 65 exclusive）
+            # 当 topK 为 0 或无效值时，使用最大默认值 64；超过 64 时也锁定为 64
+            if isinstance(gen_config, dict) and "topK" in gen_config:
+                if gen_config["topK"] is not None and (gen_config["topK"] < 1 or gen_config["topK"] > 64):
+                    print(f"[Gemini API] ⚠️ topK={gen_config['topK']} 超出有效范围(1-64)，已自动调整为 64", flush=True)
+                    gen_config["topK"] = 64
+            request_body["generationConfig"] = gen_config
         if "systemInstruction" in body:
             request_body["systemInstruction"] = body["systemInstruction"]
         if "safetySettings" in body:
@@ -664,8 +701,6 @@ async def gemini_generate_content(
 
 
 @router.post("/v1beta/models/{model:path}:streamGenerateContent")
-@router.post("/v1/models/{model:path}:streamGenerateContent")
-@router.post("/v1/v1beta/models/{model:path}:streamGenerateContent")
 async def gemini_stream_generate_content(
     model: str,
     request: Request,
@@ -722,7 +757,26 @@ async def gemini_stream_generate_content(
     # 记录日志
     async def log_usage(status_code: int = 200, cd_seconds: int = None, error_msg: str = None):
         latency = (time.time() - start_time) * 1000
-        log = UsageLog(user_id=user.id, credential_id=credential.id, model=model, endpoint="/v1beta/streamGenerateContent", status_code=status_code, latency_ms=latency, cd_seconds=cd_seconds, error_message=error_msg[:2000] if error_msg else None)
+        
+        # 错误分类
+        error_type = None
+        error_code = None
+        if status_code != 200 and error_msg:
+            error_type, error_code = classify_error_simple(status_code, error_msg)
+        
+        log = UsageLog(
+            user_id=user.id,
+            credential_id=credential.id,
+            model=model,
+            endpoint="/v1beta/streamGenerateContent",
+            status_code=status_code,
+            latency_ms=latency,
+            cd_seconds=cd_seconds,
+            error_message=error_msg[:2000] if error_msg else None,
+            error_type=error_type,
+            error_code=error_code,
+            credential_email=credential.email if credential else None
+        )
         db.add(log)
         credential.total_requests = (credential.total_requests or 0) + 1
         credential.last_used_at = datetime.utcnow()
@@ -734,7 +788,14 @@ async def gemini_stream_generate_content(
     
     request_body = {"contents": contents}
     if "generationConfig" in body:
-        request_body["generationConfig"] = body["generationConfig"]
+        gen_config = body["generationConfig"].copy() if isinstance(body["generationConfig"], dict) else body["generationConfig"]
+        # 防呆设计：topK 有效范围为 1-64（Gemini CLI API 支持范围为 1 inclusive 到 65 exclusive）
+        # 当 topK 为 0 或无效值时，使用最大默认值 64；超过 64 时也锁定为 64
+        if isinstance(gen_config, dict) and "topK" in gen_config:
+            if gen_config["topK"] is not None and (gen_config["topK"] < 1 or gen_config["topK"] > 64):
+                print(f"[Gemini Stream] ⚠️ topK={gen_config['topK']} 超出有效范围(1-64)，已自动调整为 64", flush=True)
+                gen_config["topK"] = 64
+        request_body["generationConfig"] = gen_config
     if "systemInstruction" in body:
         request_body["systemInstruction"] = body["systemInstruction"]
     if "safetySettings" in body:
@@ -858,6 +919,13 @@ async def openai_proxy(
     # 记录日志
     async def log_usage(status_code: int = 200, error_msg: str = None):
         latency = (time.time() - start_time) * 1000
+        
+        # 错误分类
+        error_type = None
+        error_code = None
+        if status_code != 200 and error_msg:
+            error_type, error_code = classify_error_simple(status_code, error_msg)
+        
         log = UsageLog(
             user_id=user.id,
             credential_id=None,
@@ -865,7 +933,9 @@ async def openai_proxy(
             endpoint=f"/openai/{path}",
             status_code=status_code,
             latency_ms=latency,
-            error_message=error_msg[:2000] if error_msg else None
+            error_message=error_msg[:2000] if error_msg else None,
+            error_type=error_type,
+            error_code=error_code
         )
         db.add(log)
         await db.commit()
@@ -873,6 +943,7 @@ async def openai_proxy(
             "username": user.username,
             "model": "openai",
             "status_code": status_code,
+            "error_type": error_type,
             "latency_ms": round(latency, 0),
             "created_at": datetime.utcnow().isoformat()
         })

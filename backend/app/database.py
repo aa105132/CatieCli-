@@ -75,6 +75,10 @@ async def init_db():
                 "ALTER TABLE usage_logs ADD COLUMN request_body TEXT",
                 "ALTER TABLE usage_logs ADD COLUMN client_ip VARCHAR(50)",
                 "ALTER TABLE usage_logs ADD COLUMN user_agent VARCHAR(500)",
+                # 错误分类字段（新增）
+                "ALTER TABLE usage_logs ADD COLUMN error_type VARCHAR(50)",
+                "ALTER TABLE usage_logs ADD COLUMN error_code VARCHAR(100)",
+                "ALTER TABLE usage_logs ADD COLUMN credential_email VARCHAR(100)",
             ]
         else:
             # PostgreSQL 迁移（使用 IF NOT EXISTS 语法）
@@ -95,6 +99,10 @@ async def init_db():
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS request_body TEXT",
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS client_ip VARCHAR(50)",
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS user_agent VARCHAR(500)",
+                # 错误分类字段（新增）
+                "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS error_type VARCHAR(50)",
+                "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS error_code VARCHAR(100)",
+                "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS credential_email VARCHAR(100)",
             ]
         
         for sql in migrations:
@@ -115,6 +123,9 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_credentials_is_public ON credentials(is_public)",
             "CREATE INDEX IF NOT EXISTS idx_credentials_user_id ON credentials(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)",
+            # 错误分类索引（新增）
+            "CREATE INDEX IF NOT EXISTS idx_usage_logs_error_type ON usage_logs(error_type)",
+            "CREATE INDEX IF NOT EXISTS idx_usage_logs_date_error ON usage_logs(created_at, error_type)",
         ]
         
         for sql in indexes:

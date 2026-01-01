@@ -73,6 +73,10 @@ class UsageLog(Base):
     request_body = Column(Text, nullable=True)   # 请求内容（截断保存）
     client_ip = Column(String(50), nullable=True)  # 客户端 IP
     user_agent = Column(String(500), nullable=True)  # User Agent
+    # 错误分类字段（新增）
+    error_type = Column(String(50), nullable=True, index=True)  # 错误类型：AUTH_ERROR, RATE_LIMIT, QUOTA_EXHAUSTED 等
+    error_code = Column(String(100), nullable=True)  # 错误码：PERMISSION_DENIED, RESOURCE_EXHAUSTED 等
+    credential_email = Column(String(100), nullable=True)  # 使用的凭证邮箱（方便排查）
     
     # 关系
     user = relationship("User", back_populates="usage_logs")

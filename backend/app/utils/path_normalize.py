@@ -1,0 +1,257 @@
+"""
+URL 路径规范化和 API 端点智能提取
+参考 new-api 的防呆设计
+
+功能：
+1. 规范化路径（处理双斜杠等）
+2. 智能提取 API 端点（移除用户错误添加的前缀）
+
+例如：
+- /ABC/v1/chat/completions -> /v1/chat/completions
+- /我是奶龙/v1beta/models/gemini-pro:generateContent -> /v1beta/models/gemini-pro:generateContent
+"""
+import re
+from typing import List
+
+# API 端点列表（按优先级排序：更长/更具体的路径优先匹配）
+# 防呆设计：支持用户在 URL 中添加任意前缀后仍能正确路由
+API_ENDPOINTS: List[str] = [
+    # ============================================================
+    # Gemini API 端点（更长的路径优先）
+    # 注意：同时包含带尾部斜杠和不带尾部斜杠的版本
+    # ============================================================
+    "/v1/v1beta/openai/models",  # Gemini 兼容 OpenAI 模型列表（带 v1 前缀）
+    "/v1beta/openai/models",      # Gemini 兼容 OpenAI 模型列表
+    "/v1/v1beta/models/",         # Gemini API（带 v1 前缀，带尾部斜杠）
+    "/v1/v1beta/models",          # Gemini API（带 v1 前缀，不带尾部斜杠）
+    "/v1beta/models/",            # Gemini API（带尾部斜杠）
+    "/v1beta/models",             # Gemini API（不带尾部斜杠）- 重要：用于 SillyTavern
+    
+    # ============================================================
+    # OpenAI 兼容 API 端点
+    # ============================================================
+    "/v1/chat/completions",       # OpenAI Chat Completions
+    "/chat/completions",          # OpenAI Chat Completions（不带 v1）
+    "/v1/completions",            # OpenAI Completions
+    "/completions",               # OpenAI Completions（不带 v1）
+    "/v1/responses",              # OpenAI Responses
+    "/responses",                 # OpenAI Responses（不带 v1）
+    "/v1/embeddings",             # OpenAI Embeddings
+    "/embeddings",                # OpenAI Embeddings（不带 v1）
+    "/v1/images/generations",     # OpenAI Image Generation
+    "/images/generations",        # OpenAI Image Generation（不带 v1）
+    "/v1/images/edits",           # OpenAI Image Edits
+    "/images/edits",              # OpenAI Image Edits（不带 v1）
+    "/v1/audio/transcriptions",
+    "/audio/transcriptions",
+    "/v1/audio/translations",
+    "/audio/translations",
+    "/v1/audio/speech",
+    "/audio/speech",
+    "/v1/moderations",
+    "/moderations",
+    "/v1/edits",
+    "/edits",
+    "/v1/rerank",
+    "/rerank",
+    "/v1/realtime",
+    "/realtime",
+    
+    # ============================================================
+    # Claude API 端点
+    # ============================================================
+    "/v1/messages",
+    "/messages",
+    
+    # ============================================================
+    # 模型列表端点
+    # ============================================================
+    "/v1/models/",
+    "/v1/models",
+    "/models/",
+    "/models",
+    
+    # ============================================================
+    # OpenAI 原生反代
+    # ============================================================
+    "/openai/",
+    "/openai",
+]
+
+# 不进行防呆处理的前缀（管理类、静态资源等）
+SKIP_PREFIXES: List[str] = [
+    "/api/",
+    "/auth/",
+    "/admin/",
+    "/ws/",
+    "/manage/",
+    "/assets/",
+    "/oauth/",
+    "/favicon",
+    "/index.html",
+]
+
+
+def normalize_path(path: str) -> str:
+    """
+    规范化路径
+    1. 移除多余的斜杠 (// -> /)
+    2. 确保以 / 开头
+    3. 保留尾部斜杠（如果原本存在）
+    
+    Args:
+        path: 原始路径
+        
+    Returns:
+        规范化后的路径
+    """
+    # 记录是否有尾部斜杠
+    has_trailing_slash = len(path) > 1 and path.endswith('/')
+    
+    # 替换多个连续斜杠为单个斜杠
+    normalized = re.sub(r'/+', '/', path)
+    
+    # 确保以 / 开头
+    if not normalized.startswith('/'):
+        normalized = '/' + normalized
+    
+    # 如果原路径有尾部斜杠且不是根路径，保留它
+    if has_trailing_slash and normalized != '/' and not normalized.endswith('/'):
+        normalized += '/'
+    
+    return normalized
+
+
+# 路径规范化映射：将不带 /v1 的路径映射到带 /v1 的路径
+# 这样用户无论是否添加 /v1 前缀都能正常使用
+PATH_NORMALIZE_MAP = {
+    "/chat/completions": "/v1/chat/completions",
+    "/completions": "/v1/completions",
+    "/models": "/v1/models",
+    "/embeddings": "/v1/embeddings",
+    "/images/generations": "/v1/images/generations",
+    "/images/edits": "/v1/images/edits",
+    "/audio/transcriptions": "/v1/audio/transcriptions",
+    "/audio/translations": "/v1/audio/translations",
+    "/audio/speech": "/v1/audio/speech",
+    "/moderations": "/v1/moderations",
+    "/edits": "/v1/edits",
+    "/rerank": "/v1/rerank",
+    "/realtime": "/v1/realtime",
+    "/messages": "/v1/messages",
+    "/responses": "/v1/responses",
+}
+
+
+def extract_api_endpoint(path: str) -> str:
+    """
+    智能提取 API 端点
+    防呆设计：无论用户在 URL 中添加什么前缀，都能正确识别并提取 API 端点
+    
+    例如：
+    - /ABC/v1/chat/completions -> /v1/chat/completions
+    - /我是奶龙/v1beta/models/gemini-pro:generateContent -> /v1beta/models/gemini-pro:generateContent
+    - /test/v1/models -> /v1/models
+    - /v1/v1beta/models/... -> /v1beta/models/... (SillyTavern 特殊处理)
+    - /chat/completions -> /v1/chat/completions (自动添加 /v1 前缀)
+    
+    Args:
+        path: 规范化后的路径
+        
+    Returns:
+        提取出的 API 端点路径
+    """
+    # 检查是否应跳过防呆处理
+    for prefix in SKIP_PREFIXES:
+        if path.startswith(prefix):
+            return path
+    
+    # 遍历所有已知的 API 端点
+    for endpoint in API_ENDPOINTS:
+        idx = path.find(endpoint)
+        if idx != -1:
+            # 找到了端点，提取从端点开始的完整路径
+            extracted = path[idx:]
+            
+            # 特殊处理：/v1/v1beta/... -> /v1beta/...
+            # 这是为了处理用户在 SillyTavern 中设置 URL 为 xxx/v1 时
+            # SillyTavern 会拼接成 /v1/v1beta/models/... 的情况
+            if extracted.startswith("/v1/v1beta/"):
+                extracted = extracted[3:]  # 移除 "/v1" 前缀
+            
+            # 路径规范化：将不带 /v1 的路径映射到带 /v1 的路径
+            # 检查是否需要规范化（只对完全匹配的情况进行映射）
+            for short_path, full_path in PATH_NORMALIZE_MAP.items():
+                if extracted == short_path or extracted.startswith(short_path + "/") or extracted.startswith(short_path + "?"):
+                    # 替换短路径为完整路径
+                    extracted = full_path + extracted[len(short_path):]
+                    break
+            
+            return extracted
+    
+    # 未找到已知端点，返回原始路径
+    return path
+
+
+def normalize_and_extract_path(path: str) -> str:
+    """
+    规范化路径并提取 API 端点
+    这是一个便捷函数，组合了 normalize_path 和 extract_api_endpoint
+    
+    Args:
+        path: 原始请求路径
+        
+    Returns:
+        规范化并提取端点后的路径
+    """
+    normalized = normalize_path(path)
+    return extract_api_endpoint(normalized)
+
+
+# ============================================================
+# 测试用例（可在开发时运行验证）
+# ============================================================
+if __name__ == "__main__":
+    test_cases = [
+        # (输入, 期望输出)
+        ("/v1/chat/completions", "/v1/chat/completions"),
+        ("/ABC/v1/chat/completions", "/v1/chat/completions"),
+        ("/我是奶龙/v1/chat/completions", "/v1/chat/completions"),
+        ("/test/abc/v1/chat/completions", "/v1/chat/completions"),
+        ("/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
+        ("/ABC/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
+        # SillyTavern 特殊情况：用户设置 URL 为 xxx/v1 时，会拼接成 /v1/v1beta/...
+        ("/v1/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
+        ("/ABC/v1/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
+        ("/v1/v1beta/models", "/v1beta/models"),
+        ("//v1/chat/completions", "/v1/chat/completions"),
+        ("///v1///chat//completions", "/v1/chat/completions"),
+        ("/v1/models", "/v1/models"),
+        ("/ABC/v1/models", "/v1/models"),
+        # 不带 /v1 前缀的 OpenAI 路径应自动添加 /v1
+        ("/chat/completions", "/v1/chat/completions"),
+        ("/models", "/v1/models"),
+        ("/ABC/chat/completions", "/v1/chat/completions"),
+        ("/ABC/models", "/v1/models"),
+        ("/api/health", "/api/health"),  # 不应被处理
+        ("/assets/js/app.js", "/assets/js/app.js"),  # 不应被处理
+        ("/unknown/path", "/unknown/path"),  # 未知路径保持不变
+    ]
+    
+    print("URL 防呆测试:")
+    print("=" * 70)
+    
+    all_passed = True
+    for input_path, expected in test_cases:
+        result = normalize_and_extract_path(input_path)
+        status = "✅" if result == expected else "❌"
+        if result != expected:
+            all_passed = False
+        print(f"{status} {input_path}")
+        print(f"   -> {result}")
+        if result != expected:
+            print(f"   期望: {expected}")
+        print()
+    
+    print("=" * 70)
+    print(f"测试结果: {'全部通过 ✅' if all_passed else '存在失败 ❌'}")

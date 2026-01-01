@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, update, delete
+from sqlalchemy import select, func, update, delete, or_
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date, timedelta
@@ -10,6 +10,7 @@ from app.models.user import User, APIKey, UsageLog, Credential
 from app.services.auth import get_current_admin, get_password_hash
 from app.services.credential_pool import CredentialPool
 from app.services.websocket import notify_user_update, notify_credential_update
+from app.services.error_classifier import ErrorType, ERROR_TYPE_NAMES, get_error_type_name
 
 router = APIRouter(prefix="/api/admin", tags=["管理后台"])
 
@@ -661,6 +662,7 @@ async def get_logs(
     username: str = None,
     model: str = None,
     status: str = None,      # success, error, all
+    error_type: str = None,  # 按错误类型筛选
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
@@ -703,6 +705,11 @@ async def get_logs(
         query = query.where(UsageLog.status_code != 200)
         count_query = count_query.where(UsageLog.status_code != 200)
     
+    # 错误类型筛选
+    if error_type:
+        query = query.where(UsageLog.error_type == error_type)
+        count_query = count_query.where(UsageLog.error_type == error_type)
+    
     # 获取总数
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
@@ -722,6 +729,10 @@ async def get_logs(
                 "model": log.UsageLog.model,
                 "endpoint": log.UsageLog.endpoint,
                 "status_code": log.UsageLog.status_code,
+                "error_type": log.UsageLog.error_type,
+                "error_type_name": get_error_type_name(log.UsageLog.error_type) if log.UsageLog.error_type else None,
+                "error_code": log.UsageLog.error_code,
+                "credential_email": log.UsageLog.credential_email,
                 "latency_ms": log.UsageLog.latency_ms,
                 "cd_seconds": log.UsageLog.cd_seconds,
                 "created_at": log.UsageLog.created_at.isoformat() + "Z"
@@ -732,6 +743,173 @@ async def get_logs(
         "page": page,
         "limit": limit,
         "pages": (total + limit - 1) // limit if limit > 0 else 1
+    }
+
+
+@router.get("/logs/{log_id}/detail")
+async def get_log_detail(
+    log_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取单条日志详情（包含完整错误信息）"""
+    result = await db.execute(
+        select(UsageLog, User.username, Credential.email.label("cred_email"))
+        .join(User, UsageLog.user_id == User.id)
+        .outerjoin(Credential, UsageLog.credential_id == Credential.id)
+        .where(UsageLog.id == log_id)
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="日志不存在")
+    
+    log = row.UsageLog
+    username = row.username
+    cred_email = row.cred_email
+    
+    return {
+        "id": log.id,
+        "username": username,
+        "credential_id": log.credential_id,
+        "credential_email": cred_email or log.credential_email,
+        "model": log.model,
+        "endpoint": log.endpoint,
+        "status_code": log.status_code,
+        "error_type": log.error_type,
+        "error_type_name": get_error_type_name(log.error_type) if log.error_type else None,
+        "error_code": log.error_code,
+        "error_message": log.error_message,  # 完整错误信息
+        "request_body": log.request_body,
+        "client_ip": log.client_ip,
+        "user_agent": log.user_agent,
+        "latency_ms": log.latency_ms,
+        "cd_seconds": log.cd_seconds,
+        "created_at": log.created_at.isoformat() + "Z"
+    }
+
+
+@router.get("/error-stats")
+async def get_error_stats(
+    days: int = 7,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """报错统计分析"""
+    start_date = date.today() - timedelta(days=days-1)
+    
+    # 1. 按错误类型统计
+    type_stats_result = await db.execute(
+        select(
+            UsageLog.error_type,
+            func.count(UsageLog.id).label("count")
+        )
+        .where(func.date(UsageLog.created_at) >= start_date)
+        .where(UsageLog.status_code != 200)
+        .where(UsageLog.error_type != None)
+        .group_by(UsageLog.error_type)
+        .order_by(func.count(UsageLog.id).desc())
+    )
+    type_stats = [
+        {
+            "type": row[0],
+            "type_name": get_error_type_name(row[0]),
+            "count": row[1]
+        }
+        for row in type_stats_result.fetchall()
+    ]
+    
+    # 2. 按凭证统计（问题凭证排行）
+    cred_stats_result = await db.execute(
+        select(
+            Credential.email,
+            Credential.id,
+            func.count(UsageLog.id).filter(UsageLog.status_code != 200).label("error_count"),
+            func.count(UsageLog.id).filter(UsageLog.status_code == 200).label("success_count")
+        )
+        .join(Credential, UsageLog.credential_id == Credential.id)
+        .where(func.date(UsageLog.created_at) >= start_date)
+        .group_by(Credential.email, Credential.id)
+        .having(func.count(UsageLog.id).filter(UsageLog.status_code != 200) > 0)
+        .order_by(func.count(UsageLog.id).filter(UsageLog.status_code != 200).desc())
+        .limit(10)
+    )
+    cred_stats = []
+    for row in cred_stats_result.fetchall():
+        total = row[2] + row[3]
+        error_rate = round(row[2] / total * 100, 1) if total > 0 else 0
+        cred_stats.append({
+            "credential_id": row[1],
+            "email": row[0],
+            "errors": row[2],
+            "successes": row[3],
+            "error_rate": error_rate
+        })
+    
+    # 3. 按状态码统计
+    code_stats_result = await db.execute(
+        select(
+            UsageLog.status_code,
+            func.count(UsageLog.id).label("count")
+        )
+        .where(func.date(UsageLog.created_at) >= start_date)
+        .where(UsageLog.status_code != 200)
+        .group_by(UsageLog.status_code)
+        .order_by(func.count(UsageLog.id).desc())
+    )
+    code_stats = [{"code": row[0], "count": row[1]} for row in code_stats_result.fetchall()]
+    
+    # 4. 按日期的错误趋势
+    daily_trend = []
+    for i in range(days-1, -1, -1):
+        day = date.today() - timedelta(days=i)
+        
+        # 当天总请求数
+        total_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(func.date(UsageLog.created_at) == day)
+        )
+        total = total_result.scalar() or 0
+        
+        # 当天错误数
+        error_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(func.date(UsageLog.created_at) == day)
+            .where(UsageLog.status_code != 200)
+        )
+        errors = error_result.scalar() or 0
+        
+        daily_trend.append({
+            "date": day.isoformat(),
+            "total": total,
+            "errors": errors,
+            "error_rate": round(errors / total * 100, 1) if total > 0 else 0
+        })
+    
+    # 5. 今日概况
+    today = date.today()
+    today_total_result = await db.execute(
+        select(func.count(UsageLog.id))
+        .where(func.date(UsageLog.created_at) == today)
+    )
+    today_total = today_total_result.scalar() or 0
+    
+    today_errors_result = await db.execute(
+        select(func.count(UsageLog.id))
+        .where(func.date(UsageLog.created_at) == today)
+        .where(UsageLog.status_code != 200)
+    )
+    today_errors = today_errors_result.scalar() or 0
+    
+    return {
+        "period_days": days,
+        "today_total": today_total,
+        "today_errors": today_errors,
+        "today_error_rate": round(today_errors / today_total * 100, 1) if today_total > 0 else 0,
+        "by_type": type_stats,
+        "by_status_code": code_stats,
+        "by_credential": cred_stats,
+        "daily_trend": daily_trend,
+        "error_types": ERROR_TYPE_NAMES  # 返回错误类型枚举供前端使用
     }
 
 

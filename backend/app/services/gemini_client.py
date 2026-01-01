@@ -261,7 +261,14 @@ class GeminiClient:
         if "top_p" in kwargs:
             generation_config["topP"] = kwargs["top_p"]
         if "top_k" in kwargs:
-            generation_config["topK"] = kwargs["top_k"]
+            top_k_value = kwargs["top_k"]
+            # 防呆设计：topK 有效范围为 1-64（Gemini CLI API 支持范围为 1 inclusive 到 65 exclusive）
+            # 当 topK 为 0 或无效值时，使用最大默认值 64；超过 64 时也锁定为 64
+            if top_k_value is not None:
+                if top_k_value < 1 or top_k_value > 64:
+                    print(f"[GeminiClient] ⚠️ topK={top_k_value} 超出有效范围(1-64)，已自动调整为 64", flush=True)
+                    top_k_value = 64
+            generation_config["topK"] = top_k_value
         
         # 默认 topK (避免某些模型问题)
         if "topK" not in generation_config:
