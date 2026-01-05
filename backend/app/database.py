@@ -3,6 +3,9 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy.pool import NullPool, QueuePool
 from app.config import settings
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 判断数据库类型
 is_sqlite = settings.database_url.startswith("sqlite")
@@ -42,7 +45,30 @@ async def get_db():
     async with async_session() as session:
         yield session
 
-async def init_db():
+async def init_db(skip_migration_check: bool = False):
+    # 自动迁移检测：如果配置了 PostgreSQL 且存在 SQLite 数据库文件，自动迁移
+    if is_postgres and not skip_migration_check:
+        sqlite_db_path = "./data/gemini_proxy.db"
+        backup_path = f"{sqlite_db_path}.bak"
+
+        # 快速检查：只有同时满足以下条件才尝试迁移
+        # 1. SQLite 文件存在
+        # 2. 备份文件不存在（说明未迁移过）
+        if os.path.exists(sqlite_db_path) and not os.path.exists(backup_path):
+            logger.info("检测到 SQLite 数据库文件，准备自动迁移到 PostgreSQL...")
+            try:
+                from app.migrate_to_postgres import auto_migrate_if_needed
+                # 传入主应用的 engine，复用连接池
+                migrated = await auto_migrate_if_needed(sqlite_db_path, engine)
+                if migrated:
+                    logger.info("数据迁移完成，继续启动服务...")
+                else:
+                    logger.info("无需迁移或迁移已完成")
+            except Exception as e:
+                logger.error(f"自动迁移失败: {e}")
+                logger.error("请检查配置或手动迁移数据")
+                raise
+
     async with engine.begin() as conn:
         # SQLite 特有优化
         if is_sqlite:
