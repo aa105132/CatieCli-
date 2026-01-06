@@ -788,6 +788,33 @@ async def get_log_detail(
     }
 
 
+@router.delete("/logs")
+async def clear_logs(
+    before_date: str = None,  # YYYY-MM-DD, 清除此日期之前的日志
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """清除使用日志（支持按日期清除或全部清除）"""
+    query = delete(UsageLog)
+    
+    if before_date:
+        try:
+            cutoff = datetime.strptime(before_date, "%Y-%m-%d")
+            query = query.where(UsageLog.created_at < cutoff)
+            result = await db.execute(query)
+            deleted_count = result.rowcount
+            await db.commit()
+            return {"message": f"已清除 {before_date} 之前的 {deleted_count} 条日志"}
+        except ValueError:
+            raise HTTPException(status_code=400, detail="日期格式无效，应为 YYYY-MM-DD")
+    else:
+        # 清除所有日志
+        result = await db.execute(query)
+        deleted_count = result.rowcount
+        await db.commit()
+        return {"message": f"已清除所有日志，共 {deleted_count} 条"}
+
+
 @router.get("/error-stats")
 async def get_error_stats(
     days: int = 7,

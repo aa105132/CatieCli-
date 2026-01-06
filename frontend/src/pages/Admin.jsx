@@ -441,6 +441,24 @@ export default function Admin() {
     }
   }
 
+  // 清除日志
+  const clearLogs = (beforeDate = null) => {
+    const message = beforeDate 
+      ? `确定要清除 ${beforeDate} 之前的所有日志吗？此操作不可恢复！`
+      : '确定要清除所有日志吗？此操作不可恢复！'
+    showConfirm('清除日志', message, async () => {
+      try {
+        const params = beforeDate ? `?before_date=${beforeDate}` : ''
+        const res = await api.delete(`/api/admin/logs${params}`)
+        showAlert('成功', res.data.message, 'success')
+        setLogPage(1)
+        fetchLogs()
+      } catch (err) {
+        showAlert('清除失败', err.response?.data?.detail || '清除日志失败', 'error')
+      }
+    }, true)
+  }
+
   // 日志筛选变化时重新获取
   useEffect(() => {
     if (tab === 'logs') {
@@ -960,9 +978,19 @@ export default function Admin() {
                   >
                     重置
                   </button>
-                  <span className="text-gray-400 text-sm ml-auto">
-                    共 {logTotal} 条记录
-                  </span>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-gray-400 text-sm">
+                      共 {logTotal} 条记录
+                    </span>
+                    <button
+                      onClick={() => clearLogs()}
+                      className="px-3 py-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 rounded-lg text-red-400 text-sm flex items-center gap-1"
+                      title="清除所有日志"
+                    >
+                      <Trash2 size={14} />
+                      清除全部
+                    </button>
+                  </div>
                 </div>
 
                 <div className="table-container">
