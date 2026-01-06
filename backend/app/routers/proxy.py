@@ -760,6 +760,11 @@ async def gemini_generate_content(
                 if gen_config["topK"] is not None and (gen_config["topK"] < 1 or gen_config["topK"] > 64):
                     print(f"[Gemini API] ⚠️ topK={gen_config['topK']} 超出有效范围(1-64)，已自动调整为 64", flush=True)
                     gen_config["topK"] = 64
+            # 防呆设计：maxOutputTokens 有效范围为 1-65536（API 支持范围为 1 inclusive 到 65537 exclusive）
+            if isinstance(gen_config, dict) and "maxOutputTokens" in gen_config:
+                if gen_config["maxOutputTokens"] is not None and (gen_config["maxOutputTokens"] < 1 or gen_config["maxOutputTokens"] > 65536):
+                    print(f"[Gemini API] ⚠️ maxOutputTokens={gen_config['maxOutputTokens']} 超出有效范围(1-65536)，已自动调整为 65536", flush=True)
+                    gen_config["maxOutputTokens"] = 65536
             request_body["generationConfig"] = gen_config
         if "systemInstruction" in body:
             request_body["systemInstruction"] = body["systemInstruction"]
@@ -946,6 +951,11 @@ async def gemini_stream_generate_content(
             if gen_config["topK"] is not None and (gen_config["topK"] < 1 or gen_config["topK"] > 64):
                 print(f"[Gemini Stream] ⚠️ topK={gen_config['topK']} 超出有效范围(1-64)，已自动调整为 64", flush=True)
                 gen_config["topK"] = 64
+        # 防呆设计：maxOutputTokens 有效范围为 1-65536（API 支持范围为 1 inclusive 到 65537 exclusive）
+        if isinstance(gen_config, dict) and "maxOutputTokens" in gen_config:
+            if gen_config["maxOutputTokens"] is not None and (gen_config["maxOutputTokens"] < 1 or gen_config["maxOutputTokens"] > 65536):
+                print(f"[Gemini Stream] ⚠️ maxOutputTokens={gen_config['maxOutputTokens']} 超出有效范围(1-65536)，已自动调整为 65536", flush=True)
+                gen_config["maxOutputTokens"] = 65536
         request_body["generationConfig"] = gen_config
     if "systemInstruction" in body:
         request_body["systemInstruction"] = body["systemInstruction"]
