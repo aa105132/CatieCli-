@@ -366,7 +366,7 @@ export default function Admin() {
     { id: 'credentials', label: '凭证池', icon: Key },
     { id: 'logs', label: '使用日志', icon: ScrollText },
     { id: 'errors', label: '报错统计', icon: AlertTriangle },
-    { id: 'settings', label: '配额设置', icon: Settings },
+    { id: 'settings', label: '系统设置', icon: Settings },
   ]
 
   // 用户管理：搜索、排序、翻页
