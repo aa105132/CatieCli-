@@ -809,6 +809,7 @@ async def gemini_generate_content(
                 print(f"[Gemini API] ❌ 错误 {response.status_code}: {error_text}", flush=True)
                 
                 # 处理凭证失败
+                cd_sec = None
                 if response.status_code in [401, 403]:
                     await CredentialPool.handle_credential_failure(db, credential.id, last_error)
                 elif response.status_code == 429:
@@ -816,14 +817,8 @@ async def gemini_generate_content(
                         db, credential.id, model, error_text, dict(response.headers)
                     )
                 
-                # 检查是否应该重试
-                should_retry = response.status_code in [429, 500, 503, 404]
-                if should_retry and retry_attempt < max_retries:
-                    print(f"[Gemini API] 🔄 切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
-                    continue
-                
-                # 不重试，记录日志并返回错误
-                latency = (time.time() - start_time) * 1000
+                # ✅ 每次尝试都记录日志（包括中间的重试）
+                attempt_latency = (time.time() - start_time) * 1000
                 error_type, error_code = classify_error_simple(response.status_code, error_text)
                 log = UsageLog(
                     user_id=user.id,
@@ -831,7 +826,8 @@ async def gemini_generate_content(
                     model=model,
                     endpoint="/v1beta/generateContent",
                     status_code=response.status_code,
-                    latency_ms=latency,
+                    latency_ms=attempt_latency,
+                    cd_seconds=cd_sec,
                     error_message=error_text[:2000],
                     error_type=error_type,
                     error_code=error_code,
@@ -842,6 +838,24 @@ async def gemini_generate_content(
                 credential.last_used_at = datetime.utcnow()
                 await db.commit()
                 
+                # WebSocket 实时通知
+                await notify_log_update({
+                    "username": user.username,
+                    "model": model,
+                    "status_code": response.status_code,
+                    "error_type": error_type,
+                    "latency_ms": round(attempt_latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                await notify_stats_update()
+                
+                # 检查是否应该重试
+                should_retry = response.status_code in [429, 500, 503, 404]
+                if should_retry and retry_attempt < max_retries:
+                    print(f"[Gemini API] 🔄 切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    continue
+                
+                # 不重试，返回错误
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"API调用失败 (已重试 {retry_attempt + 1} 次): {response.text}"
@@ -857,15 +871,9 @@ async def gemini_generate_content(
             if credential:
                 await CredentialPool.handle_credential_failure(db, credential.id, error_str)
             
-            # 检查是否应该重试
-            should_retry = any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "ECONNRESET", "ETIMEDOUT"])
-            if should_retry and retry_attempt < max_retries:
-                print(f"[Gemini API] 🔄 切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
-                continue
-            
-            # 不重试，记录日志并返回错误
+            # ✅ 每次尝试都记录日志（包括中间的重试）
             status_code = extract_status_code(error_str)
-            latency = (time.time() - start_time) * 1000
+            attempt_latency = (time.time() - start_time) * 1000
             error_type, error_code = classify_error_simple(status_code, error_str)
             log = UsageLog(
                 user_id=user.id,
@@ -873,7 +881,7 @@ async def gemini_generate_content(
                 model=model,
                 endpoint="/v1beta/generateContent",
                 status_code=status_code,
-                latency_ms=latency,
+                latency_ms=attempt_latency,
                 error_message=error_str[:2000],
                 error_type=error_type,
                 error_code=error_code,
@@ -885,6 +893,24 @@ async def gemini_generate_content(
                 credential.last_used_at = datetime.utcnow()
             await db.commit()
             
+            # WebSocket 实时通知
+            await notify_log_update({
+                "username": user.username,
+                "model": model,
+                "status_code": status_code,
+                "error_type": error_type,
+                "latency_ms": round(attempt_latency, 0),
+                "created_at": datetime.utcnow().isoformat()
+            })
+            await notify_stats_update()
+            
+            # 检查是否应该重试
+            should_retry = any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "ECONNRESET", "ETIMEDOUT"])
+            if should_retry and retry_attempt < max_retries:
+                print(f"[Gemini API] 🔄 切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                continue
+            
+            # 不重试，返回错误
             raise HTTPException(
                 status_code=status_code,
                 detail=f"API调用失败 (已重试 {retry_attempt + 1} 次): {error_str}"
@@ -1080,6 +1106,17 @@ async def gemini_stream_generate_content(
                             except Exception as db_err:
                                 print(f"[Gemini Stream] ⚠️ 处理凭证失败时出错: {db_err}", flush=True)
                             
+                            # ✅ 每次尝试都记录日志（包括中间的重试）
+                            attempt_latency = (time.time() - start_time) * 1000
+                            background_tasks.add_task(save_log_background, {
+                                "status_code": response.status_code,
+                                "error_message": error_text,
+                                "latency_ms": attempt_latency,
+                                "cd_seconds": cd_seconds,
+                                "cred_id": current_cred_id,
+                                "cred_email": current_cred_email
+                            })
+                            
                             # 检查是否应该重试
                             should_retry = response.status_code in [429, 500, 503, 404]
                             if should_retry and stream_retry < max_retries:
@@ -1105,16 +1142,7 @@ async def gemini_stream_generate_content(
                                 except Exception as retry_err:
                                     print(f"[Gemini Stream] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
                             
-                            # 无法重试，输出错误并记录日志
-                            latency = (time.time() - start_time) * 1000
-                            background_tasks.add_task(save_log_background, {
-                                "status_code": response.status_code,
-                                "error_message": error_text,
-                                "latency_ms": latency,
-                                "cd_seconds": cd_seconds,
-                                "cred_id": current_cred_id,
-                                "cred_email": current_cred_email
-                            })
+                            # 无法重试，输出错误（日志已记录）
                             yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error.decode()}'})}\n\n"
                             return
                         
@@ -1158,6 +1186,17 @@ async def gemini_stream_generate_content(
                 except Exception as db_err:
                     print(f"[Gemini Stream] ⚠️ 标记凭证失败时出错: {db_err}", flush=True)
                 
+                # ✅ 每次尝试都记录日志（包括中间的重试）
+                status_code = extract_status_code(error_str)
+                attempt_latency = (time.time() - start_time) * 1000
+                background_tasks.add_task(save_log_background, {
+                    "status_code": status_code,
+                    "error_message": error_str,
+                    "latency_ms": attempt_latency,
+                    "cred_id": current_cred_id,
+                    "cred_email": current_cred_email
+                })
+                
                 # 检查是否应该重试
                 should_retry = any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "ECONNRESET", "ETIMEDOUT"])
                 
@@ -1184,16 +1223,7 @@ async def gemini_stream_generate_content(
                     except Exception as retry_err:
                         print(f"[Gemini Stream] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
                 
-                # 无法重试，输出错误并记录日志
-                status_code = extract_status_code(error_str)
-                latency = (time.time() - start_time) * 1000
-                background_tasks.add_task(save_log_background, {
-                    "status_code": status_code,
-                    "error_message": error_str,
-                    "latency_ms": latency,
-                    "cred_id": current_cred_id,
-                    "cred_email": current_cred_email
-                })
+                # 无法重试，输出错误（日志已记录）
                 yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error_str}'})}\n\n"
                 return
     
