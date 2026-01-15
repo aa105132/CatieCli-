@@ -211,6 +211,14 @@ class AntigravityClient:
         
         print(f"[AntigravityClient] 请求: model={final_model}, project={self.project_id}", flush=True)
         print(f"[AntigravityClient] generationConfig: {normalized['request'].get('generationConfig')}", flush=True)
+        print(f"[AntigravityClient] systemInstruction parts 数量: {len(normalized['request'].get('systemInstruction', {}).get('parts', []))}", flush=True)
+        print(f"[AntigravityClient] safetySettings 数量: {len(normalized['request'].get('safetySettings', []))}", flush=True)
+        print(f"[AntigravityClient] contents 数量: {len(normalized['request'].get('contents', []))}", flush=True)
+        # 打印完整 payload 用于调试
+        import json as json_module
+        print(f"[AntigravityClient] ===== 完整 PAYLOAD =====", flush=True)
+        print(json_module.dumps(payload, ensure_ascii=False, indent=2)[:3000], flush=True)
+        print(f"[AntigravityClient] ===== END PAYLOAD =====", flush=True)
         
         # 使用更细粒度的超时配置
         timeout = httpx.Timeout(
