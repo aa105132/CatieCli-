@@ -20,6 +20,151 @@ class AntigravityClient:
         self.project_id = project_id or ""
         self.api_base = settings.antigravity_api_base
     
+    # 安全设置 (完全复制自 gcli2api src/utils.py 第47-58行)
+    DEFAULT_SAFETY_SETTINGS = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_IMAGE_HATE", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_IMAGE_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_JAILBREAK", "threshold": "BLOCK_NONE"},
+    ]
+    
+    def _normalize_antigravity_request(self, model: str, contents: list, generation_config: Dict, system_instruction: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        规范化 Antigravity 请求 (完全复制 gcli2api gemini_fix.py normalize_gemini_request antigravity 模式)
+        
+        返回: {"model": str, "request": {...}}
+        """
+        result = {"contents": contents}
+        
+        # ========== 1. 系统提示词处理 (gemini_fix.py 第186-198行) ==========
+        existing_parts = []
+        if system_instruction:
+            if isinstance(system_instruction, dict):
+                existing_parts = system_instruction.get("parts", [])
+        
+        # 可配置的系统提示词前缀
+        if settings.antigravity_system_prompt:
+            existing_parts = [{"text": settings.antigravity_system_prompt}] + existing_parts
+        
+        # 官方提示词始终放在第一位
+        result["systemInstruction"] = {
+            "parts": [{"text": self.OFFICIAL_SYSTEM_PROMPT}] + existing_parts
+        }
+        
+        # ========== 2. 思考模型处理 (gemini_fix.py 第206-254行) ==========
+        is_thinking = "think" in model.lower() or "pro" in model.lower() or "claude" in model.lower()
+        
+        if is_thinking:
+            if "thinkingConfig" not in generation_config:
+                generation_config["thinkingConfig"] = {}
+            
+            thinking_config = generation_config["thinkingConfig"]
+            if "thinkingBudget" not in thinking_config:
+                thinking_config["thinkingBudget"] = 1024
+            thinking_config["includeThoughts"] = True
+            print(f"[AntigravityClient] 已设置 thinkingConfig: thinkingBudget={thinking_config['thinkingBudget']}", flush=True)
+            
+            # Claude 模型特殊处理
+            if "claude" in model.lower():
+                # 检测是否有工具调用（MCP场景）
+                has_tool_calls = any(
+                    isinstance(content, dict) and 
+                    any(
+                        isinstance(part, dict) and ("functionCall" in part or "function_call" in part)
+                        for part in content.get("parts", [])
+                    )
+                    for content in contents
+                )
+                
+                if has_tool_calls:
+                    print(f"[AntigravityClient] 检测到工具调用（MCP场景），移除 thinkingConfig", flush=True)
+                    generation_config.pop("thinkingConfig", None)
+                else:
+                    # 非 MCP 场景：在最后一个 model 消息开头插入思考块
+                    for i in range(len(contents) - 1, -1, -1):
+                        content = contents[i]
+                        if isinstance(content, dict) and content.get("role") == "model":
+                            parts = content.get("parts", [])
+                            thinking_part = {
+                                "text": "...",
+                                "thoughtSignature": "skip_thought_signature_validator"
+                            }
+                            if not parts or not (isinstance(parts[0], dict) and ("thought" in parts[0] or "thoughtSignature" in parts[0])):
+                                content["parts"] = [thinking_part] + parts
+                                print(f"[AntigravityClient] 已插入思考块 (thoughtSignature: skip_thought_signature_validator)", flush=True)
+                            break
+        
+        # ========== 3. 模型名称映射 (gemini_fix.py 第256-274行) ==========
+        original_model = model
+        model = model.replace("-thinking", "")
+        
+        model_lower = model.lower()
+        if "opus" in model_lower:
+            model = "claude-opus-4-5-thinking"
+        elif "sonnet" in model_lower:
+            model = "claude-sonnet-4-5-thinking"
+        elif "haiku" in model_lower:
+            model = "gemini-2.5-flash"
+        elif "claude" in model_lower:
+            model = "claude-sonnet-4-5-thinking"
+        
+        if original_model != model:
+            print(f"[AntigravityClient] 模型映射: {original_model} -> {model}", flush=True)
+        
+        # ========== 4. 移除不支持的字段 (gemini_fix.py 第276-278行) ==========
+        generation_config.pop("presencePenalty", None)
+        generation_config.pop("frequencyPenalty", None)
+        
+        # ========== 5. 安全设置和参数限制 (gemini_fix.py 第280-290行) ==========
+        result["safetySettings"] = self.DEFAULT_SAFETY_SETTINGS
+        generation_config["maxOutputTokens"] = 64000
+        generation_config["topK"] = 64
+        
+        # ========== 6. Contents 清理 (gemini_fix.py 第292-342行) ==========
+        cleaned_contents = []
+        for content in contents:
+            if isinstance(content, dict) and "parts" in content:
+                valid_parts = []
+                for part in content["parts"]:
+                    if not isinstance(part, dict):
+                        continue
+                    
+                    has_valid_value = any(
+                        value not in (None, "", {}, [])
+                        for key, value in part.items()
+                        if key != "thought"
+                    )
+                    
+                    if has_valid_value:
+                        part = part.copy()
+                        if "text" in part:
+                            text_value = part["text"]
+                            if isinstance(text_value, list):
+                                part["text"] = " ".join(str(t) for t in text_value if t)
+                            elif isinstance(text_value, str):
+                                part["text"] = text_value.rstrip()
+                            else:
+                                part["text"] = str(text_value)
+                        valid_parts.append(part)
+                
+                if valid_parts:
+                    cleaned_content = content.copy()
+                    cleaned_content["parts"] = valid_parts
+                    cleaned_contents.append(cleaned_content)
+            else:
+                cleaned_contents.append(content)
+        
+        result["contents"] = cleaned_contents
+        result["generationConfig"] = generation_config
+        
+        return {"model": model, "request": result}
+    
     def _build_headers(self, model_name: str = "") -> Dict[str, str]:
         """构建 Antigravity API 请求头"""
         headers = {
@@ -46,64 +191,26 @@ class AntigravityClient:
         generation_config: Optional[Dict] = None,
         system_instruction: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """生成内容 (非流式) - 使用 Antigravity API"""
+        """生成内容 (非流式) - 使用 Antigravity API，完全复制 gcli2api 逻辑"""
         url = f"{self.api_base}/v1internal:generateContent"
         
-        headers = self._build_headers(model)
-        
-        # 构建请求体
-        request_body = {"contents": contents}
-        if generation_config:
-            request_body["generationConfig"] = generation_config
-        
-        # 系统指令处理：官方提示词 + 可配置前缀 + 用户提供的系统指令
-        final_system_parts = []
-        
-        # 1. 始终添加官方系统提示词（必须，否则 429）
-        final_system_parts.append({"text": self.OFFICIAL_SYSTEM_PROMPT})
-        
-        # 2. 添加可配置的系统提示词前缀（如果设置了）
-        if settings.antigravity_system_prompt:
-            final_system_parts.append({"text": settings.antigravity_system_prompt})
-        
-        # 3. 添加用户提供的系统指令
-        if system_instruction:
-            if "parts" in system_instruction:
-                final_system_parts.extend(system_instruction["parts"])
-            elif "text" in system_instruction:
-                final_system_parts.append({"text": system_instruction["text"]})
-        
-        # 设置 systemInstruction
-        request_body["systemInstruction"] = {"parts": final_system_parts}
-        
-        # 添加安全设置 (与 gcli2api 完全一致，使用 BLOCK_NONE，包含10个类别)
-        request_body["safetySettings"] = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_HATE", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_JAILBREAK", "threshold": "BLOCK_NONE"},
-        ]
-        # 对 Claude 模型应用思考块修复 (与 gcli2api 一致)
+        # 使用统一的规范化函数 (复制 gcli2api normalize_gemini_request)
         if generation_config is None:
             generation_config = {}
-        self._apply_claude_thinking_fix(model, contents, generation_config)
-        if generation_config:
-            request_body["generationConfig"] = generation_config
+        
+        normalized = self._normalize_antigravity_request(model, contents, generation_config, system_instruction)
+        final_model = normalized["model"]
+        
+        headers = self._build_headers(final_model)
         
         payload = {
-            "model": model,
+            "model": final_model,
             "project": self.project_id,
-            "request": request_body,
+            "request": normalized["request"],
         }
         
-        print(f"[AntigravityClient] 请求: model={model}, project={self.project_id}", flush=True)
-        print(f"[AntigravityClient] generationConfig: {generation_config}", flush=True)
+        print(f"[AntigravityClient] 请求: model={final_model}, project={self.project_id}", flush=True)
+        print(f"[AntigravityClient] generationConfig: {normalized['request'].get('generationConfig')}", flush=True)
         
         # 使用更细粒度的超时配置
         timeout = httpx.Timeout(
@@ -115,14 +222,12 @@ class AntigravityClient:
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, headers=headers, json=payload)
             
-            print(f"[AntigravityClient] 响应头: {dict(response.headers)}", flush=True)
-            
             if response.status_code != 200:
                 error_text = response.text
                 print(f"[AntigravityClient] ❌ 错误 {response.status_code}: {error_text[:500]}", flush=True)
                 raise Exception(f"API Error {response.status_code}: {error_text}")
             result = response.json()
-            print(f"[AntigravityClient] ✅ 原始响应: {json.dumps(result, ensure_ascii=False)[:1000]}", flush=True)
+            print(f"[AntigravityClient] ✅ 响应: {json.dumps(result, ensure_ascii=False)[:500]}", flush=True)
             return result
     
     async def generate_content_stream(
@@ -132,69 +237,29 @@ class AntigravityClient:
         generation_config: Optional[Dict] = None,
         system_instruction: Optional[Dict] = None
     ) -> AsyncGenerator[str, None]:
-        """生成内容 (流式) - 使用 Antigravity API"""
+        """生成内容 (流式) - 使用 Antigravity API，完全复制 gcli2api 逻辑"""
         url = f"{self.api_base}/v1internal:streamGenerateContent?alt=sse"
         
-        headers = self._build_headers(model)
-        
-        # 构建请求体
-        request_body = {"contents": contents}
-        if generation_config:
-            request_body["generationConfig"] = generation_config
-        
-        # 系统指令处理：官方提示词 + 可配置前缀 + 用户提供的系统指令
-        final_system_parts = []
-        
-        # 1. 始终添加官方系统提示词（必须，否则 429）
-        final_system_parts.append({"text": self.OFFICIAL_SYSTEM_PROMPT})
-        
-        # 2. 添加可配置的系统提示词前缀（如果设置了）
-        if settings.antigravity_system_prompt:
-            final_system_parts.append({"text": settings.antigravity_system_prompt})
-        
-        # 3. 添加用户提供的系统指令
-        if system_instruction:
-            if "parts" in system_instruction:
-                final_system_parts.extend(system_instruction["parts"])
-            elif "text" in system_instruction:
-                final_system_parts.append({"text": system_instruction["text"]})
-        
-        # 设置 systemInstruction
-        request_body["systemInstruction"] = {"parts": final_system_parts}
-        
-        # 添加安全设置 (与 gcli2api 完全一致，使用 BLOCK_NONE，包含10个类别)
-        request_body["safetySettings"] = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_HATE", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_JAILBREAK", "threshold": "BLOCK_NONE"},
-        ]
-        
-        # 对 Claude 模型应用思考块修复 (与 gcli2api 一致)
+        # 使用统一的规范化函数 (复制 gcli2api normalize_gemini_request)
         if generation_config is None:
             generation_config = {}
-        self._apply_claude_thinking_fix(model, contents, generation_config)
-        if generation_config:
-            request_body["generationConfig"] = generation_config
+        
+        normalized = self._normalize_antigravity_request(model, contents, generation_config, system_instruction)
+        final_model = normalized["model"]
+        
+        headers = self._build_headers(final_model)
         
         payload = {
-            "model": model,
+            "model": final_model,
             "project": self.project_id,
-            "request": request_body,
+            "request": normalized["request"],
         }
         
-        print(f"[AntigravityClient] 流式请求: model={model}, project={self.project_id}", flush=True)
+        print(f"[AntigravityClient] 流式请求: model={final_model}, project={self.project_id}", flush=True)
         
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST", url, headers=headers, json=payload
-            ) as response:
+        timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
                     print(f"[AntigravityClient] ❌ 流式错误 {response.status_code}: {error_text.decode()[:500]}", flush=True)
