@@ -8,8 +8,8 @@ from app.config import settings
 class AntigravityClient:
     """Antigravity API 客户端 - 使用 Google Antigravity API"""
     
-    # Antigravity User-Agent (参考 gcli2api 项目)
-    USER_AGENT = "grpc-node/1.24.11 grpc-c/42.0.0 (linux; chttp2)"
+    # Antigravity User-Agent (与 gcli2api 保持一致)
+    USER_AGENT = "antigravity/1.11.3 windows/amd64"
     
     def __init__(self, access_token: str, project_id: str = None):
         self.access_token = access_token
