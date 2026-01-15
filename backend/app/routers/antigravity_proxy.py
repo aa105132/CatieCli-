@@ -224,7 +224,7 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
         "gemini-2.5-flash",
         "gemini-3-pro-preview",
         "gemini-3-flash-preview",
-        # Claude 模型 (Antigravity 独有)
+        # Claude 模型 (Antigravity 独有) - 使用用户友好的名称
         "claude-sonnet-4-5",
         "claude-opus-4-5",
         # GPT-OSS 模型 (Antigravity 独有)
@@ -236,19 +236,21 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
     
     models = []
     for base in base_models:
+        # 基础模型
+        models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
         models.append({"id": base, "object": "model", "owned_by": "google"})
         models.append({"id": f"假流式/{base}", "object": "model", "owned_by": "google"})
         models.append({"id": f"流式抗截断/{base}", "object": "model", "owned_by": "google"})
-        # Antigravity 专用前缀
-        models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
         
-        # 思维模式变体
-        for suffix in thinking_suffixes:
-            models.append({"id": f"{base}{suffix}", "object": "model", "owned_by": "google"})
-            models.append({"id": f"agy-{base}{suffix}", "object": "model", "owned_by": "google"})
+        # 思维模式变体 (仅 Claude 和部分 Gemini)
+        if base.startswith("claude") or "pro" in base:
+            for suffix in thinking_suffixes:
+                models.append({"id": f"agy-{base}{suffix}", "object": "model", "owned_by": "google"})
+                models.append({"id": f"{base}{suffix}", "object": "model", "owned_by": "google"})
         
         # 搜索变体 (仅 Gemini)
         if base.startswith("gemini"):
+            models.append({"id": f"agy-{base}{search_suffix}", "object": "model", "owned_by": "google"})
             models.append({"id": f"{base}{search_suffix}", "object": "model", "owned_by": "google"})
     
     return {"object": "list", "data": models}
