@@ -60,6 +60,7 @@ export default function Settings() {
       formData.append('stats_quota_25pro', config.stats_quota_25pro ?? 0)
       formData.append('stats_quota_30pro', config.stats_quota_30pro ?? 0)
       formData.append('antigravity_enabled', config.antigravity_enabled)
+      formData.append('antigravity_system_prompt', config.antigravity_system_prompt || '')
       
       await api.post('/api/manage/config', formData)
       setMessage({ type: 'success', text: '配置已保存！' })
@@ -511,6 +512,23 @@ export default function Settings() {
             <p className="text-gray-500 text-sm mt-2">
               💡 Antigravity 使用沙盒 API 端点，支持动态模型列表获取
             </p>
+            
+            {/* Antigravity 系统提示词 */}
+            {config?.antigravity_enabled && (
+              <div className="mt-4 bg-gray-700/30 rounded-lg p-4">
+                <label className="block text-sm font-medium mb-2">🔧 系统提示词前缀（可选）</label>
+                <textarea
+                  value={config?.antigravity_system_prompt || ''}
+                  onChange={(e) => setConfig({ ...config, antigravity_system_prompt: e.target.value })}
+                  placeholder="留空则不添加额外系统提示词。如需绕过某些限制，可添加 Antigravity 官方提示词，例如：You are Antigravity, a powerful agentic AI coding assistant..."
+                  rows={4}
+                  className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 resize-none text-sm"
+                />
+                <p className="text-gray-500 text-xs mt-2">
+                  💡 这个提示词会自动添加到每个请求的 systemInstruction 开头
+                </p>
+              </div>
+            )}
           </div>
 
           {/* 保存按钮 */}
