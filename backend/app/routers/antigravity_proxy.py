@@ -219,14 +219,15 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                         
                         # 为图片模型添加 2k 和 4k 分辨率变体
                         if "image" in model_id.lower() and "2k" not in model_id.lower() and "4k" not in model_id.lower():
-                            # 原始 ID 的变体
+                            # 添加 2k/4k 变体
                             models.append({"id": f"{model_id}-2k", "object": "model", "owned_by": "google"})
                             models.append({"id": f"{model_id}-4k", "object": "model", "owned_by": "google"})
                             models.append({"id": f"假流式/{model_id}-2k", "object": "model", "owned_by": "google"})
                             models.append({"id": f"假流式/{model_id}-4k", "object": "model", "owned_by": "google"})
-                            # 带 agy- 前缀的变体
-                            models.append({"id": f"agy-{model_id}-2k", "object": "model", "owned_by": "google"})
-                            models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
+                            # 如果原ID没有 agy- 前缀，额外添加带前缀版本
+                            if not model_id.startswith("agy-"):
+                                models.append({"id": f"agy-{model_id}-2k", "object": "model", "owned_by": "google"})
+                                models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
                     return {"object": "list", "data": models}
             except Exception as e:
                 print(f"[Antigravity] 获取动态模型列表失败: {e}", flush=True)
