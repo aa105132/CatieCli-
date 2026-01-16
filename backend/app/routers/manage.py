@@ -1289,6 +1289,12 @@ async def get_global_stats(
         )
     )
     
+    # 配额计算专用：统计公共凭证总数（不管是否冷却），避免配额越算越少
+    public_creds_for_quota = await db.execute(
+        select(func.count(Credential.id)).where(Credential.is_public == True)
+    )
+    public_creds_quota_count = public_creds_for_quota.scalar() or 0
+    
     tier3_cred_result = await db.execute(
         select(func.count(Credential.id))
         .where(Credential.model_tier == "3")
@@ -1304,6 +1310,14 @@ async def get_global_stats(
         .where(Credential.is_public == True)
     )
     public_tier3_creds = public_tier3_result.scalar() or 0
+    
+    # 配额计算专用：公共3.0凭证总数（不管是否冷却）
+    public_tier3_for_quota = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.model_tier == "3")
+        .where(Credential.is_public == True)
+    )
+    public_tier3_quota_count = public_tier3_for_quota.scalar() or 0
     
     # 按账号类型统计凭证数量
     pro_creds_result = await db.execute(
@@ -1342,9 +1356,9 @@ async def get_global_stats(
         quota_base_count = active_count
         quota_tier3_count = tier3_creds
     else:
-        # 共享模式：基于公共池凭证计算
-        quota_base_count = public_active_count
-        quota_tier3_count = public_tier3_creds
+        # 共享模式：基于公共池凭证总数计算（不考虑冷却状态，避免配额越算越少）
+        quota_base_count = public_creds_quota_count
+        quota_tier3_count = public_tier3_quota_count
     
     # 配额计算
     total_quota_flash = quota_base_count * settings.quota_flash
