@@ -297,8 +297,8 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                 models.append({"id": f"agy-{base}{suffix}", "object": "model", "owned_by": "google"})
                 models.append({"id": f"{base}{suffix}", "object": "model", "owned_by": "google"})
         
-        # 搜索变体 (仅 Gemini)
-        if base.startswith("gemini"):
+        # 搜索变体 (Gemini 和 Claude 都支持)
+        if base.startswith("gemini") or base.startswith("claude"):
             models.append({"id": f"agy-{base}{search_suffix}", "object": "model", "owned_by": "google"})
             models.append({"id": f"{base}{search_suffix}", "object": "model", "owned_by": "google"})
     

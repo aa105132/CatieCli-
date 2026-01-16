@@ -159,6 +159,14 @@ class AntigravityClient:
         generation_config["maxOutputTokens"] = 64000
         generation_config["topK"] = 64
         
+        # ========== 5.5 搜索/联网功能 ==========
+        # 当模型名包含 -search 时，添加 googleSearch 工具
+        if "-search" in original_model.lower():
+            result["tools"] = [{"googleSearch": {}}]
+            print(f"[AntigravityClient] 已启用搜索功能 (googleSearch)", flush=True)
+            # 从模型名中移除 -search 后缀
+            model = model.replace("-search", "")
+        
         # ========== 6. Contents 清理 (gemini_fix.py 第292-342行) ==========
         cleaned_contents = []
         for content in contents:
