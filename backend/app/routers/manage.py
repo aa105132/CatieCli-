@@ -610,7 +610,11 @@ async def get_credential_quota(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取单个凭证的配额使用情况"""
+    """获取单个凭证的配额使用情况（优先从 Google API 获取实时配额）"""
+    from app.services.credential_pool import CredentialPool
+    from app.services.gemini_client import GeminiClient
+    from datetime import timedelta
+    
     # 检查凭证权限
     cred = await db.get(Credential, credential_id)
     if not cred:
@@ -618,6 +622,91 @@ async def get_credential_quota(
     if cred.user_id != user.id and not user.is_admin:
         raise HTTPException(status_code=403, detail="无权查看此凭证")
     
+    # 尝试从 Google API 获取实时配额
+    api_quota_success = False
+    api_quota_models = {}
+    
+    try:
+        access_token = await CredentialPool.get_access_token(cred, db)
+        if access_token and cred.project_id:
+            client = GeminiClient(access_token, cred.project_id)
+            quota_result = await client.fetch_quota_info()
+            
+            if quota_result.get("success"):
+                api_quota_success = True
+                # 转换模型配额数据（转换百分比和北京时间）
+                for model_id, quota_data in quota_result.get("models", {}).items():
+                    remaining = quota_data.get("remaining", 0)
+                    reset_time_raw = quota_data.get("resetTime", "")
+                    
+                    # 转换为北京时间
+                    reset_time_beijing = "N/A"
+                    if reset_time_raw:
+                        try:
+                            from datetime import datetime, timezone
+                            if reset_time_raw.endswith("Z"):
+                                utc_date = datetime.fromisoformat(reset_time_raw.replace("Z", "+00:00"))
+                            else:
+                                utc_date = datetime.fromisoformat(reset_time_raw)
+                            # 转换为北京时间 (UTC+8)
+                            beijing_date = utc_date + timedelta(hours=8)
+                            reset_time_beijing = beijing_date.strftime("%m-%d %H:%M")
+                        except Exception as e:
+                            print(f"[Quota] 解析重置时间失败: {e}", flush=True)
+                    
+                    api_quota_models[model_id] = {
+                        "remaining": round(remaining * 100, 1),  # 转换为百分比
+                        "resetTime": reset_time_beijing,
+                        "resetTimeRaw": reset_time_raw
+                    }
+    except Exception as e:
+        print(f"[Quota] 从 Google API 获取配额失败: {e}", flush=True)
+    
+    # 如果 API 获取成功，返回 API 配额
+    if api_quota_success and api_quota_models:
+        # 判断账号类型
+        is_pro = cred.account_type == "pro"
+        
+        # 计算汇总信息（基于 API 返回的模型配额）
+        flash_models = [m for m in api_quota_models.keys() if "flash" in m.lower()]
+        pro_models = [m for m in api_quota_models.keys() if "pro" in m.lower() or "gemini-3" in m.lower()]
+        
+        # 获取 Flash 和 Pro 的平均剩余比例
+        flash_remaining = 100
+        pro_remaining = 100
+        reset_time = "N/A"
+        
+        if flash_models:
+            flash_remaining = sum(api_quota_models[m]["remaining"] for m in flash_models) / len(flash_models)
+            reset_time = api_quota_models[flash_models[0]].get("resetTime", "N/A")
+        if pro_models:
+            pro_remaining = sum(api_quota_models[m]["remaining"] for m in pro_models) / len(pro_models)
+            if reset_time == "N/A":
+                reset_time = api_quota_models[pro_models[0]].get("resetTime", "N/A")
+        
+        # 返回 API 配额数据
+        return {
+            "credential_id": credential_id,
+            "credential_name": cred.name,
+            "email": cred.email,
+            "account_type": "pro" if is_pro else "free",
+            "source": "google_api",  # 标记数据来源
+            "reset_time": reset_time,
+            "flash": {
+                "percentage": round(flash_remaining, 1),
+                "note": "2.5-flash 配额"
+            },
+            "premium": {
+                "percentage": round(pro_remaining, 1),
+                "note": "2.5-pro 和 3.0 共用"
+            },
+            "models": [
+                {"model": model_id, "remaining": data["remaining"], "resetTime": data["resetTime"]}
+                for model_id, data in api_quota_models.items()
+            ]
+        }
+    
+    # ===== 降级：从本地数据库统计配额 =====
     # 获取今天的开始时间（北京时间 15:00 = UTC 07:00 重置）
     now = datetime.utcnow()
     today_7am = now.replace(hour=7, minute=0, second=0, microsecond=0)
@@ -695,20 +784,21 @@ async def get_credential_quota(
         "credential_name": cred.name,
         "email": cred.email,
         "account_type": "pro" if is_pro else "free",
+        "source": "local_usage",  # 标记数据来源（本地统计）
         "reset_time": next_reset.isoformat() + "Z",
         "flash": {
             "used": flash_used,
             "limit": flash_limit,
             "remaining": flash_remaining,
             "percentage": round(flash_percentage, 1),
-            "note": "2.5-flash 专用"
+            "note": "2.5-flash 专用 (本地统计)"
         },
         "premium": {
             "used": premium_used,
             "limit": premium_limit,
             "remaining": premium_remaining,
             "percentage": round(premium_percentage, 1),
-            "note": "2.5-pro 和 3.0 共用"
+            "note": "2.5-pro 和 3.0 共用 (本地统计)"
         },
         "models": quota_info
     }
