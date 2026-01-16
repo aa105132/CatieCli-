@@ -4,7 +4,8 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-RUN npm run build
+# 在 Docker 环境中覆盖 outDir 为 dist（因为相对路径 ../backend 在 Docker 中不存在）
+RUN npm run build -- --outDir dist
 
 # 第二阶段：构建后端
 FROM python:3.11-slim
