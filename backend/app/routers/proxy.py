@@ -253,22 +253,18 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
         for base in cli_base_models:
             # 基础模型
             models.append({"id": f"gcli-{base}", "object": "model", "owned_by": "google"})
-            models.append({"id": f"假非流/gcli-{base}", "object": "model", "owned_by": "google"})
             
             # thinking 变体
             for suffix in thinking_suffixes:
                 models.append({"id": f"gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
-                models.append({"id": f"假非流/gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
             
             # search 变体
             models.append({"id": f"gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
-            models.append({"id": f"假非流/gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
             
             # thinking + search 组合
             for suffix in thinking_suffixes:
                 combined = f"{suffix}{search_suffix}"
                 models.append({"id": f"gcli-{base}{combined}", "object": "model", "owned_by": "google"})
-                models.append({"id": f"假非流/gcli-{base}{combined}", "object": "model", "owned_by": "google"})
     
     # ===== Antigravity 模型（仅当有 Antigravity 凭证时显示）=====
     if has_agy_creds and settings.antigravity_enabled:
@@ -316,24 +312,15 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                     for model_info in api_models:
                         model_id = model_info.get("id", "")
                         if model_id and is_valid_agy_model(model_id):
-                            # 基础模型
                             models.append({"id": f"agy-{model_id}", "object": "model", "owned_by": "google"})
-                            # 假流式变体
-                            models.append({"id": f"假非流/agy-{model_id}", "object": "model", "owned_by": "google"})
-                            
                             # 为图片模型添加 2k/4k 变体
                             if "image" in model_id.lower() and "2k" not in model_id.lower() and "4k" not in model_id.lower():
                                 models.append({"id": f"agy-{model_id}-2k", "object": "model", "owned_by": "google"})
                                 models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
-                                # 假流式变体
-                                models.append({"id": f"假非流/agy-{model_id}-2k", "object": "model", "owned_by": "google"})
-                                models.append({"id": f"假非流/agy-{model_id}-4k", "object": "model", "owned_by": "google"})
                     
-                    # 强制确保图片模型变体存在
                     existing_ids = {m["id"] for m in models}
                     image_variants = [
-                        "agy-gemini-3-pro-image", "agy-gemini-3-pro-image-2k", "agy-gemini-3-pro-image-4k",
-                        "假非流/agy-gemini-3-pro-image", "假非流/agy-gemini-3-pro-image-2k", "假非流/agy-gemini-3-pro-image-4k"
+                        "agy-gemini-3-pro-image", "agy-gemini-3-pro-image-2k", "agy-gemini-3-pro-image-4k"
                     ]
                     for variant in image_variants:
                         if variant not in existing_ids:
@@ -350,7 +337,6 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
             ]
             for base in fallback_agy_models:
                 models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
-                models.append({"id": f"假非流/agy-{base}", "object": "model", "owned_by": "google"})
     
     return {"object": "list", "data": models}
 

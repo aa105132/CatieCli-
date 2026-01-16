@@ -227,7 +227,7 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                                 return True
                         return False
                     
-                    # 添加假流式和抗截断变体
+                    # 添加流式抗截断变体（假非流已自动处理，不需要单独列出）
                     models = []
                     for m in dynamic_models:
                         model_id = m.get("id", "")
@@ -235,32 +235,20 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                         if not is_valid_model(model_id):
                             continue
                         models.append({"id": model_id, "object": "model", "owned_by": "google"})
-                        models.append({"id": f"假非流/{model_id}", "object": "model", "owned_by": "google"})
                         models.append({"id": f"流式抗截断/{model_id}", "object": "model", "owned_by": "google"})
                         
-                        # 为图片模型添加 2k 和 4k 分辨率变体
                         if "image" in model_id.lower() and "2k" not in model_id.lower() and "4k" not in model_id.lower():
-                            # 添加 2k/4k 变体
                             models.append({"id": f"{model_id}-2k", "object": "model", "owned_by": "google"})
                             models.append({"id": f"{model_id}-4k", "object": "model", "owned_by": "google"})
-                            models.append({"id": f"假非流/{model_id}-2k", "object": "model", "owned_by": "google"})
-                            models.append({"id": f"假非流/{model_id}-4k", "object": "model", "owned_by": "google"})
-                            # 如果原ID没有 agy- 前缀，额外添加带前缀版本
                             if not model_id.startswith("agy-"):
                                 models.append({"id": f"agy-{model_id}-2k", "object": "model", "owned_by": "google"})
                                 models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
                     
-                    # 强制添加图片模型的 2k/4k 变体（确保它们始终存在）
                     image_variants = [
-                        # 基础模型
                         "gemini-3-pro-image", "agy-gemini-3-pro-image",
-                        # 2k 变体
                         "gemini-3-pro-image-2k", "agy-gemini-3-pro-image-2k",
-                        "假非流/gemini-3-pro-image-2k", "假非流/agy-gemini-3-pro-image-2k",
                         "流式抗截断/gemini-3-pro-image-2k", "流式抗截断/agy-gemini-3-pro-image-2k",
-                        # 4k 变体
                         "gemini-3-pro-image-4k", "agy-gemini-3-pro-image-4k",
-                        "假非流/gemini-3-pro-image-4k", "假非流/agy-gemini-3-pro-image-4k",
                         "流式抗截断/gemini-3-pro-image-4k", "流式抗截断/agy-gemini-3-pro-image-4k",
                     ]
                     existing_ids = {m["id"] for m in models}
@@ -301,7 +289,6 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
         # 基础模型
         models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
         models.append({"id": base, "object": "model", "owned_by": "google"})
-        models.append({"id": f"假非流/{base}", "object": "model", "owned_by": "google"})
         models.append({"id": f"流式抗截断/{base}", "object": "model", "owned_by": "google"})
         
         # 思维模式变体 (仅 Claude 和部分 Gemini)
