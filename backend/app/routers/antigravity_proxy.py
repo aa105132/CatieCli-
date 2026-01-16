@@ -227,6 +227,8 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
         "gemini-3-flash-preview",
         # Gemini 3.0 图片生成模型
         "gemini-3-pro-image",
+        "gemini-3-pro-image-2k",
+        "gemini-3-pro-image-4k",
         # Claude 模型 (Antigravity 独有) - 使用用户友好的名称
         "claude-sonnet-4-5",
         "claude-opus-4-5",

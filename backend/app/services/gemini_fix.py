@@ -106,7 +106,12 @@ async def normalize_gemini_request(
         # 2. 判断图片模型
         if "image" in model.lower():
             # 图片生成模型特殊处理
-            result["model"] = "gemini-3-pro-image"
+            if "2k" in model.lower():
+                result["model"] = "gemini-3-pro-image-2k"
+            elif "4k" in model.lower():
+                result["model"] = "gemini-3-pro-image-4k"
+            else:
+                result["model"] = "gemini-3-pro-image"
             result["generationConfig"] = {
                 "candidateCount": 1,
                 "imageConfig": {}
