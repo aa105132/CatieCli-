@@ -390,8 +390,8 @@ class AntigravityClient:
             **kwargs
         }
         
-        # 2. 使用 gcli2api 风格的转换器将 OpenAI 格式转换为 Gemini 格式
-        from app.services.openai2gemini import convert_openai_to_gemini_request
+        # 2. 使用 gcli2api 完整版转换器将 OpenAI 格式转换为 Gemini 格式
+        from app.services.openai2gemini_full import convert_openai_to_gemini_request
         gemini_dict = await convert_openai_to_gemini_request(openai_request)
         
         print(f"[AntigravityClient] OpenAI->Gemini 转换完成, contents数量: {len(gemini_dict.get('contents', []))}", flush=True)
@@ -421,8 +421,8 @@ class AntigravityClient:
             **kwargs
         }
         
-        # 2. 使用转换器
-        from app.services.openai2gemini import convert_openai_to_gemini_request
+        # 2. 使用完整版转换器
+        from app.services.openai2gemini_full import convert_openai_to_gemini_request
         gemini_dict = await convert_openai_to_gemini_request(openai_request)
         
         # 3. 提取字段
@@ -451,8 +451,8 @@ class AntigravityClient:
             **kwargs
         }
         
-        # 2. 使用转换器
-        from app.services.openai2gemini import convert_openai_to_gemini_request
+        # 2. 使用完整版转换器
+        from app.services.openai2gemini_full import convert_openai_to_gemini_request
         gemini_dict = await convert_openai_to_gemini_request(openai_request)
         
         # 3. 提取字段
