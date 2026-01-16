@@ -648,39 +648,96 @@ export default function AntigravityCredentials() {
               {quotaResult.success ? (
                 <>
                   {Object.keys(quotaResult.models || {}).length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {Object.entries(quotaResult.models).map(([modelId, data]) => {
-                        const remaining = data.remaining || 0
-                        const colorClass = remaining >= 80 ? 'bg-green-500' :
-                                          remaining >= 40 ? 'bg-yellow-500' :
-                                          remaining >= 20 ? 'bg-orange-500' : 'bg-red-500'
-                        return (
-                          <div key={modelId} className="bg-dark-700 rounded-lg p-3">
-                            <div className="text-xs text-gray-400 truncate mb-2" title={modelId}>
-                              {modelId}
-                            </div>
-                            <div className="flex items-center justify-between mb-1">
-                              <span className={`text-lg font-bold ${
-                                remaining >= 80 ? 'text-green-400' :
-                                remaining >= 40 ? 'text-yellow-400' :
-                                remaining >= 20 ? 'text-orange-400' : 'text-red-400'
-                              }`}>
-                                {remaining}%
-                              </span>
-                            </div>
-                            <div className="w-full bg-dark-600 rounded-full h-1.5 mb-2">
-                              <div
-                                className={`h-1.5 rounded-full ${colorClass}`}
-                                style={{ width: `${Math.min(remaining, 100)}%` }}
-                              />
-                            </div>
-                            <div className="text-[10px] text-gray-500 flex items-center gap-1">
-                              📅 {data.resetTime || 'N/A'}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
+                    (() => {
+                      // 分类模型
+                      const categorizeModel = (modelId) => {
+                        const lower = modelId.toLowerCase()
+                        if (lower.includes('claude')) return 'Claude'
+                        if (lower.includes('gemini-3') || lower.includes('3-pro') || lower.includes('3-flash')) return 'Gemini 3.0'
+                        if (lower.includes('gemini-2.5') || lower.includes('2.5-')) return 'Gemini 2.5'
+                        if (lower.includes('gpt-oss') || lower.includes('gpt_oss')) return 'GPT-OSS'
+                        // 过滤内部/测试模型
+                        if (lower.includes('chat_') || lower.includes('rev') || lower.includes('tab_') || lower.includes('uic')) return null
+                        return '其他'
+                      }
+                      
+                      const categories = {
+                        'Claude': { color: 'purple', icon: '🟣', models: [] },
+                        'Gemini 3.0': { color: 'cyan', icon: '🔵', models: [] },
+                        'Gemini 2.5': { color: 'green', icon: '🟢', models: [] },
+                        'GPT-OSS': { color: 'orange', icon: '🟠', models: [] },
+                        '其他': { color: 'gray', icon: '⚪', models: [] }
+                      }
+                      
+                      Object.entries(quotaResult.models).forEach(([modelId, data]) => {
+                        const category = categorizeModel(modelId)
+                        if (category && categories[category]) {
+                          categories[category].models.push({ modelId, data })
+                        }
+                      })
+                      
+                      const categoryColors = {
+                        'Claude': 'border-purple-500/50 bg-purple-500/10',
+                        'Gemini 3.0': 'border-cyan-500/50 bg-cyan-500/10',
+                        'Gemini 2.5': 'border-green-500/50 bg-green-500/10',
+                        'GPT-OSS': 'border-orange-500/50 bg-orange-500/10',
+                        '其他': 'border-gray-500/50 bg-gray-500/10'
+                      }
+                      
+                      return (
+                        <div className="space-y-4">
+                          {Object.entries(categories).map(([catName, catData]) => {
+                            if (catData.models.length === 0) return null
+                            return (
+                              <div key={catName} className={`rounded-lg border p-3 ${categoryColors[catName]}`}>
+                                <div className="text-sm font-medium mb-3 flex items-center gap-2">
+                                  <span>{catData.icon}</span>
+                                  <span>{catName}</span>
+                                  <span className="text-xs text-gray-400">({catData.models.length})</span>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                  {catData.models.map(({ modelId, data }) => {
+                                    const remaining = data.remaining || 0
+                                    const colorClass = remaining >= 80 ? 'bg-green-500' :
+                                                      remaining >= 40 ? 'bg-yellow-500' :
+                                                      remaining >= 20 ? 'bg-orange-500' : 'bg-red-500'
+                                    const textColor = remaining >= 80 ? 'text-green-400' :
+                                                     remaining >= 40 ? 'text-yellow-400' :
+                                                     remaining >= 20 ? 'text-orange-400' : 'text-red-400'
+                                    // 简化模型名称显示
+                                    const shortName = modelId
+                                      .replace('gemini-', '')
+                                      .replace('claude-', '')
+                                      .replace('-thinking', '')
+                                    return (
+                                      <div key={modelId} className="bg-dark-800/80 rounded p-2">
+                                        <div className="text-xs text-gray-400 truncate mb-1" title={modelId}>
+                                          {shortName}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          <span className={`text-sm font-bold ${textColor}`}>
+                                            {remaining}%
+                                          </span>
+                                          <div className="flex-1 bg-dark-600 rounded-full h-1">
+                                            <div
+                                              className={`h-1 rounded-full ${colorClass}`}
+                                              style={{ width: `${Math.min(remaining, 100)}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                        <div className="text-[9px] text-gray-500 mt-1">
+                                          📅 {data.resetTime || 'N/A'}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()
                   ) : (
                     <div className="text-center py-8 text-gray-500">
                       没有额度数据
