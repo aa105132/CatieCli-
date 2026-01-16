@@ -201,20 +201,32 @@ async def options_handler():
 
 @router.get("/v1/models")
 async def list_models(request: Request, user: User = Depends(get_user_from_api_key), db: AsyncSession = Depends(get_db)):
-    """列出可用模型 (OpenAI兼容) - 同时包含 GeminiCLI 和 Antigravity 模型
+    """列出可用模型 (OpenAI兼容) - 根据用户凭证类型显示对应模型
     
-    模型命名规则：
-    - GeminiCLI: gcli- 前缀，支持思考/搜索后缀和流式前缀
-    - Antigravity: agy- 前缀，支持流式前缀
+    规则：
+    - 有 GeminiCLI 凭证：显示 gcli- 前缀模型
+    - 有 Antigravity 凭证：显示 agy- 前缀模型
+    - 没有任何凭证：不显示任何模型
     """
     from app.models.user import Credential
     from sqlalchemy import or_
     
-    # 检查是否有可用的 GeminiCLI 3.0 凭证
-    has_cli_tier3 = await CredentialPool.has_tier3_credentials(user, db, mode="geminicli")
+    models = []
     
-    # 检查是否有可用的 Antigravity 凭证
-    has_agy_creds = await db.execute(
+    # ===== 检查用户是否有 GeminiCLI 凭证 =====
+    cli_creds_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.api_type != "antigravity")  # 非 Antigravity 就是 CLI
+        .where(Credential.is_active == True)
+        .where(or_(
+            Credential.user_id == user.id,
+            Credential.is_public == True
+        ))
+    )
+    has_cli_creds = (cli_creds_result.scalar() or 0) > 0
+    
+    # ===== 检查用户是否有 Antigravity 凭证 =====
+    agy_creds_result = await db.execute(
         select(func.count(Credential.id))
         .where(Credential.api_type == "antigravity")
         .where(Credential.is_active == True)
@@ -223,57 +235,63 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
             Credential.is_public == True
         ))
     )
-    has_antigravity = (has_agy_creds.scalar() or 0) > 0
+    has_agy_creds = (agy_creds_result.scalar() or 0) > 0
     
-    # 检查是否有可用的 Antigravity 3.0 凭证
-    has_agy_tier3 = await CredentialPool.has_tier3_credentials(user, db, mode="antigravity") if has_antigravity else False
-    
-    # 基础模型 (Gemini 2.5+)
-    base_models = [
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-    ]
-    
-    tier3_models = ["gemini-3-pro-preview", "gemini-3-flash-preview"]
-    
-    # Thinking 后缀
-    thinking_suffixes = ["-maxthinking", "-nothinking"]
-    # Search 后缀
-    search_suffix = "-search"
-    
-    models = []
-    
-    # === GeminiCLI 模型（仅 gcli- 前缀）===
-    cli_base_models = base_models.copy()
-    if has_cli_tier3:
-        cli_base_models.extend(tier3_models)
-    
-    for base in cli_base_models:
-        # 带 gcli- 前缀的基础模型（无前缀 + 假流式前缀，移除流式抗截断）
-        models.append({"id": f"gcli-{base}", "object": "model", "owned_by": "google"})
-        models.append({"id": f"假流式/gcli-{base}", "object": "model", "owned_by": "google"})
+    # ===== GeminiCLI 模型（仅当有 CLI 凭证时显示）=====
+    if has_cli_creds:
+        has_cli_tier3 = await CredentialPool.has_tier3_credentials(user, db, mode="geminicli")
         
-        # thinking 变体（gcli- 前缀）
-        for suffix in thinking_suffixes:
-            models.append({"id": f"gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
-            models.append({"id": f"假流式/gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
+        base_models = ["gemini-2.5-pro", "gemini-2.5-flash"]
+        tier3_models = ["gemini-3-pro-preview", "gemini-3-flash-preview"]
+        thinking_suffixes = ["-maxthinking", "-nothinking"]
+        search_suffix = "-search"
         
-        # search 变体（gcli- 前缀）
-        models.append({"id": f"gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
-        models.append({"id": f"假流式/gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
+        cli_base_models = base_models.copy()
+        if has_cli_tier3:
+            cli_base_models.extend(tier3_models)
         
-        # thinking + search 组合（gcli- 前缀）
-        for suffix in thinking_suffixes:
-            combined = f"{suffix}{search_suffix}"
-            models.append({"id": f"gcli-{base}{combined}", "object": "model", "owned_by": "google"})
-            models.append({"id": f"假流式/gcli-{base}{combined}", "object": "model", "owned_by": "google"})
+        for base in cli_base_models:
+            # 基础模型
+            models.append({"id": f"gcli-{base}", "object": "model", "owned_by": "google"})
+            models.append({"id": f"假流式/gcli-{base}", "object": "model", "owned_by": "google"})
+            
+            # thinking 变体
+            for suffix in thinking_suffixes:
+                models.append({"id": f"gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
+                models.append({"id": f"假流式/gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
+            
+            # search 变体
+            models.append({"id": f"gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
+            models.append({"id": f"假流式/gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
+            
+            # thinking + search 组合
+            for suffix in thinking_suffixes:
+                combined = f"{suffix}{search_suffix}"
+                models.append({"id": f"gcli-{base}{combined}", "object": "model", "owned_by": "google"})
+                models.append({"id": f"假流式/gcli-{base}{combined}", "object": "model", "owned_by": "google"})
     
-    # === Antigravity 模型（agy- 前缀，从 API 动态获取，无流式前缀和思考/搜索后缀）===
-    if has_antigravity and settings.antigravity_enabled:
-        # 尝试从 Antigravity API 动态获取模型列表
+    # ===== Antigravity 模型（仅当有 Antigravity 凭证时显示）=====
+    if has_agy_creds and settings.antigravity_enabled:
+        # 定义有效模型的过滤函数
+        def is_valid_agy_model(model_id: str) -> bool:
+            model_lower = model_id.lower()
+            # 排除条件：包含这些关键字的跳过
+            invalid_patterns = [
+                "chat_", "rev", "tab_", "uic", "test", "exp", "lite_preview",
+                "2.5", "gemini-2", "gcli-"
+            ]
+            for pattern in invalid_patterns:
+                if pattern in model_lower:
+                    return False
+            # 允许条件：必须是 gemini-3, claude, gpt 开头
+            valid_prefixes = ["gemini-3", "claude", "gpt-oss"]
+            for prefix in valid_prefixes:
+                if model_lower.startswith(prefix):
+                    return True
+            return False
+        
         try:
             from app.services.antigravity_client import AntigravityClient
-            from sqlalchemy import or_
             
             # 获取一个有效的 Antigravity 凭证
             agy_cred_result = await db.execute(
@@ -294,27 +312,34 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                     client = AntigravityClient(access_token, agy_cred.project_id)
                     api_models = await client.fetch_available_models()
                     
-                    # 添加 API 返回的模型（加上 agy- 前缀，无流式前缀）
+                    # 添加过滤后的模型
                     for model_info in api_models:
                         model_id = model_info.get("id", "")
-                        if model_id:
-                            models.append({
-                                "id": f"agy-{model_id}",
-                                "object": "model",
-                                "owned_by": "google"
-                            })
+                        if model_id and is_valid_agy_model(model_id):
+                            models.append({"id": f"agy-{model_id}", "object": "model", "owned_by": "google"})
+                            
+                            # 为图片模型添加 2k/4k 变体
+                            if "image" in model_id.lower() and "2k" not in model_id.lower() and "4k" not in model_id.lower():
+                                models.append({"id": f"agy-{model_id}-2k", "object": "model", "owned_by": "google"})
+                                models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
                     
-                    # 额外添加 claude-opus-4-5（如果 API 没返回）
-                    existing_ids = [m["id"] for m in models]
-                    if "agy-claude-opus-4-5" not in existing_ids:
-                        models.append({"id": "agy-claude-opus-4-5", "object": "model", "owned_by": "google"})
+                    # 强制确保图片模型变体存在
+                    existing_ids = {m["id"] for m in models}
+                    image_variants = [
+                        "agy-gemini-3-pro-image", "agy-gemini-3-pro-image-2k", "agy-gemini-3-pro-image-4k"
+                    ]
+                    for variant in image_variants:
+                        if variant not in existing_ids:
+                            models.append({"id": variant, "object": "model", "owned_by": "google"})
         except Exception as e:
             print(f"[Models] 获取 Antigravity 模型列表失败: {e}", flush=True)
             # 降级：使用静态模型列表
             fallback_agy_models = [
-                "gemini-2.5-flash", "gemini-2.5-pro", "gemini-3-flash", "gemini-3-pro-low",
-                "gemini-3-pro-high", "gemini-2.5-flash-thinking", "claude-opus-4-5",
-                "claude-opus-4-5-thinking", "claude-sonnet-4-5", "claude-sonnet-4-5-thinking"
+                "gemini-3-flash", "gemini-3-pro-low", "gemini-3-pro-high", "gemini-3-pro-image",
+                "gemini-3-pro-image-2k", "gemini-3-pro-image-4k",
+                "claude-opus-4-5", "claude-opus-4-5-thinking",
+                "claude-sonnet-4-5", "claude-sonnet-4-5-thinking",
+                "gpt-oss-120b-medium"
             ]
             for base in fallback_agy_models:
                 models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
