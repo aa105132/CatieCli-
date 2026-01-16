@@ -278,6 +278,9 @@ async def chat_completions(
     request_body_str = json.dumps(body, ensure_ascii=False)[:2000] if body else None
     
     model = body.get("model", "gemini-2.5-flash")
+    # 去除 agy- 前缀（用于标识 Antigravity 模型，但 API 不需要它）
+    if model.startswith("agy-"):
+        model = model[4:]  # 去掉 "agy-" 前缀
     messages = body.get("messages", [])
     stream = body.get("stream", False)
     
