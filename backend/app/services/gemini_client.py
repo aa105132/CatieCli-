@@ -142,7 +142,8 @@ class GeminiClient:
                 "error": "错误信息" (仅在失败时)
             }
         """
-        url = f"{self.INTERNAL_API_BASE}/v1internal:fetchAvailableModels"
+        # 使用 Antigravity API 端点查询配额（cloudcode-pa 不支持配额查询）
+        url = "https://antigravity.googleapis.com/v1internal:fetchAvailableModels"
         
         headers = {
             "Authorization": f"Bearer {self.access_token}",
