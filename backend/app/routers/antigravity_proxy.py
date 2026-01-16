@@ -426,6 +426,7 @@ async def chat_completions(
                 result = await client.chat_completions(
                     model=model,
                     messages=messages,
+                    server_base_url=str(request.base_url).rstrip("/"),
                     **{k: v for k, v in body.items() if k not in ["model", "messages", "stream"]}
                 )
                 
@@ -573,6 +574,7 @@ async def chat_completions(
                     async for chunk in client.chat_completions_stream(
                         model=model,
                         messages=messages,
+                        server_base_url=str(request.base_url).rstrip("/"),
                         **{k: v for k, v in body.items() if k not in ["model", "messages", "stream"]}
                     ):
                         yield chunk

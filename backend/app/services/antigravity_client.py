@@ -387,6 +387,9 @@ class AntigravityClient:
         gemini_model = self._map_model_name(model)
         print(f"[AntigravityClient] 模型名映射: {model} -> {gemini_model}", flush=True)
         
+        # 提取 server_base_url
+        server_base_url = kwargs.pop("server_base_url", None)
+
         openai_request = {
             "model": gemini_model,
             "messages": messages,
@@ -406,7 +409,7 @@ class AntigravityClient:
         
         # 4. 调用 generate_content (会在内部调用 _normalize_antigravity_request)
         result = await self.generate_content(gemini_model, contents, generation_config, system_instruction)
-        return self._convert_to_openai_response(result, model)
+        return self._convert_to_openai_response(result, model, server_base_url)
     
     async def chat_completions_stream(
         self,
@@ -418,6 +421,9 @@ class AntigravityClient:
         # 1. 构建完整的 OpenAI 请求对象
         gemini_model = self._map_model_name(model)
         
+        # 提取 server_base_url
+        server_base_url = kwargs.pop("server_base_url", None)
+
         openai_request = {
             "model": gemini_model,
             "messages": messages,
@@ -434,7 +440,7 @@ class AntigravityClient:
         system_instruction = gemini_dict.get("systemInstruction")
         
         async for chunk in self.generate_content_stream(gemini_model, contents, generation_config, system_instruction):
-            yield self._convert_to_openai_stream(chunk, model)
+            yield self._convert_to_openai_stream(chunk, model, server_base_url)
     
     async def chat_completions_fake_stream(
         self,
@@ -693,7 +699,7 @@ class AntigravityClient:
         
         return model
     
-    def _convert_to_openai_response(self, gemini_response: dict, model: str) -> dict:
+    def _convert_to_openai_response(self, gemini_response: dict, model: str, server_base_url: str = None) -> dict:
         """将Gemini响应转换为OpenAI格式"""
         content = ""
         reasoning_content = ""
@@ -721,9 +727,16 @@ class AntigravityClient:
                         if data:
                             # 保存图片到本地并获取 URL
                             from app.services.image_storage import ImageStorage
-                            image_url = ImageStorage.save_base64_image(data, mime_type)
-                            if image_url:
-                                content += f"![Generated Image]({image_url})"
+                            relative_url = ImageStorage.save_base64_image(data, mime_type)
+                            
+                            if relative_url:
+                                # 如果有 server_base_url，拼接成完整 URL
+                                if server_base_url:
+                                    final_url = f"{server_base_url}{relative_url}"
+                                else:
+                                    final_url = relative_url
+                                    
+                                content += f"![Generated Image]({final_url})"
                             else:
                                 # 回退到 data URL
                                 data_url = f"data:{mime_type};base64,{data}"
@@ -753,7 +766,7 @@ class AntigravityClient:
             }
         }
     
-    def _convert_to_openai_stream(self, chunk_data: str, model: str) -> str:
+    def _convert_to_openai_stream(self, chunk_data: str, model: str, server_base_url: str = None) -> str:
         """将Gemini流式响应转换为OpenAI SSE格式"""
         try:
             data = json.loads(chunk_data)
@@ -781,9 +794,16 @@ class AntigravityClient:
                             if data:
                                 # 保存图片到本地并获取 URL
                                 from app.services.image_storage import ImageStorage
-                                image_url = ImageStorage.save_base64_image(data, mime_type)
-                                if image_url:
-                                    content += f"![Generated Image]({image_url})"
+                                relative_url = ImageStorage.save_base64_image(data, mime_type)
+                                
+                                if relative_url:
+                                    # 如果有 server_base_url，拼接成完整 URL
+                                    if server_base_url:
+                                        final_url = f"{server_base_url}{relative_url}"
+                                    else:
+                                        final_url = relative_url
+                                        
+                                    content += f"![Generated Image]({final_url})"
                                 else:
                                     data_url = f"data:{mime_type};base64,{data}"
                                     content += f"![Generated Image]({data_url})"
