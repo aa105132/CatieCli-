@@ -120,6 +120,10 @@ class AntigravityClient:
         # ========== 4. 移除不支持的字段 (gemini_fix.py 第276-278行) ==========
         generation_config.pop("presencePenalty", None)
         generation_config.pop("frequencyPenalty", None)
+        # Claude 模型可能不支持 stopSequences
+        if "claude" in model.lower():
+            generation_config.pop("stopSequences", None)
+            print(f"[AntigravityClient] Claude 模型已移除 stopSequences", flush=True)
         
         # ========== 5. 安全设置和参数限制 (gemini_fix.py 第280-290行) ==========
         result["safetySettings"] = self.DEFAULT_SAFETY_SETTINGS
