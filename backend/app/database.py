@@ -105,6 +105,11 @@ async def init_db(skip_migration_check: bool = False):
                 "ALTER TABLE usage_logs ADD COLUMN error_type VARCHAR(50)",
                 "ALTER TABLE usage_logs ADD COLUMN error_code VARCHAR(100)",
                 "ALTER TABLE usage_logs ADD COLUMN credential_email VARCHAR(100)",
+                # Antigravity 支持（新增）
+                "ALTER TABLE credentials ADD COLUMN api_type VARCHAR(20) DEFAULT 'geminicli'",
+                "ALTER TABLE credentials ADD COLUMN credential_type VARCHAR(20) DEFAULT 'oauth'",
+                "ALTER TABLE credentials ADD COLUMN model_tier VARCHAR(20)",
+                "ALTER TABLE credentials ADD COLUMN model_cooldowns TEXT",
             ]
         else:
             # PostgreSQL 迁移（使用 IF NOT EXISTS 语法）
@@ -129,6 +134,11 @@ async def init_db(skip_migration_check: bool = False):
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS error_type VARCHAR(50)",
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS error_code VARCHAR(100)",
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS credential_email VARCHAR(100)",
+                # Antigravity 支持（新增）
+                "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS api_type VARCHAR(20) DEFAULT 'geminicli'",
+                "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS credential_type VARCHAR(20) DEFAULT 'oauth'",
+                "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS model_tier VARCHAR(20)",
+                "ALTER TABLE credentials ADD COLUMN IF NOT EXISTS model_cooldowns TEXT",
             ]
         
         for sql in migrations:
@@ -152,6 +162,8 @@ async def init_db(skip_migration_check: bool = False):
             # 错误分类索引（新增）
             "CREATE INDEX IF NOT EXISTS idx_usage_logs_error_type ON usage_logs(error_type)",
             "CREATE INDEX IF NOT EXISTS idx_usage_logs_date_error ON usage_logs(created_at, error_type)",
+            # Antigravity 索引（新增）
+            "CREATE INDEX IF NOT EXISTS idx_credentials_api_type ON credentials(api_type)",
         ]
         
         for sql in indexes:
