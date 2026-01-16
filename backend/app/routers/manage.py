@@ -625,6 +625,7 @@ async def get_credential_quota(
     # 尝试从 Google API 获取实时配额
     api_quota_success = False
     api_quota_models = {}
+    api_error_message = None
     
     try:
         access_token = await CredentialPool.get_access_token(cred, db)
@@ -643,11 +644,11 @@ async def get_credential_quota(
                     reset_time_beijing = "N/A"
                     if reset_time_raw:
                         try:
-                            from datetime import datetime, timezone
+                            from datetime import datetime as dt
                             if reset_time_raw.endswith("Z"):
-                                utc_date = datetime.fromisoformat(reset_time_raw.replace("Z", "+00:00"))
+                                utc_date = dt.fromisoformat(reset_time_raw.replace("Z", "+00:00"))
                             else:
-                                utc_date = datetime.fromisoformat(reset_time_raw)
+                                utc_date = dt.fromisoformat(reset_time_raw)
                             # 转换为北京时间 (UTC+8)
                             beijing_date = utc_date + timedelta(hours=8)
                             reset_time_beijing = beijing_date.strftime("%m-%d %H:%M")
@@ -659,8 +660,15 @@ async def get_credential_quota(
                         "resetTime": reset_time_beijing,
                         "resetTimeRaw": reset_time_raw
                     }
+            else:
+                # API 返回错误（如 403）
+                api_error_message = quota_result.get("error", "未知错误")
+                print(f"[Quota] API 配额查询失败: {api_error_message}", flush=True)
+        else:
+            api_error_message = "无法获取 access_token 或缺少 project_id"
     except Exception as e:
-        print(f"[Quota] 从 Google API 获取配额失败: {e}", flush=True)
+        api_error_message = str(e)
+        print(f"[Quota] 从 Google API 获取配额异常: {e}", flush=True)
     
     # 如果 API 获取成功，返回 API 配额
     if api_quota_success and api_quota_models:
@@ -705,6 +713,17 @@ async def get_credential_quota(
                 for model_id, data in api_quota_models.items()
             ]
         }
+    
+    # API 失败，返回错误提示（GeminiCLI 凭证不支持实时配额查询）
+    return {
+        "credential_id": credential_id,
+        "credential_name": cred.name,
+        "email": cred.email,
+        "account_type": cred.account_type or "free",
+        "source": "error",
+        "error": f"GeminiCLI 凭证暂不支持实时配额查询 ({api_error_message})",
+        "note": "GeminiCLI 的 OAuth 凭证没有权限访问配额接口，请使用 Antigravity 凭证查询配额"
+    }
     
     # ===== 降级：从本地数据库统计配额 =====
     # 获取今天的开始时间（北京时间 15:00 = UTC 07:00 重置）
