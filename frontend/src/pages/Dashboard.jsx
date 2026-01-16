@@ -338,12 +338,15 @@ export default function Dashboard() {
                 <Users size={16} />
                 用户
               </Link>
-              <Link to="/antigravity-credentials" className="text-orange-400 hover:text-orange-300 flex items-center gap-1 text-sm whitespace-nowrap">
-                <Rocket size={16} />
-                Antigravity
-              </Link>
             </div>
           )}
+          {/* Antigravity 入口 - 所有用户可见 */}
+          <div className={`flex items-center gap-4 ${user?.is_admin ? 'mt-2' : 'mt-3 pt-3 border-t border-dark-700'}`}>
+            <Link to="/antigravity-credentials" className="text-orange-400 hover:text-orange-300 flex items-center gap-1 text-sm whitespace-nowrap">
+              <Rocket size={16} />
+              Antigravity 凭证
+            </Link>
+          </div>
         </div>
       </nav>
 
