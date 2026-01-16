@@ -558,9 +558,136 @@ async def chat_completions(
         
         raise HTTPException(status_code=503, detail=f"所有凭证都失败了: {last_error}")
     
-    # 假流式模式：即使 stream=false，也强制使用流式返回
+    # 假非流模式：以流式调用 API，收集完整响应后返回普通 JSON
+    # 适用于：前端强制非流式（stream=false），但反重力 API 需要流式调用
+    async def handle_fake_non_stream():
+        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error
+        
+        for retry_attempt in range(max_retries + 1):
+            try:
+                # 以流式方式调用 API，收集所有响应块
+                full_content = ""
+                reasoning_content = ""
+                
+                async for chunk in client.chat_completions_stream(
+                    model=model,
+                    messages=messages,
+                    server_base_url=str(request.base_url).rstrip("/"),
+                    **{k: v for k, v in body.items() if k not in ["model", "messages", "stream"]}
+                ):
+                    # 解析流式响应块，提取内容
+                    if chunk.startswith("data: "):
+                        chunk_data = chunk[6:]
+                        if chunk_data.strip() == "[DONE]":
+                            continue
+                        try:
+                            chunk_json = json.loads(chunk_data)
+                            if "choices" in chunk_json and chunk_json["choices"]:
+                                delta = chunk_json["choices"][0].get("delta", {})
+                                if "content" in delta:
+                                    full_content += delta["content"]
+                                if "reasoning_content" in delta:
+                                    reasoning_content += delta["reasoning_content"]
+                        except json.JSONDecodeError:
+                            pass
+                
+                # 构建普通 JSON 响应
+                latency = (time.time() - start_time) * 1000
+                
+                placeholder_log.credential_id = credential.id
+                placeholder_log.status_code = 200
+                placeholder_log.latency_ms = latency
+                placeholder_log.credential_email = credential.email
+                placeholder_log.retry_count = retry_attempt
+                await db.commit()
+                
+                credential.total_requests = (credential.total_requests or 0) + 1
+                credential.last_used_at = datetime.utcnow()
+                await db.commit()
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity/{model}",
+                    "status_code": 200,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                await notify_stats_update()
+                
+                # 返回普通 JSON 格式
+                message = {"role": "assistant", "content": full_content}
+                if reasoning_content:
+                    message["reasoning_content"] = reasoning_content
+                
+                result = {
+                    "id": "chatcmpl-antigravity",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "message": message,
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0
+                    }
+                }
+                return JSONResponse(content=result)
+                
+            except Exception as e:
+                error_str = str(e)
+                await CredentialPool.handle_credential_failure(db, credential.id, error_str)
+                last_error = error_str
+                
+                should_retry = any(code in error_str for code in ["404", "500", "502", "503", "504", "429", "RESOURCE_EXHAUSTED", "NOT_FOUND"])
+                
+                if should_retry and retry_attempt < max_retries:
+                    print(f"[Antigravity Proxy] ⚠️ 假非流请求失败: {error_str}，切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    
+                    credential = await CredentialPool.get_available_credential(
+                        db, user_id=user.id, user_has_public_creds=user_has_public,
+                        model=model, exclude_ids=tried_credential_ids,
+                        mode="antigravity"
+                    )
+                    if not credential:
+                        break
+                    
+                    tried_credential_ids.add(credential.id)
+                    access_token, project_id = await CredentialPool.get_access_token_and_project(credential, db, mode="antigravity")
+                    if not access_token or not project_id:
+                        continue
+                    client = AntigravityClient(access_token, project_id)
+                    print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
+                    continue
+                
+                status_code = extract_status_code(error_str)
+                latency = (time.time() - start_time) * 1000
+                error_type, error_code = classify_error_simple(status_code, error_str)
+                
+                placeholder_log.credential_id = credential.id
+                placeholder_log.status_code = status_code
+                placeholder_log.latency_ms = latency
+                placeholder_log.error_message = error_str[:2000]
+                placeholder_log.error_type = error_type
+                placeholder_log.error_code = error_code
+                placeholder_log.credential_email = credential.email
+                placeholder_log.request_body = request_body_str
+                placeholder_log.retry_count = retry_attempt
+                await db.commit()
+                
+                raise HTTPException(status_code=status_code, detail=f"Antigravity 假非流调用失败 (已重试 {retry_attempt + 1} 次): {error_str}")
+        
+        raise HTTPException(status_code=503, detail=f"所有凭证都失败了: {last_error}")
+    
+    # 路由逻辑：
+    # 1. 假非流模式（假流式/前缀）：以流式调用 API，返回普通 JSON
+    # 2. 普通非流式：直接调用非流式 API
+    # 3. 普通流式：调用流式 API
     if use_fake_streaming:
-        stream = True
+        return await handle_fake_non_stream()
     
     if not stream:
         return await handle_non_stream()
