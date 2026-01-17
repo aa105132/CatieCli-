@@ -1105,14 +1105,16 @@ export default function Admin() {
                 </div>
 
                 {/* 凭证筛选 */}
-                <div className="flex flex-wrap items-center gap-4 bg-dark-800 rounded-xl p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 bg-dark-800 rounded-xl p-3 sm:p-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-400 text-sm">类型:</span>
-                    <div className="flex gap-1">
+                    <span className="text-gray-400 text-xs sm:text-sm whitespace-nowrap">
+                      类型:
+                    </span>
+                    <div className="flex gap-1 flex-wrap">
                       {[
                         { value: "all", label: "全部" },
                         { value: "geminicli", label: "CLI" },
-                        { value: "antigravity", label: "Antigravity" },
+                        { value: "antigravity", label: "反重力" },
                       ].map((opt) => (
                         <button
                           key={opt.value}
@@ -1120,7 +1122,7 @@ export default function Admin() {
                             setCredTypeFilter(opt.value);
                             setCredPage(1);
                           }}
-                          className={`px-3 py-1 rounded text-sm ${
+                          className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
                             credTypeFilter === opt.value
                               ? "bg-purple-600 text-white"
                               : "bg-dark-700 text-gray-400 hover:bg-dark-600"
@@ -1132,7 +1134,9 @@ export default function Admin() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-400 text-sm">状态:</span>
+                    <span className="text-gray-400 text-xs sm:text-sm whitespace-nowrap">
+                      状态:
+                    </span>
                     <div className="flex gap-1">
                       {[
                         { value: "all", label: "全部" },
@@ -1145,7 +1149,7 @@ export default function Admin() {
                             setCredStatusFilter(opt.value);
                             setCredPage(1);
                           }}
-                          className={`px-3 py-1 rounded text-sm ${
+                          className={`px-2 sm:px-3 py-1 rounded text-xs sm:text-sm ${
                             credStatusFilter === opt.value
                               ? opt.value === "active"
                                 ? "bg-green-600 text-white"
@@ -1160,7 +1164,7 @@ export default function Admin() {
                       ))}
                     </div>
                   </div>
-                  <span className="text-gray-500 text-sm ml-auto">
+                  <span className="text-gray-500 text-xs sm:text-sm sm:ml-auto">
                     {(() => {
                       const filtered = credentials.filter((c) => {
                         if (credTypeFilter === "geminicli") {
@@ -1174,7 +1178,7 @@ export default function Admin() {
                           return false;
                         return true;
                       });
-                      return `显示 ${filtered.length} / ${credentials.length} 个凭证`;
+                      return `显示 ${filtered.length} / ${credentials.length}`;
                     })()}
                   </span>
                 </div>
