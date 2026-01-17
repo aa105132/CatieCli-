@@ -174,6 +174,8 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
 
 @router.options("/v1/chat/completions")
 @router.options("/v1/models")
+@router.options("/chat/completions")
+@router.options("/models")
 async def options_handler():
     """处理 CORS 预检请求"""
     return JSONResponse(content={}, headers={
@@ -184,6 +186,7 @@ async def options_handler():
 
 
 @router.get("/v1/models")
+@router.get("/models")
 async def list_models(request: Request, user: User = Depends(get_user_from_api_key), db: AsyncSession = Depends(get_db)):
     """列出可用模型 (OpenAI兼容) - Antigravity"""
     from app.models.user import Credential
@@ -318,6 +321,7 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
 
 
 @router.post("/v1/chat/completions")
+@router.post("/chat/completions")
 async def chat_completions(
     request: Request,
     background_tasks: BackgroundTasks,
