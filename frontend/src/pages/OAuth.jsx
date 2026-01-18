@@ -328,6 +328,27 @@ export default function OAuth() {
           </div>
         )}
 
+        {/* 说明提示 */}
+        <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <Cat className="w-6 h-6 text-purple-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-purple-400 font-semibold mb-1">
+                GeminiCLI 凭证获取
+              </h3>
+              <p className="text-purple-300/80 text-sm">
+                GeminiCLI 凭证与 Antigravity 凭证是独立的，使用不同的 OAuth
+                配置。 即使您已有 Antigravity 凭证，也需要单独获取 GeminiCLI
+                凭证才能使用{" "}
+                <code className="bg-dark-800 px-1 rounded">
+                  /v1/chat/completions
+                </code>{" "}
+                端点。
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* 步骤 1: 登录并授权 */}
         <div className="card p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
