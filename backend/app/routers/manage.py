@@ -1050,6 +1050,7 @@ async def get_config(user: User = Depends(get_current_admin)):
         "anthropic_quota_contributor": settings.anthropic_quota_contributor,
         "anthropic_base_rpm": settings.anthropic_base_rpm,
         "anthropic_contributor_rpm": settings.anthropic_contributor_rpm,
+        "stats_timezone": settings.stats_timezone,
     }
 
 
