@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import api from "./api";
 import Announcement from "./components/Announcement";
 import Admin from "./pages/Admin";
+import AnthropicCredentials from "./pages/AnthropicCredentials";
 import AntigravityCredentials from "./pages/AntigravityCredentials";
 import AntigravityOAuth from "./pages/AntigravityOAuth";
 import Credentials from "./pages/Credentials";
