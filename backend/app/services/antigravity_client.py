@@ -379,6 +379,8 @@ class AntigravityClient:
     
     async def fetch_quota_info(self) -> Dict[str, Any]:
         """获取配额信息"""
+        from datetime import datetime, timezone
+        
         url = f"{self.api_base}/v1internal:fetchAvailableModels"
         
         headers = self._build_headers()
@@ -400,6 +402,7 @@ class AntigravityClient:
                     data = response.json()
                     print(f"[AntigravityClient] fetch_quota_info 响应内容: {json.dumps(data, ensure_ascii=False)[:800]}", flush=True)
                     quota_info = {}
+                    min_reset_days = None  # 用于判断账号类型
                     
                     if 'models' in data and isinstance(data['models'], dict):
                         for model_id, model_data in data['models'].items():
@@ -408,13 +411,40 @@ class AntigravityClient:
                                 remaining = quota.get('remainingFraction', 0)
                                 reset_time = quota.get('resetTime', '')
                                 
+                                # 计算距离重置的天数
+                                reset_days = None
+                                if reset_time:
+                                    try:
+                                        # 解析 ISO 格式时间: 2025-01-25T00:00:00.000Z
+                                        reset_dt = datetime.fromisoformat(reset_time.replace('Z', '+00:00'))
+                                        now = datetime.now(timezone.utc)
+                                        delta = reset_dt - now
+                                        reset_days = max(0, delta.days)
+                                        
+                                        # 记录最小重置天数
+                                        if min_reset_days is None or reset_days < min_reset_days:
+                                            min_reset_days = reset_days
+                                    except Exception as e:
+                                        print(f"[AntigravityClient] 解析 resetTime 失败: {reset_time}, {e}", flush=True)
+                                
                                 quota_info[model_id] = {
                                     "remaining": remaining,
-                                    "resetTime": reset_time
+                                    "resetTime": reset_time,
+                                    "resetDays": reset_days
                                 }
                     
-                    print(f"[AntigravityClient] fetch_quota_info 解析到 {len(quota_info)} 个模型配额", flush=True)
-                    return {"success": True, "models": quota_info}
+                    # 判断账号类型: PRO 号重置周期 <= 1 天，普通号 7 天
+                    is_pro = min_reset_days is not None and min_reset_days <= 1
+                    account_tier = "pro" if is_pro else "normal"
+                    
+                    print(f"[AntigravityClient] fetch_quota_info 解析到 {len(quota_info)} 个模型配额, min_reset_days={min_reset_days}, tier={account_tier}", flush=True)
+                    return {
+                        "success": True, 
+                        "models": quota_info,
+                        "minResetDays": min_reset_days,
+                        "accountTier": account_tier,
+                        "isPro": is_pro
+                    }
                 else:
                     error_text = response.text[:500]
                     print(f"[AntigravityClient] fetch_quota_info 失败: {response.status_code} - {error_text}", flush=True)

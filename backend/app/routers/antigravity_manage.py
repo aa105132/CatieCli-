@@ -406,6 +406,7 @@ async def verify_my_antigravity_credential(
 ):
     """验证我的 Antigravity 凭证有效性并更新 project_id"""
     import httpx
+    from app.services.antigravity_client import AntigravityClient
     
     try:
         result = await db.execute(
@@ -447,6 +448,8 @@ async def verify_my_antigravity_credential(
         # 测试 API 是否可用
         is_valid = False
         error_msg = None
+        account_tier = None
+        min_reset_days = None
         
         if cred.project_id:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -466,6 +469,21 @@ async def verify_my_antigravity_credential(
                     resp = await client.post(test_url, headers=headers, json=test_payload)
                     if resp.status_code in [200, 429]:
                         is_valid = True
+                        
+                        # 获取配额信息判断账号类型 (PRO/Normal)
+                        try:
+                            antigravity_client = AntigravityClient(
+                                access_token=access_token,
+                                project_id=cred.project_id
+                            )
+                            quota_info = await antigravity_client.fetch_quota_info()
+                            if quota_info.get("success"):
+                                account_tier = quota_info.get("accountTier", "normal")
+                                min_reset_days = quota_info.get("minResetDays")
+                                print(f"[Antigravity检测] 账号类型: {account_tier}, 重置天数: {min_reset_days}", flush=True)
+                        except Exception as qe:
+                            print(f"[Antigravity检测] 获取账号类型失败: {qe}", flush=True)
+                        
                     elif resp.status_code in [401, 403]:
                         error_msg = f"认证失败 ({resp.status_code})"
                     else:
@@ -478,12 +496,24 @@ async def verify_my_antigravity_credential(
         # 更新凭证状态
         cred.is_active = is_valid
         cred.last_error = error_msg if error_msg else None
+        
+        # 保存账号类型到 remark (在原有 remark 前加 [PRO] 或 [Normal] 标记)
+        if account_tier and is_valid:
+            tier_tag = f"[{account_tier.upper()}]"
+            current_remark = cred.remark or ""
+            # 移除旧的类型标记
+            import re
+            current_remark = re.sub(r'\[(PRO|NORMAL)\]\s*', '', current_remark).strip()
+            cred.remark = f"{tier_tag} {current_remark}".strip() if current_remark else tier_tag
+        
         await db.commit()
         
         return {
             "is_valid": is_valid,
             "project_id": cred.project_id,
-            "error": error_msg
+            "error": error_msg,
+            "accountTier": account_tier,
+            "minResetDays": min_reset_days
         }
     except Exception as e:
         print(f"[Antigravity检测] 严重异常: {e}", flush=True)

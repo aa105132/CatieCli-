@@ -574,6 +574,18 @@ export default function AntigravityCredentials() {
                           🚀 Antigravity
                         </span>
 
+                        {/* PRO/Normal 标签 */}
+                        {cred.remark?.includes("[PRO]") && (
+                          <span className="text-xs px-2.5 py-1 bg-yellow-500/20 text-yellow-400 rounded font-medium">
+                            ⭐ PRO
+                          </span>
+                        )}
+                        {cred.remark?.includes("[NORMAL]") && (
+                          <span className="text-xs px-2.5 py-1 bg-gray-500/20 text-gray-400 rounded font-medium">
+                            普通号
+                          </span>
+                        )}
+
                         {/* 公开状态 */}
                         {cred.is_public && (
                           <span className="text-xs px-2.5 py-1 border border-purple-500 text-purple-400 rounded font-medium">
