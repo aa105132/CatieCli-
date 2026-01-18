@@ -11,7 +11,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models.user import User, Credential
-from app.routers.auth import get_current_user, get_current_admin
+from app.services.auth import get_current_user, get_current_admin
 from app.config import settings
 
 
