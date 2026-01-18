@@ -920,8 +920,32 @@ export default function Settings() {
                     rows={15}
                     className="w-full bg-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono text-sm"
                   />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfig({ ...config, tutorial_content: "" })
+                      }
+                      className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/40 text-red-300 rounded-lg text-sm transition-colors"
+                    >
+                      🗑️ 清空教程
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfig({
+                          ...config,
+                          tutorial_content: "",
+                        })
+                      }
+                      className="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-300 rounded-lg text-sm transition-colors"
+                    >
+                      📥 使用内置默认教程
+                    </button>
+                  </div>
                   <p className="text-gray-500 text-sm mt-1">
-                    支持 #标题、##二级标题、###三级标题、- 列表、1. 数字列表
+                    支持 #标题、##二级标题、###三级标题、- 列表、1.
+                    数字列表。留空则使用内置默认教程。
                   </p>
                 </div>
                 <div className="flex items-center justify-between mt-4 p-3 bg-gray-800 rounded-lg">
