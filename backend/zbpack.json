@@ -1,6 +1,6 @@
 {
   "zbpack": "python",
   "build_command": "pip install -r requirements.txt",
-  "start_command": "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}",
+  "start_command": "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --limit-concurrency 50",
   "serverless": false
 }
