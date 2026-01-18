@@ -1,0 +1,26 @@
+# Render Blueprint - CatieCli
+# 一键部署: https://render.com/deploy?repo=https://github.com/mzrodyu/CatieCli
+
+services:
+  - type: web
+    name: catiecli
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    envVars:
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEFAULT_DAILY_QUOTA
+        value: '100'
+      - key: ALLOW_REGISTRATION
+        value: 'true'
+      - key: PORT
+        value: '8080'
+    disk:
+      name: catiecli-data
+      mountPath: /app/data
+      sizeGB: 1
