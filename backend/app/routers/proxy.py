@@ -326,13 +326,11 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                         if variant not in existing_ids:
                             models.append({"id": variant, "object": "model", "owned_by": "google"})
                     
-                    # 强制添加不带 -thinking 后缀的 Claude 基础模型和 -search 变体
+                    # 强制添加不带 -thinking 后缀的 Claude 基础模型
+                    # search 变体已移除 - 反重力API不支持联网搜索
                     claude_model_variants = [
                         # 基础模型（不带后缀）
                         "agy-claude-opus-4-5", "agy-claude-sonnet-4-5",
-                        # 联网搜索变体
-                        "agy-claude-opus-4-5-search", "agy-claude-sonnet-4-5-search",
-                        "agy-claude-opus-4-5-thinking-search", "agy-claude-sonnet-4-5-thinking-search",
                     ]
                     existing_ids = {m["id"] for m in models}
                     for variant in claude_model_variants:
