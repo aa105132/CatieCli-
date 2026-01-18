@@ -290,21 +290,22 @@ export default function AntigravityCredentials() {
 
       {/* 导航栏 */}
       <nav className="bg-dark-900 border-b border-dark-700">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Cat className="w-8 h-8 text-purple-400" />
-            <span className="text-xl font-bold">Catiecli</span>
-            <span className="text-sm text-orange-400 bg-orange-500/20 px-2 py-0.5 rounded flex items-center gap-1">
-              <Rocket size={14} />
-              Antigravity 凭证
+        <div className="max-w-4xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Cat className="w-6 h-6 sm:w-8 sm:h-8 text-purple-400" />
+            <span className="hidden sm:inline text-xl font-bold">Catiecli</span>
+            <span className="text-xs sm:text-sm text-orange-400 bg-orange-500/20 px-1.5 sm:px-2 py-0.5 rounded flex items-center gap-1">
+              <Rocket size={12} className="sm:hidden" />
+              <Rocket size={14} className="hidden sm:block" />
+              <span className="hidden sm:inline">Antigravity</span> 凭证
             </span>
           </div>
           <Link
             to="/dashboard"
-            className="text-gray-400 hover:text-white flex items-center gap-2"
+            className="text-gray-400 hover:text-white flex items-center gap-1 sm:gap-2 text-sm"
           >
-            <ArrowLeft size={20} />
-            返回
+            <ArrowLeft size={18} />
+            <span className="hidden xs:inline">返回</span>
           </Link>
         </div>
       </nav>
@@ -482,13 +483,13 @@ export default function AntigravityCredentials() {
         </div>
 
         {/* 凭证列表 */}
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Shield className="text-orange-400" />
+        <div className="card p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <h2 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+              <Shield className="text-orange-400" size={20} />
               我的 Antigravity 凭证 ({credentials.length})
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               {credentials.some((c) => !c.is_active) && (
                 <button
                   onClick={deleteAllInactive}
@@ -500,20 +501,20 @@ export default function AntigravityCredentials() {
               )}
               <Link
                 to="/antigravity-oauth"
-                className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded text-xs font-medium flex items-center gap-1"
+                className="px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded text-xs font-medium flex items-center gap-1"
               >
-                <ExternalLink size={14} />
-                获取新凭证
+                <ExternalLink size={12} />
+                <span className="hidden xs:inline">获取</span>新凭证
               </Link>
               <button
                 onClick={() => {
                   fetchCredentials();
                   fetchStats();
                 }}
-                className="text-gray-400 hover:text-white p-2"
+                className="text-gray-400 hover:text-white p-1.5 sm:p-2"
                 title="刷新"
               >
-                <RefreshCw size={18} />
+                <RefreshCw size={16} />
               </button>
             </div>
           </div>
@@ -549,46 +550,48 @@ export default function AntigravityCredentials() {
                       : "bg-dark-900 border-dark-700 opacity-60"
                   }`}
                 >
-                  <div className="flex items-center justify-between">
+                  {/* 移动端垂直布局，桌面端水平布局 */}
+                  <div className="flex flex-col gap-3">
+                    {/* 凭证信息区 */}
                     <div className="flex-1 min-w-0">
                       {/* 凭证名称 */}
-                      <div className="text-gray-400 italic mb-2 truncate">
+                      <div className="text-gray-400 italic mb-2 truncate text-sm">
                         {cred.email || cred.name}
                       </div>
 
                       {/* 状态标签行 */}
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                         {/* 启用状态 */}
                         {cred.is_active ? (
-                          <span className="text-xs px-2.5 py-1 bg-green-600 text-white rounded font-medium">
+                          <span className="text-xs px-2 py-0.5 bg-green-600 text-white rounded font-medium">
                             有效
                           </span>
                         ) : (
-                          <span className="text-xs px-2.5 py-1 bg-red-600 text-white rounded font-medium">
+                          <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded font-medium">
                             ❌ 已失效
                           </span>
                         )}
 
                         {/* Antigravity 标签 */}
-                        <span className="text-xs px-2.5 py-1 bg-orange-500/20 text-orange-400 rounded font-medium">
+                        <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded font-medium">
                           🚀 Antigravity
                         </span>
 
                         {/* PRO/Normal 标签 */}
                         {cred.remark?.includes("[PRO]") && (
-                          <span className="text-xs px-2.5 py-1 bg-yellow-500/20 text-yellow-400 rounded font-medium">
+                          <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded font-medium">
                             ⭐ PRO
                           </span>
                         )}
                         {cred.remark?.includes("[NORMAL]") && (
-                          <span className="text-xs px-2.5 py-1 bg-gray-500/20 text-gray-400 rounded font-medium">
+                          <span className="text-xs px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded font-medium">
                             普通号
                           </span>
                         )}
 
                         {/* 公开状态 */}
                         {cred.is_public && (
-                          <span className="text-xs px-2.5 py-1 border border-purple-500 text-purple-400 rounded font-medium">
+                          <span className="text-xs px-2 py-0.5 border border-purple-500 text-purple-400 rounded font-medium">
                             已公开
                           </span>
                         )}
@@ -610,11 +613,12 @@ export default function AntigravityCredentials() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 ml-4 flex-wrap">
+                    {/* 操作按钮区 - 移动端使用网格布局 */}
+                    <div className="grid grid-cols-3 sm:grid-cols-4 md:flex md:flex-wrap gap-1.5 md:gap-2">
                       {/* 启用/禁用 */}
                       <button
                         onClick={() => toggleActive(cred.id, cred.is_active)}
-                        className={`px-3 py-1.5 rounded text-xs font-medium ${
+                        className={`px-2 py-1.5 rounded text-xs font-medium text-center ${
                           cred.is_active
                             ? "bg-amber-600 hover:bg-amber-500 text-white"
                             : "bg-green-600 hover:bg-green-500 text-white"
@@ -629,7 +633,7 @@ export default function AntigravityCredentials() {
                           verifyCred(cred.id, cred.email || cred.name)
                         }
                         disabled={verifying === cred.id}
-                        className="px-3 py-1.5 rounded text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
                       >
                         {verifying === cred.id ? (
                           <RefreshCw size={12} className="animate-spin" />
@@ -645,7 +649,7 @@ export default function AntigravityCredentials() {
                           refreshProjectId(cred.id, cred.email || cred.name)
                         }
                         disabled={verifying === cred.id}
-                        className="px-3 py-1.5 rounded text-xs font-medium bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50 flex items-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
                         title="重新获取 Project ID"
                       >
                         <RefreshCw size={12} />
@@ -658,7 +662,7 @@ export default function AntigravityCredentials() {
                           fetchQuota(cred.id, cred.email || cred.name)
                         }
                         disabled={loadingQuota === cred.id || !cred.is_active}
-                        className="px-3 py-1.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 flex items-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
                         title={
                           !cred.is_active
                             ? "凭证无效，无法查询额度"
@@ -676,7 +680,7 @@ export default function AntigravityCredentials() {
                       {/* 导出 */}
                       <button
                         onClick={() => showExportModal(cred.id, cred.email)}
-                        className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center gap-1"
                       >
                         <Download size={12} />
                         导出
@@ -691,7 +695,7 @@ export default function AntigravityCredentials() {
                             ? "请先检测凭证有效后再设为公开"
                             : ""
                         }
-                        className={`px-3 py-1.5 rounded text-xs font-medium ${
+                        className={`px-2 py-1.5 rounded text-xs font-medium text-center ${
                           cred.is_public
                             ? "bg-gray-600 hover:bg-gray-500 text-white"
                             : !cred.is_active
@@ -705,7 +709,7 @@ export default function AntigravityCredentials() {
                       {/* 删除 */}
                       <button
                         onClick={() => deleteCred(cred.id)}
-                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded"
+                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded flex items-center justify-center"
                         title="删除"
                       >
                         <Trash2 size={16} />
