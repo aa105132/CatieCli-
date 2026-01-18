@@ -160,23 +160,31 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     )
     pro30_usage = pro30_result.scalar() or 0
     
-    # 按 Provider 分类统计（Claude / Gemini / 其他）
+    # 按 Provider 分类统计（Claude / Gemini / 其他）—— 仅统计 AGY 端点的请求
     from sqlalchemy import or_, and_
     
-    # Claude 使用量
+    # AGY 端点条件（用于所有 AGY Provider 统计）
+    agy_endpoint_condition = or_(
+        UsageLog.endpoint.ilike('%/agy/%'),
+        UsageLog.endpoint.ilike('%/antigravity/%')
+    )
+    
+    # AGY Claude 使用量（仅 AGY 端点 + Claude 模型）
     claude_result = await db.execute(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user.id)
         .where(UsageLog.created_at >= start_of_day)
+        .where(agy_endpoint_condition)
         .where(UsageLog.model.ilike('%claude%'))
     )
     claude_usage = claude_result.scalar() or 0
     
-    # Gemini 使用量（包含 gemini 或常见 Gemini 模型名）
+    # AGY Gemini 使用量（仅 AGY 端点 + Gemini 模型）
     gemini_result = await db.execute(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user.id)
         .where(UsageLog.created_at >= start_of_day)
+        .where(agy_endpoint_condition)
         .where(or_(
             UsageLog.model.ilike('%gemini%'),
             UsageLog.model.ilike('%flash%'),
@@ -187,8 +195,19 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     )
     gemini_usage = gemini_result.scalar() or 0
     
-    # 其他使用量
-    other_usage = max(0, today_usage - claude_usage - gemini_usage)
+    # AGY 其他使用量（仅 AGY 端点 + 非 Claude/Gemini）
+    agy_other_result = await db.execute(
+        select(func.count(UsageLog.id))
+        .where(UsageLog.user_id == user.id)
+        .where(UsageLog.created_at >= start_of_day)
+        .where(agy_endpoint_condition)
+        .where(UsageLog.model.notilike('%claude%'))
+        .where(UsageLog.model.notilike('%gemini%'))
+        .where(UsageLog.model.notilike('%flash%'))
+        .where(UsageLog.model.notilike('%pro%'))
+        .where(UsageLog.model.notilike('%agy-%'))
+    )
+    other_usage = agy_other_result.scalar() or 0
     
     # 按 API 类型分类（CLI vs Antigravity）
     # Antigravity 请求通过 /agy/ 或 /antigravity/ 端点
