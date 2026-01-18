@@ -869,11 +869,11 @@ async def get_stats_overview(
     )
     active_credentials = active_cred_result.scalar() or 0
     
-    # CLI 凭证（api_type 为空或 None）
+    # CLI 凭证（api_type 为空、None 或 'geminicli'）
     cli_cred_result = await db.execute(
         select(func.count(Credential.id))
         .where(Credential.is_active == True)
-        .where((Credential.api_type == None) | (Credential.api_type == ""))
+        .where((Credential.api_type == None) | (Credential.api_type == "") | (Credential.api_type == "geminicli"))
     )
     cli_credentials = cli_cred_result.scalar() or 0
     
