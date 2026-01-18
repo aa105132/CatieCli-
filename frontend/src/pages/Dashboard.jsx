@@ -624,8 +624,8 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* 按 Provider 分类统计 + CLI vs AGY 总览 */}
-            <div className="grid md:grid-cols-4 gap-4 mb-6">
+            {/* 按 Provider 分类统计 */}
+            <div className="grid md:grid-cols-3 gap-4 mb-6">
               {/* Claude */}
               <div className="bg-gradient-to-br from-amber-900/30 to-amber-800/10 border border-amber-700/30 rounded-xl p-4">
                 <div className="text-center">
@@ -664,29 +664,21 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* CLI vs AGY 合并框 */}
-              <div className="bg-gradient-to-br from-purple-900/30 to-purple-800/10 border border-purple-700/30 rounded-xl p-4">
-                <div className="text-center">
-                  <div className="text-sm text-purple-400 mb-1 font-medium">
-                    API 调用
-                  </div>
-                  <div className="flex items-center justify-center gap-3">
-                    <div className="text-center">
-                      <div className="text-lg font-bold text-blue-400">
-                        {userInfo?.usage_by_api_type?.cli || 0}
-                      </div>
-                      <div className="text-xs text-gray-500">CLI</div>
-                    </div>
-                    <div className="text-gray-600">/</div>
-                    <div className="text-center">
-                      <div className="text-lg font-bold text-orange-400">
-                        {userInfo?.usage_by_api_type?.antigravity || 0}
-                      </div>
-                      <div className="text-xs text-gray-500">AGY</div>
-                    </div>
-                  </div>
+            {/* CLI vs AGY 调用 */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-blue-400">
+                  {userInfo?.usage_by_api_type?.cli || 0}
                 </div>
+                <div className="text-xs text-gray-400 mt-1">🖥️ CLI 调用</div>
+              </div>
+              <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-4 text-center">
+                <div className="text-2xl font-bold text-orange-400">
+                  {userInfo?.usage_by_api_type?.antigravity || 0}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">🚀 AGY 调用</div>
               </div>
             </div>
 
