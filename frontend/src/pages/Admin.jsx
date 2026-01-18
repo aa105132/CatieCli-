@@ -922,7 +922,7 @@ export default function Admin() {
                           </td>
                           <td className="text-gray-400 text-sm">
                             {u.created_at
-                              ? new Date(u.created_at).toLocaleDateString()
+                              ? new Date(u.created_at).toLocaleString()
                               : "-"}
                           </td>
                           <td>
