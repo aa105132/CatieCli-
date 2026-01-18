@@ -64,10 +64,10 @@ GET /models
 
 > ⚠️ **重要提示：示例中的占位符必须替换成你自己的值！**
 >
-> | 占位符 | 需要替换成 | 在哪获取 |
-> |--------|-----------|---------|
+> | 占位符                  | 需要替换成     | 在哪获取                                    |
+> | ----------------------- | -------------- | ------------------------------------------- |
 > | `http://localhost:5001` | 你的服务器地址 | 部署时确定（如 `https://api.你的域名.com`） |
-> | `cat-your-api-key` | 你的 API Key | 登录后台 → 仪表盘 → 复制 API Key |
+> | `cat-your-api-key`      | 你的 API Key   | 登录后台 → 仪表盘 → 复制 API Key            |
 
 **OpenAI 格式：**
 
@@ -116,9 +116,13 @@ CatieCli/
 
 ## 🚀 部署教程
 
-### ☁️ Zeabur 一键部署（最简单）
+### ☁️ 一键部署（最简单）
 
+**Zeabur：**
 [![Deploy on Zeabur](https://zeabur.com/button.svg)](https://zeabur.com/templates/NWD8X9)
+
+**Render：**
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mzrodyu/CatieCli)
 
 <details>
 <summary><strong>📖 详细步骤</strong>（点击展开）</summary>
