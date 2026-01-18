@@ -123,12 +123,16 @@ export default function Tutorial() {
 
         {/* 底部按钮 */}
         <div className="mt-6 text-center">
-          <Link
-            to="/"
+          <button
+            onClick={() => {
+              // 标记已阅读教程
+              localStorage.setItem("hasReadTutorial", "true");
+              navigate("/");
+            }}
             className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium"
           >
             我已阅读，开始使用
-          </Link>
+          </button>
         </div>
       </main>
     </div>

@@ -115,6 +115,7 @@ class Settings(BaseSettings):
     # 内置教程页面
     tutorial_enabled: bool = False     # 是否启用内置教程页面
     tutorial_content: str = ""         # 教程内容（支持Markdown）
+    tutorial_force_first_visit: bool = False  # 首次访问强制查看教程
     
     # Google OAuth (Gemini CLI 官方配置)
     google_client_id: str = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
@@ -202,6 +203,7 @@ PERSISTENT_CONFIG_KEYS = [
     "help_link_text",
     "tutorial_enabled",
     "tutorial_content",
+    "tutorial_force_first_visit",
 ]
 
 

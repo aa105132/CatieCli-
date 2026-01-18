@@ -1043,6 +1043,7 @@ async def get_config(user: User = Depends(get_current_admin)):
         "help_link_text": settings.help_link_text,
         "tutorial_enabled": settings.tutorial_enabled,
         "tutorial_content": settings.tutorial_content,
+        "tutorial_force_first_visit": settings.tutorial_force_first_visit,
     }
 
 
@@ -1076,6 +1077,7 @@ async def get_public_config():
         "help_link_url": settings.help_link_url,
         "help_link_text": settings.help_link_text,
         "tutorial_enabled": settings.tutorial_enabled,
+        "tutorial_force_first_visit": settings.tutorial_force_first_visit,
     }
 
 
@@ -1139,6 +1141,7 @@ async def update_config(
     help_link_text: Optional[str] = Form(None),
     tutorial_enabled: Optional[bool] = Form(None),
     tutorial_content: Optional[str] = Form(None),
+    tutorial_force_first_visit: Optional[bool] = Form(None),
     user: User = Depends(get_current_admin)
 ):
     """更新配置（持久化保存到数据库）"""
@@ -1346,6 +1349,10 @@ async def update_config(
         settings.tutorial_content = tutorial_content
         await save_config_to_db("tutorial_content", tutorial_content)
         updated["tutorial_content"] = tutorial_content
+    if tutorial_force_first_visit is not None:
+        settings.tutorial_force_first_visit = tutorial_force_first_visit
+        await save_config_to_db("tutorial_force_first_visit", tutorial_force_first_visit)
+        updated["tutorial_force_first_visit"] = tutorial_force_first_visit
     
     return {"message": "配置已保存", "updated": updated}
 

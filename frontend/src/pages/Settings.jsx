@@ -103,6 +103,10 @@ export default function Settings() {
       formData.append("help_link_text", config.help_link_text || "使用教程");
       formData.append("tutorial_enabled", config.tutorial_enabled ?? false);
       formData.append("tutorial_content", config.tutorial_content || "");
+      formData.append(
+        "tutorial_force_first_visit",
+        config.tutorial_force_first_visit ?? false,
+      );
 
       await api.post("/api/manage/config", formData);
       setMessage({ type: "success", text: "配置已保存！" });
@@ -908,6 +912,28 @@ export default function Settings() {
                   <p className="text-gray-500 text-sm mt-1">
                     支持 #标题、##二级标题、###三级标题、- 列表、1. 数字列表
                   </p>
+                </div>
+                <div className="flex items-center justify-between mt-4 p-3 bg-gray-800 rounded-lg">
+                  <div>
+                    <span className="font-medium">首次访问强制查看</span>
+                    <p className="text-gray-500 text-sm">
+                      新用户首次登录必须先看完教程才能使用其他功能
+                    </p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={config?.tutorial_force_first_visit || false}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          tutorial_force_first_visit: e.target.checked,
+                        })
+                      }
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                  </label>
                 </div>
               </div>
             )}

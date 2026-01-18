@@ -147,6 +147,20 @@ export default function Dashboard() {
       .then(([meRes, statsRes, configRes]) => {
         if (meRes?.data) setUserInfo(meRes.data);
         if (statsRes?.data) setStats(statsRes.data);
+
+        // 检查首次访问强制跳转教程
+        if (
+          configRes?.data?.tutorial_enabled &&
+          configRes?.data?.tutorial_force_first_visit
+        ) {
+          const hasReadTutorial = localStorage.getItem("hasReadTutorial");
+          if (!hasReadTutorial) {
+            // 首次访问，强制跳转教程页面
+            window.location.href = "/tutorial";
+            return;
+          }
+        }
+
         // 优先使用内置教程，其次使用外链
         if (configRes?.data?.tutorial_enabled) {
           // 内置教程
