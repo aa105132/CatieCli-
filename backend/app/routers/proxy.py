@@ -1043,13 +1043,6 @@ async def gemini_generate_content(
     if model.startswith("gcli-"):
         model = model[5:]
     
-    # 移除流式前缀（假流/假非流/流式抗截断），发送到 API 的模型名不能包含这些前缀
-    stream_prefixes = ["假流/", "假非流/", "流式抗截断/"]
-    for prefix in stream_prefixes:
-        if model.startswith(prefix):
-            model = model[len(prefix):]
-            break
-    
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
     
