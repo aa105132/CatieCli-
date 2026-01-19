@@ -198,10 +198,20 @@ async def gemini_generate_content(
     for retry_attempt in range(max_retries + 1):
         try:
             async with client._get_client() as http_client:
-                url = f"{client.api_base}/generateContent"
+                url = client.get_generate_url()
+                headers = client.get_headers(real_model)
+                
+                # 构建完整的请求 payload
+                payload = {
+                    "model": api_request.get("model", real_model),
+                    "project": project_id,
+                    "request": api_request.get("request", api_request)
+                }
+                
                 response = await http_client.post(
                     url,
-                    json=api_request,
+                    headers=headers,
+                    json=payload,
                     timeout=300.0
                 )
                 
@@ -376,10 +386,20 @@ async def gemini_stream_generate_content(
         for retry_attempt in range(max_retries + 1):
             try:
                 async with client._get_client() as http_client:
-                    url = f"{client.api_base}/generateContent"
+                    url = client.get_generate_url()
+                    headers = client.get_headers(real_model)
+                    
+                    # 构建完整的请求 payload
+                    payload = {
+                        "model": api_request.get("model", real_model),
+                        "project": project_id,
+                        "request": api_request.get("request", api_request)
+                    }
+                    
                     response = await http_client.post(
                         url,
-                        json=api_request,
+                        headers=headers,
+                        json=payload,
                         timeout=300.0
                     )
                     
@@ -457,11 +477,21 @@ async def gemini_stream_generate_content(
         for retry_attempt in range(max_retries + 1):
             try:
                 async with client._get_client() as http_client:
-                    url = f"{client.api_base}/streamGenerateContent"
+                    url = client.get_stream_url()
+                    headers = client.get_headers(real_model)
+                    
+                    # 构建完整的请求 payload
+                    payload = {
+                        "model": api_request.get("model", real_model),
+                        "project": project_id,
+                        "request": api_request.get("request", api_request)
+                    }
+                    
                     async with http_client.stream(
                         "POST",
                         url,
-                        json=api_request,
+                        headers=headers,
+                        json=payload,
                         timeout=300.0
                     ) as response:
                         if response.status_code != 200:

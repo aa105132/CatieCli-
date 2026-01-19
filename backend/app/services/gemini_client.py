@@ -449,9 +449,16 @@ class GeminiClient:
     
     def _map_model_name(self, model: str) -> str:
         """映射模型名称"""
-        # 移除前缀（假非流/流式抗截断）
-        prefixes = ["假非流/", "流式抗截断/"]
-        for prefix in prefixes:
+        # 移除流式前缀（假非流/流式抗截断）
+        stream_prefixes = ["假非流/", "流式抗截断/", "fake-stream/", "anti-truncation/"]
+        for prefix in stream_prefixes:
+            if model.startswith(prefix):
+                model = model[len(prefix):]
+                break
+        
+        # 移除 API 前缀（gcli-/agy-）
+        api_prefixes = ["gcli-", "agy-"]
+        for prefix in api_prefixes:
             if model.startswith(prefix):
                 model = model[len(prefix):]
                 break
