@@ -134,11 +134,19 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     )
     today_usage = result.scalar() or 0
     
-    # 按模型分类统计今日使用量
+    # 按模型分类统计今日使用量 —— 仅统计非 AGY 端点的请求（CLI 端点）
+    # 先定义 AGY 端点排除条件
+    from sqlalchemy import or_, and_
+    cli_endpoint_condition = and_(
+        UsageLog.endpoint.notilike('%/agy/%'),
+        UsageLog.endpoint.notilike('%/antigravity/%')
+    )
+    
     flash_result = await db.execute(
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user.id)
         .where(UsageLog.created_at >= start_of_day)
+        .where(cli_endpoint_condition)  # 只统计 CLI 端点
         .where(UsageLog.model.notlike('%pro%'))
     )
     flash_usage = flash_result.scalar() or 0
@@ -147,6 +155,7 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user.id)
         .where(UsageLog.created_at >= start_of_day)
+        .where(cli_endpoint_condition)  # 只统计 CLI 端点
         .where(UsageLog.model.like('%pro%'))
         .where(UsageLog.model.notlike('%3%'))
     )
@@ -157,6 +166,7 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
         select(func.count(UsageLog.id))
         .where(UsageLog.user_id == user.id)
         .where(UsageLog.created_at >= start_of_day)
+        .where(cli_endpoint_condition)  # 只统计 CLI 端点
         .where(UsageLog.model.like('%3%'))
         .where(UsageLog.model.notlike('%3-flash%'))  # 排除 gemini-3-flash
         .where(UsageLog.model.notlike('%3flash%'))   # 排除没有连字符的变体
@@ -164,7 +174,6 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     pro30_usage = pro30_result.scalar() or 0
     
     # 按 Provider 分类统计（Claude / Gemini / 其他）—— 仅统计 AGY 端点的请求
-    from sqlalchemy import or_, and_
     
     # AGY 端点条件（用于所有 AGY Provider 统计）
     agy_endpoint_condition = or_(
