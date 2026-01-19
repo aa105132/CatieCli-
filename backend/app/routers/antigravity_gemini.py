@@ -179,14 +179,12 @@ async def gemini_generate_content(
         await db.commit()
         raise HTTPException(status_code=503, detail="Token 刷新失败或无 project_id")
     
-    # 规范化请求
-    body["model"] = real_model
+    # 规范化请求 - 使用与 AntigravityClient.generate_content 相同的逻辑
+    body["model"] = model  # 保留完整模型名（含 -high/-low 等后缀）用于 thinking 配置
     try:
         normalized_request = await normalize_gemini_request(body, mode="antigravity")
-        api_request = {
-            "model": normalized_request.pop("model", real_model),
-            "request": normalized_request
-        }
+        # normalized_request 中包含处理后的 model（可能被映射）
+        final_model = normalized_request.pop("model", real_model)
     except Exception as e:
         placeholder_log.status_code = 400
         placeholder_log.error_message = str(e)[:2000]
@@ -195,25 +193,84 @@ async def gemini_generate_content(
     
     client = AntigravityClient(access_token, project_id)
     
+    # Antigravity 最佳实践：非流式请求使用流式获取数据，最终返回非流式格式的JSON（更快）
     for retry_attempt in range(max_retries + 1):
         try:
             async with client._get_client() as http_client:
-                url = f"{client.api_base}/generateContent"
-                response = await http_client.post(
+                # 使用流式端点获取数据
+                url = client.get_stream_url()
+                headers = client.get_headers(final_model)
+                
+                payload = {
+                    "model": final_model,
+                    "project": project_id,
+                    "request": normalized_request
+                }
+                
+                print(f"[AntigravityGemini] 非流式请求(使用流式获取) - model: {final_model}, url: {url}", flush=True)
+                
+                # 收集所有流式数据块
+                collected_candidates = []
+                usage_metadata = None
+                model_version = None
+                
+                async with http_client.stream(
+                    "POST",
                     url,
-                    json=api_request,
+                    headers=headers,
+                    json=payload,
                     timeout=300.0
-                )
-                
-                if response.status_code != 200:
-                    error_text = response.text
-                    raise Exception(f"API Error {response.status_code}: {error_text}")
-                
-                gemini_response = response.json()
+                ) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        raise Exception(f"API Error {response.status_code}: {error_text.decode()}")
+                    
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            json_str = line[6:].strip()
+                            if json_str == "[DONE]":
+                                continue
+                            
+                            try:
+                                data = json.loads(json_str)
+                                # 解包装 response 字段
+                                if "response" in data and "candidates" not in data:
+                                    data = data["response"]
+                                
+                                # 收集 candidates
+                                if "candidates" in data:
+                                    for candidate in data["candidates"]:
+                                        idx = candidate.get("index", 0)
+                                        # 扩展 collected_candidates 列表
+                                        while len(collected_candidates) <= idx:
+                                            collected_candidates.append({"index": len(collected_candidates), "content": {"role": "model", "parts": []}})
+                                        
+                                        # 合并 content.parts
+                                        if "content" in candidate and "parts" in candidate["content"]:
+                                            collected_candidates[idx]["content"]["parts"].extend(candidate["content"]["parts"])
+                                        
+                                        # 更新 finishReason
+                                        if "finishReason" in candidate:
+                                            collected_candidates[idx]["finishReason"] = candidate["finishReason"]
+                                
+                                # 收集 usageMetadata
+                                if "usageMetadata" in data:
+                                    usage_metadata = data["usageMetadata"]
+                                
+                                # 收集 modelVersion
+                                if "modelVersion" in data:
+                                    model_version = data["modelVersion"]
+                            except:
+                                pass
             
-            # 解包装 response 字段
-            if "response" in gemini_response:
-                gemini_response = gemini_response["response"]
+            # 构建最终的非流式响应
+            gemini_response = {
+                "candidates": collected_candidates
+            }
+            if usage_metadata:
+                gemini_response["usageMetadata"] = usage_metadata
+            if model_version:
+                gemini_response["modelVersion"] = model_version
             
             latency = (time.time() - start_time) * 1000
             placeholder_log.credential_id = credential.id
@@ -349,14 +406,11 @@ async def gemini_stream_generate_content(
         await db.commit()
         raise HTTPException(status_code=503, detail="Token 刷新失败或无 project_id")
     
-    # 规范化请求
-    body["model"] = real_model
+    # 规范化请求 - 使用与 AntigravityClient.generate_content 相同的逻辑
+    body["model"] = model  # 保留完整模型名（含 -high/-low 等后缀）用于 thinking 配置
     try:
         normalized_request = await normalize_gemini_request(body, mode="antigravity")
-        api_request = {
-            "model": normalized_request.pop("model", real_model),
-            "request": normalized_request
-        }
+        final_model = normalized_request.pop("model", real_model)
     except Exception as e:
         placeholder_log.status_code = 400
         placeholder_log.error_message = str(e)[:2000]
@@ -376,10 +430,20 @@ async def gemini_stream_generate_content(
         for retry_attempt in range(max_retries + 1):
             try:
                 async with client._get_client() as http_client:
-                    url = f"{client.api_base}/generateContent"
+                    url = client.get_generate_url()
+                    headers = client.get_headers(final_model)
+                    
+                    # 构建完整的请求 payload
+                    payload = {
+                        "model": final_model,
+                        "project": project_id,
+                        "request": normalized_request
+                    }
+                    
                     response = await http_client.post(
                         url,
-                        json=api_request,
+                        headers=headers,
+                        json=payload,
                         timeout=300.0
                     )
                     
@@ -457,11 +521,23 @@ async def gemini_stream_generate_content(
         for retry_attempt in range(max_retries + 1):
             try:
                 async with client._get_client() as http_client:
-                    url = f"{client.api_base}/streamGenerateContent"
+                    url = client.get_stream_url()
+                    headers = client.get_headers(final_model)
+                    
+                    # 构建完整的请求 payload
+                    payload = {
+                        "model": final_model,
+                        "project": project_id,
+                        "request": normalized_request
+                    }
+                    
+                    print(f"[AntigravityGemini] 流式请求 - model: {final_model}, url: {url}", flush=True)
+                    
                     async with http_client.stream(
                         "POST",
                         url,
-                        json=api_request,
+                        headers=headers,
+                        json=payload,
                         timeout=300.0
                     ) as response:
                         if response.status_code != 200:

@@ -271,16 +271,19 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
         # 定义有效模型的过滤函数
         def is_valid_agy_model(model_id: str) -> bool:
             model_lower = model_id.lower()
-            # 排除条件：包含这些关键字的跳过
+            # 排除条件：包含这些关键字的跳过（内部测试模型）
             invalid_patterns = [
                 "chat_", "rev", "tab_", "uic", "test", "exp", "lite_preview",
-                "2.5", "gemini-2", "gcli-"
+                "gcli-"  # gcli- 前缀是 GeminiCLI 模型，不是 Antigravity
             ]
             for pattern in invalid_patterns:
                 if pattern in model_lower:
                     return False
-            # 允许条件：必须是 gemini-3, claude, gpt 开头
-            valid_prefixes = ["gemini-3", "claude", "gpt-oss"]
+            # 排除 gemini-2.5-pro（Antigravity 有问题）
+            if "gemini-2.5-pro" in model_lower or "gemini-2.5pro" in model_lower:
+                return False
+            # 允许条件：gemini, claude, gpt 开头的模型
+            valid_prefixes = ["gemini", "claude", "gpt-oss"]
             for prefix in valid_prefixes:
                 if model_lower.startswith(prefix):
                     return True
@@ -319,6 +322,8 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                                 models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
                     
                     existing_ids = {m["id"] for m in models}
+                    
+                    # 强制添加图片模型变体
                     image_variants = [
                         "agy-gemini-3-pro-image", "agy-gemini-3-pro-image-2k", "agy-gemini-3-pro-image-4k"
                     ]
@@ -326,11 +331,10 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                         if variant not in existing_ids:
                             models.append({"id": variant, "object": "model", "owned_by": "google"})
                     
-                    # 强制添加不带 -thinking 后缀的 Claude 基础模型
-                    # search 变体已移除 - 反重力API不支持联网搜索
+                    # 强制添加 Claude 模型（基础 + thinking 变体）
                     claude_model_variants = [
-                        # 基础模型（不带后缀）
-                        "agy-claude-opus-4-5", "agy-claude-sonnet-4-5",
+                        "agy-claude-opus-4-5", "agy-claude-opus-4-5-thinking",
+                        "agy-claude-sonnet-4-5", "agy-claude-sonnet-4-5-thinking",
                     ]
                     existing_ids = {m["id"] for m in models}
                     for variant in claude_model_variants:
@@ -338,10 +342,11 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                             models.append({"id": variant, "object": "model", "owned_by": "google"})
                             print(f"[Models] ✅ 强制添加 Claude 模型变体: {variant}", flush=True)
                     
-                    # 强制添加 Gemini 2.5 系列模型（反重力API动态列表可能不包含）
+                    # 强制添加 Gemini 2.5 系列模型（API 动态列表可能不包含）
+                    # 注意：不添加 gemini-2.5-pro，因为 Antigravity 有问题
                     gemini_25_variants = [
-                        "agy-gemini-2.5-flash", "agy-gemini-2.5-flash-lite", 
-                        "agy-gemini-2.5-pro", "agy-gemini-2.5-flash-thinking",
+                        "agy-gemini-2.5-flash", "agy-gemini-2.5-flash-lite",
+                        "agy-gemini-2.5-flash-thinking",
                     ]
                     existing_ids = {m["id"] for m in models}
                     for variant in gemini_25_variants:
@@ -351,11 +356,17 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
         except Exception as e:
             print(f"[Models] 获取 Antigravity 模型列表失败: {e}", flush=True)
             # 降级：使用静态模型列表
+            # 注意：不添加 gemini-2.5-pro，因为 Antigravity 有问题
             fallback_agy_models = [
-                "gemini-3-flash", "gemini-3-pro-low", "gemini-3-pro-high", "gemini-3-pro-image",
-                "gemini-3-pro-image-2k", "gemini-3-pro-image-4k",
+                # Gemini 2.5 系列（不含 gemini-2.5-pro）
+                "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-thinking",
+                # Gemini 3 系列
+                "gemini-3-flash", "gemini-3-pro-low", "gemini-3-pro-high",
+                "gemini-3-pro-image", "gemini-3-pro-image-2k", "gemini-3-pro-image-4k",
+                # Claude 系列
                 "claude-opus-4-5", "claude-opus-4-5-thinking",
                 "claude-sonnet-4-5", "claude-sonnet-4-5-thinking",
+                # GPT-OSS
                 "gpt-oss-120b-medium"
             ]
             for base in fallback_agy_models:
@@ -822,26 +833,164 @@ async def gemini_options_handler(model: str):
 
 @router.get("/v1beta/models")
 async def list_gemini_models(request: Request, user: User = Depends(get_user_from_api_key), db: AsyncSession = Depends(get_db)):
-    """Gemini 格式模型列表"""
-    # 检查是否有可用的 3.0 凭证
-    has_tier3 = await CredentialPool.has_tier3_credentials(user, db)
+    """Gemini 格式模型列表 - 动态获取，带渠道前缀（gcli-/agy-）
     
-    base_models = ["gemini-2.5-pro", "gemini-2.5-flash"]
-    if has_tier3:
-        base_models.append("gemini-3-pro-preview")
-        base_models.append("gemini-3-flash-preview")
+    规则：
+    - GeminiCLI 模型：gcli- 前缀，包含假流式变体
+    - Antigravity 模型：agy- 前缀，仅 gemini 系列
+    """
+    from app.models.user import Credential
+    from sqlalchemy import or_
     
     models = []
-    for base in base_models:
-        models.append({
-            "name": f"models/{base}",
+    
+    def make_gemini_model(model_id: str):
+        """构建 Gemini 格式的模型对象"""
+        return {
+            "name": f"models/{model_id}",
             "version": "001",
-            "displayName": base,
-            "description": f"Gemini {base} model",
+            "displayName": model_id,
+            "description": f"Gemini model: {model_id}",
             "inputTokenLimit": 1000000,
             "outputTokenLimit": 65536,
             "supportedGenerationMethods": ["generateContent", "streamGenerateContent"],
-        })
+        }
+    
+    # ===== 检查用户是否有 GeminiCLI 凭证 =====
+    cli_creds_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.api_type != "antigravity")
+        .where(Credential.is_active == True)
+        .where(or_(
+            Credential.user_id == user.id,
+            Credential.is_public == True
+        ))
+    )
+    has_cli_creds = (cli_creds_result.scalar() or 0) > 0
+    
+    # ===== 检查用户是否有 Antigravity 凭证 =====
+    agy_creds_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.api_type == "antigravity")
+        .where(Credential.is_active == True)
+        .where(or_(
+            Credential.user_id == user.id,
+            Credential.is_public == True
+        ))
+    )
+    has_agy_creds = (agy_creds_result.scalar() or 0) > 0
+    
+    # ===== GeminiCLI 模型（仅当有 CLI 凭证时显示）=====
+    if has_cli_creds:
+        has_cli_tier3 = await CredentialPool.has_tier3_credentials(user, db, mode="geminicli")
+        
+        base_models = ["gemini-2.5-pro", "gemini-2.5-flash"]
+        tier3_models = ["gemini-3-pro-preview", "gemini-3-flash-preview"]
+        thinking_suffixes = ["-maxthinking", "-nothinking"]
+        search_suffix = "-search"
+        
+        cli_base_models = base_models.copy()
+        if has_cli_tier3:
+            cli_base_models.extend(tier3_models)
+        
+        for base in cli_base_models:
+            # 基础模型
+            models.append(make_gemini_model(f"gcli-{base}"))
+            
+            # 假流式变体
+            models.append(make_gemini_model(f"gcli-假非流/{base}"))
+            
+            # thinking 变体
+            for suffix in thinking_suffixes:
+                models.append(make_gemini_model(f"gcli-{base}{suffix}"))
+                # thinking + 假流式
+                models.append(make_gemini_model(f"gcli-假非流/{base}{suffix}"))
+            
+            # search 变体
+            models.append(make_gemini_model(f"gcli-{base}{search_suffix}"))
+            
+            # thinking + search 组合
+            for suffix in thinking_suffixes:
+                combined = f"{suffix}{search_suffix}"
+                models.append(make_gemini_model(f"gcli-{base}{combined}"))
+    
+    # ===== Antigravity 模型（仅当有 Antigravity 凭证时显示，仅 gemini 系列）=====
+    if has_agy_creds and settings.antigravity_enabled:
+        # 定义过滤函数：只保留 gemini 系列模型
+        def is_valid_gemini_model(model_id: str) -> bool:
+            model_lower = model_id.lower()
+            # 排除内部测试模型
+            invalid_patterns = ["chat_", "rev", "tab_", "uic", "test", "exp", "lite_preview"]
+            if any(pattern in model_lower for pattern in invalid_patterns):
+                return False
+            # 排除 gemini-2.5-pro（Antigravity 有问题）
+            if "gemini-2.5-pro" in model_lower or "gemini-2.5pro" in model_lower:
+                return False
+            # 只允许 gemini 开头的模型
+            return model_lower.startswith("gemini")
+        
+        try:
+            from app.services.antigravity_client import AntigravityClient
+            
+            # 获取一个有效的 Antigravity 凭证
+            agy_cred_result = await db.execute(
+                select(Credential)
+                .where(Credential.api_type == "antigravity")
+                .where(Credential.is_active == True)
+                .where(or_(
+                    Credential.user_id == user.id,
+                    Credential.is_public == True
+                ))
+                .limit(1)
+            )
+            agy_cred = agy_cred_result.scalar_one_or_none()
+            
+            if agy_cred:
+                access_token = await CredentialPool.get_access_token(agy_cred, db)
+                if access_token:
+                    client = AntigravityClient(access_token, agy_cred.project_id)
+                    api_models = await client.fetch_available_models()
+                    
+                    # 添加过滤后的 gemini 模型
+                    for model_info in api_models:
+                        model_id = model_info.get("id", "")
+                        if model_id and is_valid_gemini_model(model_id):
+                            models.append(make_gemini_model(f"agy-{model_id}"))
+                            # 为图片模型添加 2k/4k 变体
+                            if "image" in model_id.lower() and "2k" not in model_id.lower() and "4k" not in model_id.lower():
+                                models.append(make_gemini_model(f"agy-{model_id}-2k"))
+                                models.append(make_gemini_model(f"agy-{model_id}-4k"))
+                    
+                    # 强制添加 Gemini 2.5 系列（不含 gemini-2.5-pro，因为 Antigravity 有问题）
+                    existing_ids = {m["name"].replace("models/", "") for m in models}
+                    gemini_25_variants = [
+                        "agy-gemini-2.5-flash", "agy-gemini-2.5-flash-lite",
+                        "agy-gemini-2.5-flash-thinking",
+                    ]
+                    for variant in gemini_25_variants:
+                        if variant not in existing_ids:
+                            models.append(make_gemini_model(variant))
+                    
+                    # 强制添加图片模型变体
+                    image_variants = [
+                        "agy-gemini-3-pro-image", "agy-gemini-3-pro-image-2k", "agy-gemini-3-pro-image-4k"
+                    ]
+                    existing_ids = {m["name"].replace("models/", "") for m in models}
+                    for variant in image_variants:
+                        if variant not in existing_ids:
+                            models.append(make_gemini_model(variant))
+        except Exception as e:
+            print(f"[v1beta/models] 获取 Antigravity 模型列表失败: {e}", flush=True)
+            # 降级：使用静态模型列表（仅 gemini 系列，不含 gemini-2.5-pro）
+            fallback_agy_models = [
+                # Gemini 2.5 系列（不含 gemini-2.5-pro）
+                "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-thinking",
+                # Gemini 3 系列
+                "gemini-3-flash", "gemini-3-pro-low", "gemini-3-pro-high",
+                "gemini-3-pro-image", "gemini-3-pro-image-2k", "gemini-3-pro-image-4k",
+            ]
+            for base in fallback_agy_models:
+                models.append(make_gemini_model(f"agy-{base}"))
     
     return {"models": models}
 
@@ -850,10 +999,16 @@ async def list_gemini_models(request: Request, user: User = Depends(get_user_fro
 async def gemini_generate_content(
     model: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_user_from_api_key),
     db: AsyncSession = Depends(get_db)
 ):
-    """Gemini 原生 generateContent 接口（带重试功能）"""
+    """Gemini 原生 generateContent 接口（带重试功能）
+    
+    路由规则：
+    - agy-xxx 前缀 → 转发到 Antigravity 处理（使用 antigravity_gemini 路由）
+    - gcli-xxx 前缀或无前缀 → GeminiCLI 处理
+    """
     import httpx
     start_time = time.time()
     
@@ -869,6 +1024,19 @@ async def gemini_generate_content(
     # 清理模型名（移除 models/ 前缀）
     if model.startswith("models/"):
         model = model[7:]
+    
+    # 🚀 检测 agy- 前缀，转发到 Antigravity 处理
+    if model.startswith("agy-"):
+        if not settings.antigravity_enabled:
+            raise HTTPException(status_code=503, detail="Antigravity API 功能已禁用")
+        
+        # 转发到 antigravity_gemini 路由处理
+        from app.routers.antigravity_gemini import gemini_generate_content as agy_gemini_generate_content
+        return await agy_gemini_generate_content(request, background_tasks, model, user, db)
+    
+    # 移除 gcli- 前缀（如果有）
+    if model.startswith("gcli-"):
+        model = model[5:]
     
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
@@ -1111,7 +1279,12 @@ async def gemini_stream_generate_content(
     user: User = Depends(get_user_from_api_key),
     db: AsyncSession = Depends(get_db)
 ):
-    """Gemini 原生 streamGenerateContent 接口（带重试功能）"""
+    """Gemini 原生 streamGenerateContent 接口（带重试功能）
+    
+    路由规则：
+    - agy-xxx 前缀 → 转发到 Antigravity 处理（使用 antigravity_gemini 路由）
+    - gcli-xxx 前缀或无前缀 → GeminiCLI 处理
+    """
     import httpx
     start_time = time.time()
     
@@ -1127,6 +1300,19 @@ async def gemini_stream_generate_content(
     # 清理模型名
     if model.startswith("models/"):
         model = model[7:]
+    
+    # 🚀 检测 agy- 前缀，转发到 Antigravity 处理
+    if model.startswith("agy-"):
+        if not settings.antigravity_enabled:
+            raise HTTPException(status_code=503, detail="Antigravity API 功能已禁用")
+        
+        # 转发到 antigravity_gemini 路由处理
+        from app.routers.antigravity_gemini import gemini_stream_generate_content as agy_gemini_stream
+        return await agy_gemini_stream(request, background_tasks, model, user, db)
+    
+    # 移除 gcli- 前缀（如果有）
+    if model.startswith("gcli-"):
+        model = model[5:]
     
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
