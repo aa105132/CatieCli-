@@ -376,11 +376,70 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
     - 有 GeminiCLI 凭证：显示 gcli- 前缀模型
     - 有 Antigravity 凭证：显示 agy- 前缀模型
     - 没有任何凭证：不显示任何模型
+    - 如果是 Anthropic 客户端（通过 anthropic-version header 检测）：只显示 Claude 模型
     """
     from app.models.user import Credential
     from sqlalchemy import or_
     
     models = []
+    
+    # ===== 检测是否是 Anthropic 客户端请求 =====
+    # Anthropic 客户端会发送 anthropic-version header
+    is_anthropic_client = request.headers.get("anthropic-version") is not None
+    
+    if is_anthropic_client:
+        # Anthropic 客户端：只返回 Claude 模型
+        # 检查用户是否有 Anthropic 官方凭证或 Antigravity 凭证
+        
+        # 检查 Anthropic 官方凭证
+        anthropic_creds_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == "anthropic")
+            .where(Credential.is_active == True)
+            .where(Credential.user_id == user.id)
+        )
+        has_anthropic_creds = (anthropic_creds_result.scalar() or 0) > 0
+        
+        # 检查 Antigravity 凭证
+        agy_creds_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == "antigravity")
+            .where(Credential.is_active == True)
+            .where(or_(
+                Credential.user_id == user.id,
+                Credential.is_public == True
+            ))
+        )
+        has_agy_creds = (agy_creds_result.scalar() or 0) > 0
+        
+        # Anthropic 官方 Claude 模型（仅当有 Anthropic 凭证时显示）
+        if has_anthropic_creds and settings.anthropic_enabled:
+            from app.routers.anthropic_proxy import CLAUDE_MODELS
+            for m in CLAUDE_MODELS:
+                models.append({
+                    "id": m["id"],
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": "anthropic",
+                })
+        
+        # Antigravity Claude 模型（仅当有 Antigravity 凭证时显示）
+        if has_agy_creds and settings.antigravity_enabled:
+            agy_claude_models = [
+                "agy-claude-opus-4-5", "agy-claude-opus-4-5-thinking",
+                "agy-claude-sonnet-4-5", "agy-claude-sonnet-4-5-thinking",
+            ]
+            for model_id in agy_claude_models:
+                models.append({
+                    "id": model_id,
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": "google",
+                })
+        
+        return {"object": "list", "data": models}
+    
+    # ===== 非 Anthropic 客户端：返回所有模型 =====
     
     # ===== 检查用户是否有 GeminiCLI 凭证 =====
     cli_creds_result = await db.execute(
