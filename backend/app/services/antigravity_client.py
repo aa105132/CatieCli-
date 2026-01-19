@@ -393,14 +393,17 @@ class AntigravityClient:
                     models = []
                     if 'models' in data and isinstance(data['models'], dict):
                         for model_id in data['models'].keys():
-                            # 过滤掉 2.5 模型
-                            if "2.5" in model_id or "gemini-2" in model_id.lower():
+                            # 过滤掉内部测试模型
+                            model_lower = model_id.lower()
+                            invalid_patterns = ["chat_", "rev", "tab_", "uic", "test", "exp", "lite_preview"]
+                            if any(pattern in model_lower for pattern in invalid_patterns):
                                 continue
                             models.append({
                                 "id": model_id,
                                 "object": "model",
                                 "owned_by": "google"
                             })
+                    print(f"[AntigravityClient] 获取到 {len(models)} 个有效模型", flush=True)
                     return models
                 else:
                     print(f"[AntigravityClient] ❌ 获取模型列表失败 ({response.status_code}): {response.text[:500]}", flush=True)
