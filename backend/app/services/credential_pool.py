@@ -822,6 +822,91 @@ class CredentialPool:
                 print(f"[凭证禁用] 凭证 {credential_id} 已禁用: {error}", flush=True)
     
     @staticmethod
+    def parse_quota_reset_timestamp(error_response: dict) -> Optional[float]:
+        """
+        从 Google API 错误响应中提取 quota 重置时间戳
+        
+        这是 gcli2api 的功能完整移植。
+        
+        Args:
+            error_response: Google API 返回的错误响应字典
+        
+        Returns:
+            Unix 时间戳（秒），如果无法解析则返回 None
+        
+        示例错误响应:
+        {
+          "error": {
+            "code": 429,
+            "message": "You have exhausted your capacity...",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+              {
+                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                "reason": "QUOTA_EXHAUSTED",
+                "metadata": {
+                  "quotaResetTimeStamp": "2025-11-30T14:57:24Z",
+                  "quotaResetDelay": "13h19m1.20964964s"
+                }
+              }
+            ]
+          }
+        }
+        """
+        from datetime import datetime, timezone
+        
+        try:
+            details = error_response.get("error", {}).get("details", [])
+            
+            for detail in details:
+                if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+                    reset_timestamp_str = detail.get("metadata", {}).get("quotaResetTimeStamp")
+                    
+                    if reset_timestamp_str:
+                        if reset_timestamp_str.endswith("Z"):
+                            reset_timestamp_str = reset_timestamp_str.replace("Z", "+00:00")
+                        
+                        reset_dt = datetime.fromisoformat(reset_timestamp_str)
+                        if reset_dt.tzinfo is None:
+                            reset_dt = reset_dt.replace(tzinfo=timezone.utc)
+                        
+                        return reset_dt.astimezone(timezone.utc).timestamp()
+            
+            return None
+        
+        except Exception:
+            return None
+    
+    @staticmethod
+    def parse_and_log_cooldown(error_text: str, mode: str = "antigravity") -> Optional[float]:
+        """
+        解析并记录冷却时间（从 gcli2api 移植）
+        
+        Args:
+            error_text: 错误响应文本
+            mode: 模式（geminicli 或 antigravity）
+        
+        Returns:
+            冷却截止时间（Unix 时间戳），如果解析失败则返回 None
+        """
+        import json
+        from datetime import datetime, timezone
+        
+        try:
+            error_data = json.loads(error_text)
+            cooldown_until = CredentialPool.parse_quota_reset_timestamp(error_data)
+            if cooldown_until:
+                cooldown_dt = datetime.fromtimestamp(cooldown_until, timezone.utc)
+                print(
+                    f"[{mode.upper()}] 检测到 quota 冷却时间: {cooldown_dt.isoformat()}",
+                    flush=True
+                )
+                return cooldown_until
+        except Exception as parse_err:
+            log.debug(f"[{mode.upper()}] Failed to parse cooldown time: {parse_err}")
+        return None
+    
+    @staticmethod
     def parse_429_retry_after(error_text: str, headers: dict = None) -> int:
         """
         从 Google 429 响应中解析 CD 时间
@@ -829,13 +914,28 @@ class CredentialPool:
         Google 429 响应格式示例:
         - Retry-After 头: "60"
         - 错误信息中: "retryDelay": "60s" 或 "retry after 60 seconds"
+        - quotaResetTimeStamp: ISO 8601 时间戳（优先使用）
         
         Returns:
             CD 秒数，如果解析失败返回 0
         """
         import re
+        import json
+        import time
         
         cd_seconds = 0
+        
+        # 0. 优先尝试解析 quotaResetTimeStamp（精确的冷却时间）
+        try:
+            error_data = json.loads(error_text)
+            cooldown_until = CredentialPool.parse_quota_reset_timestamp(error_data)
+            if cooldown_until:
+                cd_seconds = int(cooldown_until - time.time())
+                if cd_seconds > 0:
+                    print(f"[429 CD] 从 quotaResetTimeStamp 解析到 CD: {cd_seconds}s", flush=True)
+                    return cd_seconds
+        except:
+            pass
         
         # 1. 尝试从 Retry-After 头解析
         if headers:
@@ -856,14 +956,25 @@ class CredentialPool:
             print(f"[429 CD] 从 retryDelay 解析到 CD: {cd_seconds}s", flush=True)
             return cd_seconds
         
-        # 3. 尝试匹配 "retry after X seconds" 格式
+        # 3. 尝试解析 quotaResetDelay 格式 (如 "13h19m1.20964964s")
+        match = re.search(r'"quotaResetDelay"\s*:\s*"([\d.]+h)?([\d.]+m)?([\d.]+s)?"', error_text)
+        if match:
+            hours = float(match.group(1)[:-1]) if match.group(1) else 0
+            minutes = float(match.group(2)[:-1]) if match.group(2) else 0
+            seconds = float(match.group(3)[:-1]) if match.group(3) else 0
+            cd_seconds = int(hours * 3600 + minutes * 60 + seconds)
+            if cd_seconds > 0:
+                print(f"[429 CD] 从 quotaResetDelay 解析到 CD: {cd_seconds}s ({hours}h{minutes}m{seconds}s)", flush=True)
+                return cd_seconds
+        
+        # 4. 尝试匹配 "retry after X seconds" 格式
         match = re.search(r'retry\s+after\s+(\d+)\s*s', error_text, re.IGNORECASE)
         if match:
             cd_seconds = int(match.group(1))
             print(f"[429 CD] 从文本解析到 CD: {cd_seconds}s", flush=True)
             return cd_seconds
         
-        # 4. 尝试匹配纯数字秒数
+        # 5. 尝试匹配纯数字秒数
         match = re.search(r'(\d+)\s*seconds?', error_text, re.IGNORECASE)
         if match:
             cd_seconds = int(match.group(1))

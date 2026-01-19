@@ -12,6 +12,7 @@ from app.config import settings, load_config_from_db
 from app.routers import auth, proxy, admin, oauth, ws, manage, error_config
 from app.routers.test import router as test_router
 from app.routers import antigravity_proxy, antigravity_manage, antigravity_oauth
+from app.routers import antigravity_anthropic, antigravity_gemini
 from app.routers import anthropic_manage, anthropic_proxy as anthropic_proxy_router
 from app.middleware.url_normalize import URLNormalizeMiddleware
 from sqlalchemy import select
@@ -146,7 +147,9 @@ app.include_router(ws.router)
 app.include_router(manage.router)
 app.include_router(error_config.router)  # 自定义错误消息配置
 app.include_router(test_router)  # 测试接口（用于模拟报错场景）
-app.include_router(antigravity_proxy.router)  # Antigravity API 反代
+app.include_router(antigravity_proxy.router)  # Antigravity API 反代 (OpenAI 格式)
+app.include_router(antigravity_anthropic.router)  # Antigravity Anthropic 格式 (/v1/messages)
+app.include_router(antigravity_gemini.router)  # Antigravity Gemini 原生格式 (:generateContent)
 app.include_router(antigravity_manage.router)  # Antigravity 凭证管理
 app.include_router(antigravity_oauth.router)  # Antigravity OAuth 凭证获取
 app.include_router(anthropic_proxy_router.router)  # Anthropic API 反代

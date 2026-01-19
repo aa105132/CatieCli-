@@ -230,7 +230,9 @@ class AntigravityClient:
         model: str,
         contents: list,
         generation_config: Optional[Dict] = None,
-        system_instruction: Optional[Dict] = None
+        system_instruction: Optional[Dict] = None,
+        tools: Optional[List] = None,
+        tool_config: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """生成内容 (非流式) - 使用 Antigravity API，完全复制 gcli2api 逻辑"""
         url = f"{self.api_base}/v1internal:generateContent"
@@ -249,6 +251,10 @@ class AntigravityClient:
         }
         if system_instruction:
             gemini_request["systemInstruction"] = system_instruction
+        if tools:
+            gemini_request["tools"] = tools
+        if tool_config:
+            gemini_request["toolConfig"] = tool_config
         
         # 调用 gcli2api 完整的规范化函数
         normalized = await normalize_gemini_request(gemini_request, mode="antigravity")
@@ -299,7 +305,9 @@ class AntigravityClient:
         model: str,
         contents: list,
         generation_config: Optional[Dict] = None,
-        system_instruction: Optional[Dict] = None
+        system_instruction: Optional[Dict] = None,
+        tools: Optional[List] = None,
+        tool_config: Optional[Dict] = None
     ) -> AsyncGenerator[str, None]:
         """生成内容 (流式) - 使用 Antigravity API，完全复制 gcli2api 逻辑"""
         url = f"{self.api_base}/v1internal:streamGenerateContent?alt=sse"
@@ -318,6 +326,10 @@ class AntigravityClient:
         }
         if system_instruction:
             gemini_request["systemInstruction"] = system_instruction
+        if tools:
+            gemini_request["tools"] = tools
+        if tool_config:
+            gemini_request["toolConfig"] = tool_config
         
         # 调用 gcli2api 完整的规范化函数
         normalized = await normalize_gemini_request(gemini_request, mode="antigravity")
@@ -343,6 +355,26 @@ class AntigravityClient:
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
                         yield line[6:]
+    
+    async def stream_generate_content(
+        self,
+        model: str,
+        contents: list,
+        generation_config: Optional[Dict] = None,
+        system_instruction: Optional[Dict] = None,
+        tools: Optional[List] = None,
+        tool_config: Optional[Dict] = None
+    ) -> AsyncGenerator[bytes, None]:
+        """生成内容 (流式) - 返回 bytes (SSE 格式)，用于 Anthropic 等格式转换"""
+        async for chunk in self.generate_content_stream(
+            model=model,
+            contents=contents,
+            generation_config=generation_config,
+            system_instruction=system_instruction,
+            tools=tools,
+            tool_config=tool_config
+        ):
+            yield f"data: {chunk}\n\n".encode('utf-8')
     
     async def fetch_available_models(self) -> List[Dict[str, Any]]:
         """获取可用模型列表"""
@@ -781,25 +813,35 @@ class AntigravityClient:
         return model
     
     def _convert_to_openai_response(self, gemini_response: dict, model: str, server_base_url: str = None) -> dict:
-        """将Gemini响应转换为OpenAI格式"""
+        """将Gemini响应转换为OpenAI格式 - 支持工具调用"""
+        from app.services.openai2gemini_full import extract_tool_calls_from_parts
+        
         content = ""
         reasoning_content = ""
+        tool_calls = []
+        finish_reason = "stop"
         
         response_data = gemini_response.get("response", gemini_response)
         
         if "candidates" in response_data and response_data["candidates"]:
             candidate = response_data["candidates"][0]
+            gemini_finish_reason = candidate.get("finishReason", "STOP")
+            
             if "content" in candidate and "parts" in candidate["content"]:
                 parts = candidate["content"]["parts"]
                 print(f"[AntigravityClient] 响应 parts 数量: {len(parts)}, 类型: {[list(p.keys()) for p in parts]}", flush=True)
+                
+                # 使用完整转换器提取工具调用
+                tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=False)
+                
+                # 处理其他内容
                 for part in parts:
-                    # 处理文本
-                    if "text" in part:
-                        text = part.get("text", "")
-                        if part.get("thought", False):
-                            reasoning_content += text
-                        else:
-                            content += text
+                    # 处理思考内容
+                    if "text" in part and part.get("thought", False):
+                        reasoning_content += part.get("text", "")
+                    # 处理普通文本 (非思考)
+                    elif "text" in part and not part.get("thought", False):
+                        content += part.get("text", "")
                     # 处理图片 (inlineData)
                     elif "inlineData" in part:
                         inline_data = part["inlineData"]
@@ -811,22 +853,55 @@ class AntigravityClient:
                             relative_url = ImageStorage.save_base64_image(data, mime_type)
                             
                             if relative_url:
-                                # 如果有 server_base_url，拼接成完整 URL
                                 if server_base_url:
                                     final_url = f"{server_base_url}{relative_url}"
                                 else:
                                     final_url = relative_url
-                                    
                                 content += f"![Generated Image]({final_url})"
                             else:
-                                # 回退到 data URL
                                 data_url = f"data:{mime_type};base64,{data}"
                                 content += f"![Generated Image]({data_url})"
+                    # 处理代码执行
+                    elif "executableCode" in part:
+                        exec_code = part["executableCode"]
+                        lang = exec_code.get("language", "python").lower()
+                        code = exec_code.get("code", "")
+                        content += f"\n```{lang}\n{code}\n```\n"
+                    # 处理代码执行结果
+                    elif "codeExecutionResult" in part:
+                        result = part["codeExecutionResult"]
+                        outcome = result.get("outcome")
+                        output = result.get("output", "")
+                        if output:
+                            label = "output" if outcome == "OUTCOME_OK" else "error"
+                            content += f"\n```{label}\n{output}\n```\n"
+            
+            # 确定 finish_reason
+            if tool_calls:
+                if gemini_finish_reason == "STOP":
+                    finish_reason = "tool_calls"
+                elif gemini_finish_reason == "MAX_TOKENS":
+                    finish_reason = "length"
+                elif gemini_finish_reason in ["SAFETY", "RECITATION"]:
+                    finish_reason = "content_filter"
+            else:
+                if gemini_finish_reason == "STOP":
+                    finish_reason = "stop"
+                elif gemini_finish_reason == "MAX_TOKENS":
+                    finish_reason = "length"
+                elif gemini_finish_reason in ["SAFETY", "RECITATION"]:
+                    finish_reason = "content_filter"
         
-        message = {
-            "role": "assistant",
-            "content": content
-        }
+        # 构建消息
+        message = {"role": "assistant"}
+        
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+            message["content"] = content if content else None
+            print(f"[AntigravityClient] ✅ 检测到 {len(tool_calls)} 个工具调用", flush=True)
+        else:
+            message["content"] = content
+        
         if reasoning_content:
             message["reasoning_content"] = reasoning_content
         
@@ -838,7 +913,7 @@ class AntigravityClient:
             "choices": [{
                 "index": 0,
                 "message": message,
-                "finish_reason": "stop"
+                "finish_reason": finish_reason
             }],
             "usage": {
                 "prompt_tokens": 0,
@@ -848,54 +923,89 @@ class AntigravityClient:
         }
     
     def _convert_to_openai_stream(self, chunk_data: str, model: str, server_base_url: str = None) -> str:
-        """将Gemini流式响应转换为OpenAI SSE格式"""
+        """将Gemini流式响应转换为OpenAI SSE格式 - 支持工具调用"""
         try:
+            from app.services.openai2gemini_full import extract_tool_calls_from_parts
+            
             data = json.loads(chunk_data)
             content = ""
             reasoning_content = ""
+            tool_calls = []
+            finish_reason = None
             
             response_data = data.get("response", data)
             
             if "candidates" in response_data and response_data["candidates"]:
                 candidate = response_data["candidates"][0]
+                gemini_finish_reason = candidate.get("finishReason")
+                
                 if "content" in candidate and "parts" in candidate["content"]:
-                    for part in candidate["content"]["parts"]:
-                        # 处理文本
-                        if "text" in part:
-                            text = part.get("text", "")
-                            if part.get("thought", False):
-                                reasoning_content += text
-                            else:
-                                content += text
+                    parts = candidate["content"]["parts"]
+                    
+                    # 使用完整转换器提取工具调用 (流式需要 index)
+                    tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
+                    
+                    for part in parts:
+                        # 处理思考内容
+                        if "text" in part and part.get("thought", False):
+                            reasoning_content += part.get("text", "")
+                        # 处理普通文本 (非思考，且未被 extract_tool_calls_from_parts 处理)
+                        elif "text" in part and not part.get("thought", False):
+                            content += part.get("text", "")
                         # 处理图片 (inlineData)
                         elif "inlineData" in part:
                             inline_data = part["inlineData"]
                             mime_type = inline_data.get("mimeType", "image/png")
-                            data = inline_data.get("data", "")
-                            if data:
-                                # 保存图片到本地并获取 URL
+                            img_data = inline_data.get("data", "")
+                            if img_data:
                                 from app.services.image_storage import ImageStorage
-                                relative_url = ImageStorage.save_base64_image(data, mime_type)
+                                relative_url = ImageStorage.save_base64_image(img_data, mime_type)
                                 
                                 if relative_url:
-                                    # 如果有 server_base_url，拼接成完整 URL
                                     if server_base_url:
                                         final_url = f"{server_base_url}{relative_url}"
                                     else:
                                         final_url = relative_url
-                                        
                                     content += f"![Generated Image]({final_url})"
                                 else:
-                                    data_url = f"data:{mime_type};base64,{data}"
+                                    data_url = f"data:{mime_type};base64,{img_data}"
                                     content += f"![Generated Image]({data_url})"
+                        # 处理代码执行
+                        elif "executableCode" in part:
+                            exec_code = part["executableCode"]
+                            lang = exec_code.get("language", "python").lower()
+                            code = exec_code.get("code", "")
+                            content += f"\n```{lang}\n{code}\n```\n"
+                        # 处理代码执行结果
+                        elif "codeExecutionResult" in part:
+                            result = part["codeExecutionResult"]
+                            outcome = result.get("outcome")
+                            output = result.get("output", "")
+                            if output:
+                                label = "output" if outcome == "OUTCOME_OK" else "error"
+                                content += f"\n```{label}\n{output}\n```\n"
+                
+                # 确定 finish_reason
+                if gemini_finish_reason:
+                    if tool_calls and gemini_finish_reason == "STOP":
+                        finish_reason = "tool_calls"
+                    elif gemini_finish_reason == "STOP":
+                        finish_reason = "stop"
+                    elif gemini_finish_reason == "MAX_TOKENS":
+                        finish_reason = "length"
+                    elif gemini_finish_reason in ["SAFETY", "RECITATION"]:
+                        finish_reason = "content_filter"
             
+            # 构建 delta
             delta = {}
+            if tool_calls:
+                delta["tool_calls"] = tool_calls
             if content:
                 delta["content"] = content
             if reasoning_content:
                 delta["reasoning_content"] = reasoning_content
             
-            if not delta:
+            if not delta and finish_reason is None:
                 return ""
             
             openai_chunk = {
@@ -906,9 +1016,10 @@ class AntigravityClient:
                 "choices": [{
                     "index": 0,
                     "delta": delta,
-                    "finish_reason": None
+                    "finish_reason": finish_reason
                 }]
             }
             return f"data: {json.dumps(openai_chunk)}\n\n"
-        except:
+        except Exception as e:
+            print(f"[AntigravityClient] ⚠️ 流式转换异常: {e}", flush=True)
             return ""

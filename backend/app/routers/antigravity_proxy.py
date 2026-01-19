@@ -603,6 +603,8 @@ async def chat_completions(
             try:
                 full_content = ""
                 reasoning_content = ""
+                collected_tool_calls = {}  # 用于收集工具调用 {index: tool_call_obj}
+                last_finish_reason = None
                 last_heartbeat = time.time()
                 
                 async for chunk in client.chat_completions_stream(
@@ -624,11 +626,43 @@ async def chat_completions(
                         try:
                             chunk_json = json.loads(chunk_data)
                             if "choices" in chunk_json and chunk_json["choices"]:
-                                delta = chunk_json["choices"][0].get("delta", {})
+                                choice = chunk_json["choices"][0]
+                                delta = choice.get("delta", {})
+                                
+                                # 收集普通内容
                                 if "content" in delta:
                                     full_content += delta["content"]
                                 if "reasoning_content" in delta:
                                     reasoning_content += delta["reasoning_content"]
+                                
+                                # 收集工具调用（流式工具调用需要按 index 合并）
+                                if "tool_calls" in delta:
+                                    for tc in delta["tool_calls"]:
+                                        idx = tc.get("index", 0)
+                                        if idx not in collected_tool_calls:
+                                            # 新的工具调用
+                                            collected_tool_calls[idx] = {
+                                                "id": tc.get("id", f"call_{idx}"),
+                                                "type": tc.get("type", "function"),
+                                                "function": {
+                                                    "name": tc.get("function", {}).get("name", ""),
+                                                    "arguments": tc.get("function", {}).get("arguments", "")
+                                                }
+                                            }
+                                        else:
+                                            # 追加到现有工具调用
+                                            if "id" in tc and tc["id"]:
+                                                collected_tool_calls[idx]["id"] = tc["id"]
+                                            if "function" in tc:
+                                                func = tc["function"]
+                                                if "name" in func and func["name"]:
+                                                    collected_tool_calls[idx]["function"]["name"] = func["name"]
+                                                if "arguments" in func:
+                                                    collected_tool_calls[idx]["function"]["arguments"] += func["arguments"]
+                                
+                                # 收集 finish_reason
+                                if choice.get("finish_reason"):
+                                    last_finish_reason = choice["finish_reason"]
                         except json.JSONDecodeError:
                             pass
                 
@@ -672,7 +706,20 @@ async def chat_completions(
                 await notify_stats_update()
                 
                 # 构建并返回 JSON 响应
-                message = {"role": "assistant", "content": full_content}
+                message = {"role": "assistant"}
+                
+                # 处理工具调用
+                tool_calls_list = [collected_tool_calls[i] for i in sorted(collected_tool_calls.keys())] if collected_tool_calls else []
+                
+                if tool_calls_list:
+                    message["tool_calls"] = tool_calls_list
+                    message["content"] = full_content if full_content else None
+                    finish_reason = last_finish_reason or "tool_calls"
+                    print(f"[Antigravity Proxy] ✅ 假非流检测到 {len(tool_calls_list)} 个工具调用", flush=True)
+                else:
+                    message["content"] = full_content
+                    finish_reason = last_finish_reason or "stop"
+                
                 if reasoning_content:
                     message["reasoning_content"] = reasoning_content
                 
@@ -684,7 +731,7 @@ async def chat_completions(
                     "choices": [{
                         "index": 0,
                         "message": message,
-                        "finish_reason": "stop"
+                        "finish_reason": finish_reason
                     }],
                     "usage": {
                         "prompt_tokens": 0,

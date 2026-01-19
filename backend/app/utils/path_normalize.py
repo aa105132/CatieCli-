@@ -17,6 +17,14 @@ from typing import List
 # 防呆设计：支持用户在 URL 中添加任意前缀后仍能正确路由
 API_ENDPOINTS: List[str] = [
     # ============================================================
+    # Antigravity API 端点 (Gemini 原生格式)
+    # ============================================================
+    "/antigravity/v1beta/models/",  # Antigravity Gemini 原生格式
+    "/antigravity/v1/models/",      # Antigravity Gemini 原生格式 (v1)
+    "/antigravity/v1/messages",     # Antigravity Anthropic 格式
+    "/antigravity/v1/chat/completions",  # Antigravity OpenAI 格式
+    
+    # ============================================================
     # Gemini API 端点（更长的路径优先）
     # 注意：同时包含带尾部斜杠和不带尾部斜杠的版本
     # ============================================================
@@ -58,9 +66,11 @@ API_ENDPOINTS: List[str] = [
     "/realtime",
     
     # ============================================================
-    # Claude API 端点
+    # Claude/Anthropic API 端点
     # ============================================================
+    "/v1/messages/count_tokens",  # Anthropic Token 计数
     "/v1/messages",
+    "/messages/count_tokens",
     "/messages",
     
     # ============================================================

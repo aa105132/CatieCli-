@@ -1,9 +1,15 @@
 """
 Gemini Format Utilities - 从 gcli2api 完整复制
 提供对 Gemini API 请求体的标准化处理
+
+功能:
+1. 模型特性处理 (thinking config, search tools)
+2. 参数范围限制 (maxOutputTokens, topK)
+3. 工具清理
+4. 图像生成模型请求处理
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import logging
 
 log = logging.getLogger(__name__)
@@ -23,31 +29,160 @@ DEFAULT_SAFETY_SETTINGS = [
 ]
 
 
+# ==================== 图像生成模型请求处理 ====================
+
+def prepare_image_generation_request(
+    request_body: Dict[str, Any],
+    model: str
+) -> Dict[str, Any]:
+    """
+    图像生成模型请求体后处理
+    
+    支持的后缀:
+    - 分辨率: -2k, -4k
+    - 比例: -21x9, -16x9, -9x16, -4x3, -3x4, -1x1
+    
+    Args:
+        request_body: 原始请求体
+        model: 模型名称
+    
+    Returns:
+        处理后的请求体
+    """
+    request_body = request_body.copy()
+    model_lower = model.lower()
+    
+    # 解析分辨率
+    image_size = None
+    if "-4k" in model_lower:
+        image_size = "4K"
+    elif "-2k" in model_lower:
+        image_size = "2K"
+    
+    # 解析比例
+    aspect_ratio = None
+    ratio_map = [
+        ("-21x9", "21:9"), ("-16x9", "16:9"), ("-9x16", "9:16"),
+        ("-4x3", "4:3"), ("-3x4", "3:4"), ("-1x1", "1:1")
+    ]
+    for suffix, ratio in ratio_map:
+        if suffix in model_lower:
+            aspect_ratio = ratio
+            break
+    
+    # 构建 imageConfig
+    image_config = {}
+    if aspect_ratio:
+        image_config["aspectRatio"] = aspect_ratio
+    if image_size:
+        image_config["imageSize"] = image_size
+
+    request_body["model"] = "gemini-3-pro-image"  # 统一使用基础模型名
+    request_body["generationConfig"] = {
+        "candidateCount": 1,
+        "imageConfig": image_config
+    }
+
+    # 移除不需要的字段
+    for key in ("systemInstruction", "tools", "toolConfig"):
+        request_body.pop(key, None)
+    
+    return request_body
+
+
+# ==================== 模型特性辅助函数 ====================
+
 def get_base_model_name(model_name: str) -> str:
     """移除模型名称中的后缀,返回基础模型名"""
-    suffixes = ["-maxthinking", "-nothinking", "-search", "-think"]
+    # 按照从长到短的顺序排列，避免短后缀先于长后缀被匹配
+    suffixes = [
+        "-maxthinking", "-nothinking",  # 兼容旧模式
+        "-minimal", "-medium", "-search", "-think",  # 中等长度后缀
+        "-high", "-max", "-low"  # 短后缀
+    ]
     result = model_name
     changed = True
+    # 持续循环直到没有任何后缀可以移除
     while changed:
         changed = False
         for suffix in suffixes:
             if result.endswith(suffix):
                 result = result[:-len(suffix)]
                 changed = True
+                # 继续检查是否还有其他后缀
     return result
 
 
-def get_thinking_settings(model_name: str) -> tuple:
-    """根据模型名称获取思考配置"""
+def get_thinking_settings(model_name: str) -> Tuple[Optional[int], Optional[str]]:
+    """
+    根据模型名称获取思考配置
+
+    支持两种模式:
+    1. CLI 模式思考预算 (Gemini 2.5 系列): -max, -high, -medium, -low, -minimal
+    2. CLI 模式思考等级 (Gemini 3 Preview 系列): -high, -medium, -low, -minimal (仅 3-flash)
+    3. 兼容旧模式: -maxthinking, -nothinking (不返回给用户)
+
+    Returns:
+        (thinking_budget, thinking_level): 思考预算和思考等级
+    """
     base_model = get_base_model_name(model_name)
 
+    # ========== 兼容旧模式 ==========
     if "-nothinking" in model_name:
-        return 128, "pro" in base_model
+        # nothinking 模式: 限制思考
+        if "flash" in base_model:
+            return 0, None
+        return 128, None
     elif "-maxthinking" in model_name:
+        # maxthinking 模式: 最大思考预算
         budget = 24576 if "flash" in base_model else 32768
-        return budget, True
-    else:
-        return None, True
+        return budget, None
+
+    # ========== 新 CLI 模式: 基于思考预算/等级 ==========
+
+    # Gemini 3 Preview 系列: 使用 thinkingLevel
+    if "gemini-3" in base_model:
+        if "-high" in model_name:
+            return None, "high"
+        elif "-medium" in model_name:
+            # 仅 3-flash-preview 支持 medium
+            if "flash" in base_model:
+                return None, "medium"
+            # pro 系列不支持 medium，返回 Default
+            return None, None
+        elif "-low" in model_name:
+            return None, "low"
+        elif "-minimal" in model_name:
+            return None, None
+        else:
+            # Default: 不设置 thinking 配置
+            return None, None
+
+    # Gemini 2.5 系列: 使用 thinkingBudget
+    elif "gemini-2.5" in base_model:
+        if "-max" in model_name:
+            # 2.5-flash-max: 24576, 2.5-pro-max: 32768
+            budget = 24576 if "flash" in base_model else 32768
+            return budget, None
+        elif "-high" in model_name:
+            # 2.5-flash-high: 16000, 2.5-pro-high: 16000
+            return 16000, None
+        elif "-medium" in model_name:
+            # 2.5-flash-medium: 8192, 2.5-pro-medium: 8192
+            return 8192, None
+        elif "-low" in model_name:
+            # 2.5-flash-low: 1024, 2.5-pro-low: 1024
+            return 1024, None
+        elif "-minimal" in model_name:
+            # 2.5-flash-minimal: 0, 2.5-pro-minimal: 128
+            budget = 0 if "flash" in base_model else 128
+            return budget, None
+        else:
+            # Default: 不设置 thinking budget
+            return None, None
+
+    # 其他模型: 不设置 thinking 配置
+    return None, None
 
 
 def is_search_model(model_name: str) -> bool:
@@ -103,25 +238,9 @@ async def normalize_gemini_request(
         elif existing_parts:
             result["systemInstruction"] = {"parts": existing_parts}
 
-        # 2. 判断图片模型
+        # 2. 判断图片模型 - 使用专用处理函数
         if "image" in model.lower():
-            # 图片生成模型特殊处理
-            if "2k" in model.lower():
-                result["model"] = "gemini-3-pro-image-2k"
-                image_config = {"outputWidth": 2048, "outputHeight": 2048}
-            elif "4k" in model.lower():
-                result["model"] = "gemini-3-pro-image-4k"
-                image_config = {"outputWidth": 4096, "outputHeight": 4096}
-            else:
-                result["model"] = "gemini-3-pro-image"
-                image_config = {}  # 默认分辨率
-            result["generationConfig"] = {
-                "candidateCount": 1,
-                "imageConfig": image_config
-            }
-            for key in ("systemInstruction", "tools", "toolConfig"):
-                result.pop(key, None)
-            return result
+            return prepare_image_generation_request(result, model)
         
         # 3. 思考模型处理
         if is_thinking_model(model) or (generation_config.get("thinkingConfig", {}).get("thinkingBudget", 0) != 0):
@@ -190,20 +309,44 @@ async def normalize_gemini_request(
         generation_config.pop("stopSequences", None)
     
     elif mode == "geminicli":
-        # GeminiCLI 模式处理
-        thinking_budget, _ = get_thinking_settings(model)
+        # GeminiCLI 模式处理 - 使用新的 thinking_budget/thinking_level 支持
+        thinking_budget, thinking_level = get_thinking_settings(model)
         
-        if thinking_budget is None:
+        # 如果模型名未指定，从 generationConfig 中获取
+        if thinking_budget is None and thinking_level is None:
             thinking_budget = generation_config.get("thinkingConfig", {}).get("thinkingBudget")
+            thinking_level = generation_config.get("thinkingConfig", {}).get("thinkingLevel")
         
-        if is_thinking_model(model) or (thinking_budget and thinking_budget != 0):
+        # 判断是否需要设置 thinkingConfig
+        if is_thinking_model(model) or thinking_budget is not None or thinking_level is not None:
             if "thinkingConfig" not in generation_config:
                 generation_config["thinkingConfig"] = {}
+            
             thinking_config = generation_config["thinkingConfig"]
-            if thinking_budget:
+            
+            # 设置思考预算或等级（互斥）
+            if thinking_budget is not None:
                 thinking_config["thinkingBudget"] = thinking_budget
-            thinking_config["includeThoughts"] = return_thoughts
+                thinking_config.pop("thinkingLevel", None)  # 避免冲突
+            elif thinking_level is not None:
+                thinking_config["thinkingLevel"] = thinking_level
+                thinking_config.pop("thinkingBudget", None)  # 避免冲突
+            
+            # includeThoughts 逻辑
+            base_model = get_base_model_name(model)
+            if "pro" in base_model:
+                include_thoughts = True
+            else:
+                # 非 pro 模型: 有思考预算或等级才包含思考
+                if (thinking_budget is not None and thinking_budget > 0) or thinking_level is not None:
+                    include_thoughts = True
+                else:
+                    include_thoughts = None
+            
+            if include_thoughts is not None:
+                thinking_config["includeThoughts"] = include_thoughts
 
+        # 搜索模型添加 Google Search
         if is_search_model(model):
             result_tools = result.get("tools") or []
             result["tools"] = result_tools
