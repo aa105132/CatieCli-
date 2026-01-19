@@ -197,9 +197,15 @@ async def anthropic_messages(
             try:
                 # 使用 Antigravity 客户端的底层方法
                 async with client._get_client() as http_client:
-                    url = f"{client.api_base}/generateContent"
+                    url = client.get_generate_url()  # v1internal:generateContent
+                    headers = client.get_headers(real_model)
+                    
+                    # 添加 project_id 到请求体
+                    api_request["project"] = project_id
+                    
                     response = await http_client.post(
                         url,
+                        headers=headers,
                         json=api_request,
                         timeout=300.0
                     )
@@ -262,11 +268,18 @@ async def anthropic_messages(
             try:
                 async def gemini_stream():
                     async with client._get_client() as http_client:
-                        url = f"{client.api_base}/streamGenerateContent"
+                        url = client.get_stream_url()  # v1internal:streamGenerateContent?alt=sse
+                        headers = client.get_headers(real_model)
+                        
+                        # 添加 project_id 到请求体
+                        stream_request = api_request.copy()
+                        stream_request["project"] = project_id
+                        
                         async with http_client.stream(
                             "POST",
                             url,
-                            json=api_request,
+                            headers=headers,
+                            json=stream_request,
                             timeout=300.0
                         ) as response:
                             if response.status_code != 200:
