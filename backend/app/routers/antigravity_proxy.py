@@ -223,6 +223,9 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                         for pattern in invalid_patterns:
                             if pattern in model_lower:
                                 return False
+                        # 特殊排除：gemini-2.5-pro（Antigravity 无法使用）
+                        if "gemini-2.5-pro" in model_lower or "gemini-2.5pro" in model_lower:
+                            return False
                         # 允许条件：必须是 gemini, claude, gpt 开头的模型
                         # 反重力支持 gemini-2.5 和 gemini-3 系列
                         valid_prefixes = [
@@ -285,11 +288,11 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                 print(f"[Antigravity] 获取动态模型列表失败: {e}", flush=True)
     
     # 回退到静态模型列表
+    # 注意：不包含 gemini-2.5-pro，因为 Antigravity 无法使用
     base_models = [
-        # Gemini 2.5 模型
+        # Gemini 2.5 模型（不含 2.5-pro）
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
-        "gemini-2.5-pro",
         "gemini-2.5-flash-thinking",
         # Gemini 3.0 模型
         "gemini-3-flash",

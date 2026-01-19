@@ -274,13 +274,16 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
             # 排除条件：包含这些关键字的跳过
             invalid_patterns = [
                 "chat_", "rev", "tab_", "uic", "test", "exp", "lite_preview",
-                "2.5", "gemini-2", "gcli-"
+                "gcli-", "search"  # search模型反重力不支持
             ]
             for pattern in invalid_patterns:
                 if pattern in model_lower:
                     return False
-            # 允许条件：必须是 gemini-3, claude, gpt 开头
-            valid_prefixes = ["gemini-3", "claude", "gpt-oss"]
+            # 特殊排除：gemini-2.5-pro（Antigravity 无法使用）
+            if "gemini-2.5-pro" in model_lower or "gemini-2.5pro" in model_lower:
+                return False
+            # 允许条件：gemini-2.5, gemini-3, claude, gpt 开头的模型
+            valid_prefixes = ["gemini-2.5", "gemini-3", "claude", "gpt-oss"]
             for prefix in valid_prefixes:
                 if model_lower.startswith(prefix):
                     return True
@@ -339,9 +342,10 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                             print(f"[Models] ✅ 强制添加 Claude 模型变体: {variant}", flush=True)
                     
                     # 强制添加 Gemini 2.5 系列模型（反重力API动态列表可能不包含）
+                    # 注意：不添加 gemini-2.5-pro，因为 Antigravity 无法使用
                     gemini_25_variants = [
-                        "agy-gemini-2.5-flash", "agy-gemini-2.5-flash-lite", 
-                        "agy-gemini-2.5-pro", "agy-gemini-2.5-flash-thinking",
+                        "agy-gemini-2.5-flash", "agy-gemini-2.5-flash-lite",
+                        "agy-gemini-2.5-flash-thinking",
                     ]
                     existing_ids = {m["id"] for m in models}
                     for variant in gemini_25_variants:
