@@ -196,8 +196,8 @@ class GeminiClient:
             return {"success": False, "error": str(e)}
     
     def is_fake_streaming(self, model: str) -> bool:
-        """检查是否使用假流式"""
-        return model.startswith("假非流/")
+        """检查是否使用假流式 - gcli 有假流，没有假非流"""
+        return model.startswith("假流/")
     
     async def chat_completions(
         self,
@@ -449,8 +449,8 @@ class GeminiClient:
     
     def _map_model_name(self, model: str) -> str:
         """映射模型名称"""
-        # 移除前缀（假非流/流式抗截断）
-        prefixes = ["假非流/", "流式抗截断/"]
+        # 移除前缀（假流/流式抗截断）- gcli 有假流，没有假非流
+        prefixes = ["假流/", "流式抗截断/"]
         for prefix in prefixes:
             if model.startswith(prefix):
                 model = model[len(prefix):]
