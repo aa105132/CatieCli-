@@ -97,15 +97,14 @@ API_ENDPOINTS: List[str] = [
 ]
 
 # 不进行防呆处理的前缀（管理类、静态资源等）
+# 注意：如果路径以这些前缀开头但包含 API 端点，仍会进行防呆处理
 SKIP_PREFIXES: List[str] = [
-    "/api/",
-    "/auth/",
-    "/admin/",
-    "/ws/",
-    "/manage/",
-    "/assets/",
-    "/oauth/",
-    "/favicon",
+    "/api/",      # 内部管理接口（/api/admin/*, /api/manage/* 等）
+    "/auth/",     # 认证接口
+    "/ws/",       # WebSocket
+    "/assets/",   # 静态资源
+    "/oauth/",    # OAuth
+    "/favicon",   # 网站图标
     "/index.html",
 ]
 
@@ -183,6 +182,8 @@ def extract_api_endpoint(path: str) -> str:
     - /test/v1/models -> /v1/models
     - /v1/v1beta/models/... -> /v1beta/models/... (SillyTavern 特殊处理)
     - /chat/completions -> /v1/chat/completions (自动添加 /v1 前缀)
+    - /admin/v1/messages -> /v1/messages (用户错误添加 /admin 前缀)
+    - /api/v1/messages -> /v1/messages (用户错误添加 /api 前缀)
     
     Args:
         path: 规范化后的路径
@@ -190,10 +191,27 @@ def extract_api_endpoint(path: str) -> str:
     Returns:
         提取出的 API 端点路径
     """
-    # 检查是否应跳过防呆处理
+    # 检查是否以 SKIP_PREFIXES 开头
+    # 注意：即使路径以这些前缀开头，如果其中包含 API 端点，仍需处理
+    # 例如：/api/v1/messages 或 /admin/v1/messages 应该提取出 /v1/messages
+    should_skip = False
     for prefix in SKIP_PREFIXES:
         if path.startswith(prefix):
+            should_skip = True
+            break
+    
+    if should_skip:
+        # 检查路径中是否包含任何 API 端点
+        contains_api_endpoint = False
+        for endpoint in API_ENDPOINTS:
+            if endpoint in path:
+                contains_api_endpoint = True
+                break
+        
+        # 如果不包含 API 端点，直接返回原路径（真正的内部接口）
+        if not contains_api_endpoint:
             return path
+        # 否则继续处理（用户错误添加了 /api 或 /admin 等前缀）
     
     # 遍历所有已知的 API 端点
     for endpoint in API_ENDPOINTS:
@@ -313,6 +331,16 @@ if __name__ == "__main__":
         ("/api/health", "/api/health"),  # 不应被处理
         ("/assets/js/app.js", "/assets/js/app.js"),  # 不应被处理
         ("/unknown/path", "/unknown/path"),  # 未知路径保持不变
+        
+        # ============ 用户错误添加 /admin 等前缀 ============
+        # 用户在 Cherry Studio 等客户端设置 URL 为 xxx/admin 时
+        ("/admin/v1/messages", "/v1/messages"),
+        ("/admin/v1/models", "/v1/models"),
+        ("/admin/v1/chat/completions", "/v1/chat/completions"),
+        ("/admin/v1beta/models", "/v1beta/models"),
+        # 同理：其他 SKIP_PREFIXES
+        ("/api/v1/messages", "/v1/messages"),
+        ("/auth/v1/chat/completions", "/v1/chat/completions"),
     ]
     
     print("URL Foolproof Test:")
