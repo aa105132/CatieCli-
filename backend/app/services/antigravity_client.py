@@ -2,6 +2,7 @@ import httpx
 import json
 import uuid
 from typing import AsyncGenerator, Optional, Dict, Any, List
+from contextlib import asynccontextmanager
 from app.config import settings
 
 
@@ -19,6 +20,25 @@ class AntigravityClient:
         self.access_token = access_token
         self.project_id = project_id or ""
         self.api_base = settings.antigravity_api_base
+    
+    @asynccontextmanager
+    async def _get_client(self):
+        """获取 HTTP 客户端上下文管理器（用于 Gemini 原生 API 路由）"""
+        timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            yield client
+    
+    def get_headers(self, model_name: str = "") -> Dict[str, str]:
+        """获取请求头（公开方法，用于 Gemini 原生 API 路由）"""
+        return self._build_headers(model_name)
+    
+    def get_generate_url(self) -> str:
+        """获取非流式生成端点 URL"""
+        return f"{self.api_base}/v1internal:generateContent"
+    
+    def get_stream_url(self) -> str:
+        """获取流式生成端点 URL"""
+        return f"{self.api_base}/v1internal:streamGenerateContent?alt=sse"
     
     # 安全设置 (完全复制自 gcli2api src/utils.py 第47-58行)
     DEFAULT_SAFETY_SETTINGS = [
@@ -393,14 +413,17 @@ class AntigravityClient:
                     models = []
                     if 'models' in data and isinstance(data['models'], dict):
                         for model_id in data['models'].keys():
-                            # 过滤掉 2.5 模型
-                            if "2.5" in model_id or "gemini-2" in model_id.lower():
+                            # 过滤掉内部测试模型
+                            model_lower = model_id.lower()
+                            invalid_patterns = ["chat_", "rev", "tab_", "uic", "test", "exp", "lite_preview"]
+                            if any(pattern in model_lower for pattern in invalid_patterns):
                                 continue
                             models.append({
                                 "id": model_id,
                                 "object": "model",
                                 "owned_by": "google"
                             })
+                    print(f"[AntigravityClient] 获取到 {len(models)} 个有效模型", flush=True)
                     return models
                 else:
                     print(f"[AntigravityClient] ❌ 获取模型列表失败 ({response.status_code}): {response.text[:500]}", flush=True)
