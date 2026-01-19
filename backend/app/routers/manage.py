@@ -1505,6 +1505,9 @@ async def get_global_stats(
         # CLI/全部 分类：按 Gemini 模型等级（互斥分类：3.0 > Pro > Flash）
         def is_tier3(model: str) -> bool:
             m = model.lower()
+            # gemini-3-flash 应该算 flash 额度，不算 tier3
+            if "3-flash" in m or "3flash" in m:
+                return False
             return "gemini-3" in m or "3.0" in m or "tier3" in m or m.startswith("3-") or "/gemini-3" in m
         
         def is_pro(model: str) -> bool:
