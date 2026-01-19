@@ -245,9 +245,15 @@ async def gemini_generate_content(
                                         while len(collected_candidates) <= idx:
                                             collected_candidates.append({"index": len(collected_candidates), "content": {"role": "model", "parts": []}})
                                         
-                                        # 合并 content.parts
+                                        # 合并 content.parts（过滤特殊标记）
                                         if "content" in candidate and "parts" in candidate["content"]:
-                                            collected_candidates[idx]["content"]["parts"].extend(candidate["content"]["parts"])
+                                            for part in candidate["content"]["parts"]:
+                                                if "text" in part:
+                                                    text = part["text"]
+                                                    # 精确匹配 <-XXX-> 格式的特殊标记，跳过
+                                                    if text and re.fullmatch(r'^<-[A-Z_]+->$', text.strip()):
+                                                        continue
+                                                collected_candidates[idx]["content"]["parts"].append(part)
                                         
                                         # 更新 finishReason
                                         if "finishReason" in candidate:
@@ -556,6 +562,23 @@ async def gemini_stream_generate_content(
                                     # 解包装 response 字段
                                     if "response" in data and "candidates" not in data:
                                         data = data["response"]
+                                    
+                                    # 过滤掉 Gemini API 的特殊标记（如 <-PAGEABLE_STATUSBAR->）
+                                    if "candidates" in data:
+                                        for candidate in data["candidates"]:
+                                            if "content" in candidate and "parts" in candidate["content"]:
+                                                filtered_parts = []
+                                                for part in candidate["content"]["parts"]:
+                                                    if "text" in part:
+                                                        text = part["text"]
+                                                        # 精确匹配 <-XXX-> 格式的特殊标记
+                                                        if text and not re.fullmatch(r'^<-[A-Z_]+->$', text.strip()):
+                                                            filtered_parts.append(part)
+                                                    else:
+                                                        # 非文本类型（如图片）直接保留
+                                                        filtered_parts.append(part)
+                                                candidate["content"]["parts"] = filtered_parts
+                                    
                                     yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
                                 except:
                                     yield f"data: {json_str}\n\n".encode()
