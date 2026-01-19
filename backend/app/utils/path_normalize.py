@@ -17,12 +17,20 @@ from typing import List
 # 防呆设计：支持用户在 URL 中添加任意前缀后仍能正确路由
 API_ENDPOINTS: List[str] = [
     # ============================================================
-    # Antigravity API 端点 (Gemini 原生格式)
+    # Antigravity API 端点（最高优先级，必须在通用端点之前）
     # ============================================================
-    "/antigravity/v1beta/models/",  # Antigravity Gemini 原生格式
-    "/antigravity/v1/models/",      # Antigravity Gemini 原生格式 (v1)
-    "/antigravity/v1/messages",     # Antigravity Anthropic 格式
-    "/antigravity/v1/chat/completions",  # Antigravity OpenAI 格式
+    # SillyTavern 特殊情况：用户在 URL 末尾加 /v1 导致路径变成 /antigravity/v1/v1beta/...
+    "/antigravity/v1/v1beta/models/",  # 需要转换为 /antigravity/v1beta/models/
+    # 带版本号的 Antigravity 端点
+    "/antigravity/v1beta/models/",     # Antigravity Gemini 原生格式 (v1beta)
+    "/antigravity/v1/models/",         # Antigravity Gemini 原生格式 (v1)
+    "/antigravity/v1/messages/count_tokens", # Antigravity Anthropic Token 计数
+    "/antigravity/v1/messages",        # Antigravity Anthropic 格式
+    "/antigravity/v1/chat/completions",# Antigravity OpenAI 格式
+    # 不带版本号的 Antigravity 端点（需要规范化）
+    "/antigravity/models/",            # -> /antigravity/v1beta/models/
+    "/antigravity/messages",           # -> /antigravity/v1/messages
+    "/antigravity/chat/completions",   # -> /antigravity/v1/chat/completions
     
     # ============================================================
     # Gemini API 端点（更长的路径优先）
@@ -150,6 +158,17 @@ PATH_NORMALIZE_MAP = {
     "/realtime": "/v1/realtime",
     "/messages": "/v1/messages",
     "/responses": "/v1/responses",
+    
+    # Antigravity 路径映射 (防呆)
+    "/antigravity/messages": "/antigravity/v1/messages",
+    "/antigravity/chat/completions": "/antigravity/v1/chat/completions",
+    "/antigravity/models/": "/antigravity/v1beta/models/",  # Gemini 原生格式默认使用 v1beta
+}
+
+
+# Antigravity Gemini 路径特殊处理：无版本号 → v1beta
+ANTIGRAVITY_GEMINI_NORMALIZE = {
+    "/antigravity/models/": "/antigravity/v1beta/models/",
 }
 
 
@@ -187,13 +206,25 @@ def extract_api_endpoint(path: str) -> str:
             # 这是为了处理用户在 SillyTavern 中设置 URL 为 xxx/v1 时
             # SillyTavern 会拼接成 /v1/v1beta/models/... 的情况
             if extracted.startswith("/v1/v1beta/"):
-                extracted = extracted[3:]  # 移除 "/v1" 前缀
+                extracted = extracted[3:]  # 移除 "/v1" 前缀，得到 "/v1beta/..."
+            
+            # 特殊处理：/antigravity/v1/v1beta/... -> /antigravity/v1beta/...
+            if extracted.startswith("/antigravity/v1/v1beta/"):
+                # 找到 /v1beta 的位置，保留 /antigravity 前缀 + /v1beta 及之后的内容
+                v1beta_idx = extracted.find("/v1beta")
+                if v1beta_idx != -1:
+                    extracted = "/antigravity" + extracted[v1beta_idx:]
             
             # 路径规范化：将不带 /v1 的路径映射到带 /v1 的路径
             # 检查是否需要规范化（只对完全匹配的情况进行映射）
             for short_path, full_path in PATH_NORMALIZE_MAP.items():
-                if extracted == short_path or extracted.startswith(short_path + "/") or extracted.startswith(short_path + "?"):
-                    # 替换短路径为完整路径
+                # 处理带尾部斜杠的短路径：/antigravity/models/ 应匹配 /antigravity/models/xxx
+                if short_path.endswith('/'):
+                    if extracted.startswith(short_path):
+                        extracted = full_path + extracted[len(short_path):]
+                        break
+                # 处理不带尾部斜杠的短路径
+                elif extracted == short_path or extracted.startswith(short_path + "/") or extracted.startswith(short_path + "?"):
                     extracted = full_path + extracted[len(short_path):]
                     break
             
@@ -224,16 +255,52 @@ def normalize_and_extract_path(path: str) -> str:
 if __name__ == "__main__":
     test_cases = [
         # (输入, 期望输出)
+        # ============ OpenAI 格式 ============
         ("/v1/chat/completions", "/v1/chat/completions"),
         ("/ABC/v1/chat/completions", "/v1/chat/completions"),
         ("/我是奶龙/v1/chat/completions", "/v1/chat/completions"),
         ("/test/abc/v1/chat/completions", "/v1/chat/completions"),
+        
+        # ============ Gemini 原生格式 ============
         ("/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
         ("/ABC/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
         # SillyTavern 特殊情况：用户设置 URL 为 xxx/v1 时，会拼接成 /v1/v1beta/...
         ("/v1/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
         ("/ABC/v1/v1beta/models/gemini-pro:generateContent", "/v1beta/models/gemini-pro:generateContent"),
         ("/v1/v1beta/models", "/v1beta/models"),
+        
+        # ============ Antigravity Anthropic 格式 ============
+        ("/antigravity/v1/messages", "/antigravity/v1/messages"),
+        ("/ABC/antigravity/v1/messages", "/antigravity/v1/messages"),
+        ("/我是奶龙/antigravity/v1/messages", "/antigravity/v1/messages"),
+        ("/antigravity/v1/messages/count_tokens", "/antigravity/v1/messages/count_tokens"),
+        ("/ABC/antigravity/v1/messages/count_tokens", "/antigravity/v1/messages/count_tokens"),
+        # 不带 /v1 的 Anthropic 路径应自动添加 /v1
+        ("/antigravity/messages", "/antigravity/v1/messages"),
+        ("/ABC/antigravity/messages", "/antigravity/v1/messages"),
+        
+        # ============ Antigravity Gemini 原生格式 ============
+        ("/antigravity/v1beta/models/gemini-2.5-flash:generateContent", "/antigravity/v1beta/models/gemini-2.5-flash:generateContent"),
+        ("/ABC/antigravity/v1beta/models/gemini-2.5-flash:generateContent", "/antigravity/v1beta/models/gemini-2.5-flash:generateContent"),
+        ("/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent", "/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent"),
+        ("/antigravity/v1beta/models/gemini-2.5-flash:countTokens", "/antigravity/v1beta/models/gemini-2.5-flash:countTokens"),
+        ("/antigravity/v1/models/gemini-2.5-flash:generateContent", "/antigravity/v1/models/gemini-2.5-flash:generateContent"),
+        ("/ABC/antigravity/v1/models/gemini-2.5-flash:streamGenerateContent", "/antigravity/v1/models/gemini-2.5-flash:streamGenerateContent"),
+        # 不带版本号的 Gemini 路径应映射到 v1beta
+        ("/antigravity/models/gemini-2.5-flash:generateContent", "/antigravity/v1beta/models/gemini-2.5-flash:generateContent"),
+        ("/ABC/antigravity/models/gemini-2.5-flash:streamGenerateContent", "/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent"),
+        # SillyTavern 特殊情况：/antigravity/v1/v1beta/... -> /antigravity/v1beta/...
+        ("/antigravity/v1/v1beta/models/gemini-2.5-flash:generateContent", "/antigravity/v1beta/models/gemini-2.5-flash:generateContent"),
+        ("/ABC/antigravity/v1/v1beta/models/gemini-2.5-flash:streamGenerateContent", "/antigravity/v1beta/models/gemini-2.5-flash:streamGenerateContent"),
+        
+        # ============ Antigravity OpenAI 格式 ============
+        ("/antigravity/v1/chat/completions", "/antigravity/v1/chat/completions"),
+        ("/ABC/antigravity/v1/chat/completions", "/antigravity/v1/chat/completions"),
+        # 不带 /v1 的 OpenAI 路径应自动添加 /v1
+        ("/antigravity/chat/completions", "/antigravity/v1/chat/completions"),
+        ("/ABC/antigravity/chat/completions", "/antigravity/v1/chat/completions"),
+        
+        # ============ 其他通用测试 ============
         ("//v1/chat/completions", "/v1/chat/completions"),
         ("///v1///chat//completions", "/v1/chat/completions"),
         ("/v1/models", "/v1/models"),
@@ -248,20 +315,27 @@ if __name__ == "__main__":
         ("/unknown/path", "/unknown/path"),  # 未知路径保持不变
     ]
     
-    print("URL 防呆测试:")
+    print("URL Foolproof Test:")
     print("=" * 70)
     
     all_passed = True
+    passed_count = 0
+    failed_count = 0
     for input_path, expected in test_cases:
         result = normalize_and_extract_path(input_path)
-        status = "✅" if result == expected else "❌"
-        if result != expected:
+        if result == expected:
+            status = "[PASS]"
+            passed_count += 1
+        else:
+            status = "[FAIL]"
+            failed_count += 1
             all_passed = False
         print(f"{status} {input_path}")
         print(f"   -> {result}")
         if result != expected:
-            print(f"   期望: {expected}")
+            print(f"   Expected: {expected}")
         print()
     
     print("=" * 70)
-    print(f"测试结果: {'全部通过 ✅' if all_passed else '存在失败 ❌'}")
+    print(f"Result: {passed_count} passed, {failed_count} failed")
+    print("ALL TESTS PASSED!" if all_passed else "SOME TESTS FAILED!")
