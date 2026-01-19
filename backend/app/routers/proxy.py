@@ -254,9 +254,14 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
             # 基础模型
             models.append({"id": f"gcli-{base}", "object": "model", "owned_by": "google"})
             
+            # 假流式变体（使用 假流/ 前缀）
+            models.append({"id": f"gcli-假流/{base}", "object": "model", "owned_by": "google"})
+            
             # thinking 变体
             for suffix in thinking_suffixes:
                 models.append({"id": f"gcli-{base}{suffix}", "object": "model", "owned_by": "google"})
+                # thinking + 假流式
+                models.append({"id": f"gcli-假流/{base}{suffix}", "object": "model", "owned_by": "google"})
             
             # search 变体
             models.append({"id": f"gcli-{base}{search_suffix}", "object": "model", "owned_by": "google"})
@@ -396,26 +401,38 @@ async def chat_completions(
     
     model = body.get("model", "gemini-2.5-flash")
     
-    # 提取流式前缀（如果有）
+    # 1. 提取渠道前缀（gcli- 或 agy-）
+    channel_prefix = ""
+    model_without_channel = model
+    if model.startswith("gcli-"):
+        channel_prefix = "gcli-"
+        model_without_channel = model[5:]
+    elif model.startswith("agy-"):
+        channel_prefix = "agy-"
+        model_without_channel = model[4:]
+    
+    # 2. 提取流式前缀（假流/、假非流/、流式抗截断/）
     stream_prefix = ""
-    model_without_stream = model
-    if model.startswith("假非流/"):
+    base_model = model_without_channel
+    if model_without_channel.startswith("假流/"):
+        stream_prefix = "假流/"
+        base_model = model_without_channel[3:]  # len("假流/") = 3
+    elif model_without_channel.startswith("假非流/"):
         stream_prefix = "假非流/"
-        model_without_stream = model[4:]  # len("假非流/") = 4
-    elif model.startswith("流式抗截断/"):
+        base_model = model_without_channel[4:]  # len("假非流/") = 4
+    elif model_without_channel.startswith("流式抗截断/"):
         stream_prefix = "流式抗截断/"
-        model_without_stream = model[6:]  # len("流式抗截断/") = 6
+        base_model = model_without_channel[6:]  # len("流式抗截断/") = 6
     
     # 检测是否是 Antigravity 请求（模型名包含 agy- 前缀）
-    is_antigravity = model_without_stream.startswith("agy-")
+    is_antigravity = channel_prefix == "agy-"
     if is_antigravity:
         # 检查 Antigravity 功能是否启用
         if not settings.antigravity_enabled:
             raise HTTPException(status_code=503, detail="Antigravity API 功能已禁用")
         
-        # 移除 agy- 前缀，保留流式前缀，传递给 Antigravity 代理
-        clean_model = model_without_stream[4:]  # 移除 "agy-"
-        body["model"] = stream_prefix + clean_model
+        # 使用流式前缀 + 基础模型名传递给 Antigravity 代理
+        body["model"] = stream_prefix + base_model
         
         # 调用 Antigravity 代理处理
         from app.routers.antigravity_proxy import chat_completions as agy_chat_completions
@@ -437,11 +454,9 @@ async def chat_completions(
         
         return await agy_chat_completions(new_request, background_tasks, user, db)
     
-    # 移除 gcli- 前缀（如果有），保留流式前缀
-    if model_without_stream.startswith("gcli-"):
-        clean_model = model_without_stream[5:]  # 移除 "gcli-"
-        model = stream_prefix + clean_model
-        body["model"] = model
+    # 对于 GeminiCLI：使用流式前缀 + 基础模型名
+    model = stream_prefix + base_model
+    body["model"] = model
     
     start_time = time.time()
     
@@ -897,14 +912,14 @@ async def list_gemini_models(request: Request, user: User = Depends(get_user_fro
             # 基础模型
             models.append(make_gemini_model(f"gcli-{base}"))
             
-            # 假流式变体
-            models.append(make_gemini_model(f"gcli-假非流/{base}"))
+            # 假流式变体（使用 假流/ 前缀，GeminiClient 中 is_fake_streaming 检测此前缀）
+            models.append(make_gemini_model(f"gcli-假流/{base}"))
             
             # thinking 变体
             for suffix in thinking_suffixes:
                 models.append(make_gemini_model(f"gcli-{base}{suffix}"))
                 # thinking + 假流式
-                models.append(make_gemini_model(f"gcli-假非流/{base}{suffix}"))
+                models.append(make_gemini_model(f"gcli-假流/{base}{suffix}"))
             
             # search 变体
             models.append(make_gemini_model(f"gcli-{base}{search_suffix}"))
@@ -1025,18 +1040,34 @@ async def gemini_generate_content(
     if model.startswith("models/"):
         model = model[7:]
     
+    # 1. 提取渠道前缀（gcli- 或 agy-）
+    channel_prefix = ""
+    model_without_channel = model
+    if model.startswith("gcli-"):
+        channel_prefix = "gcli-"
+        model_without_channel = model[5:]
+    elif model.startswith("agy-"):
+        channel_prefix = "agy-"
+        model_without_channel = model[4:]
+    
+    # 2. 提取流式前缀（假流/）
+    stream_prefix = ""
+    base_model = model_without_channel
+    if model_without_channel.startswith("假流/"):
+        stream_prefix = "假流/"
+        base_model = model_without_channel[3:]  # len("假流/") = 3
+    
     # 🚀 检测 agy- 前缀，转发到 Antigravity 处理
-    if model.startswith("agy-"):
+    if channel_prefix == "agy-":
         if not settings.antigravity_enabled:
             raise HTTPException(status_code=503, detail="Antigravity API 功能已禁用")
         
-        # 转发到 antigravity_gemini 路由处理
+        # 转发到 antigravity_gemini 路由处理（传递原始模型名，由 antigravity_gemini 处理前缀）
         from app.routers.antigravity_gemini import gemini_generate_content as agy_gemini_generate_content
         return await agy_gemini_generate_content(request, background_tasks, model, user, db)
     
-    # 移除 gcli- 前缀（如果有）
-    if model.startswith("gcli-"):
-        model = model[5:]
+    # 对于 GeminiCLI：使用流式前缀 + 基础模型名
+    model = stream_prefix + base_model
     
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
@@ -1301,18 +1332,34 @@ async def gemini_stream_generate_content(
     if model.startswith("models/"):
         model = model[7:]
     
+    # 1. 提取渠道前缀（gcli- 或 agy-）
+    channel_prefix = ""
+    model_without_channel = model
+    if model.startswith("gcli-"):
+        channel_prefix = "gcli-"
+        model_without_channel = model[5:]
+    elif model.startswith("agy-"):
+        channel_prefix = "agy-"
+        model_without_channel = model[4:]
+    
+    # 2. 提取流式前缀（假流/）
+    stream_prefix = ""
+    base_model = model_without_channel
+    if model_without_channel.startswith("假流/"):
+        stream_prefix = "假流/"
+        base_model = model_without_channel[3:]  # len("假流/") = 3
+    
     # 🚀 检测 agy- 前缀，转发到 Antigravity 处理
-    if model.startswith("agy-"):
+    if channel_prefix == "agy-":
         if not settings.antigravity_enabled:
             raise HTTPException(status_code=503, detail="Antigravity API 功能已禁用")
         
-        # 转发到 antigravity_gemini 路由处理
+        # 转发到 antigravity_gemini 路由处理（传递原始模型名，由 antigravity_gemini 处理前缀）
         from app.routers.antigravity_gemini import gemini_stream_generate_content as agy_gemini_stream
         return await agy_gemini_stream(request, background_tasks, model, user, db)
     
-    # 移除 gcli- 前缀（如果有）
-    if model.startswith("gcli-"):
-        model = model[5:]
+    # 对于 GeminiCLI：使用流式前缀 + 基础模型名
+    model = stream_prefix + base_model
     
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
