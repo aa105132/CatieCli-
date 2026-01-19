@@ -67,6 +67,11 @@ def extract_content_and_reasoning(parts: list) -> Tuple[str, str, List[Dict[str,
         # 提取文本内容
         text = part.get("text", "")
         if text:
+            # 过滤掉 Gemini API 的特殊标记（如 <-PAGEABLE_STATUSBAR->）
+            import re
+            if re.fullmatch(r'^<-[A-Z_]+->$', text.strip()):
+                continue  # 跳过特殊标记
+            
             if part.get("thought", False):
                 reasoning_content += text
             else:
