@@ -2,9 +2,11 @@ import {
     ArrowLeft,
     Check,
     ExternalLink,
+    Gift,
     Key,
     RefreshCw,
     Rocket,
+    Upload,
     X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -21,6 +23,12 @@ export default function AntigravityOAuth() {
   const [message, setMessage] = useState({ type: "", text: "" });
   const [isDonate, setIsDonate] = useState(true);
   const [forceDonate, setForceDonate] = useState(false);
+
+  // 上传凭证相关
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadPublic, setUploadPublic] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   // OAuth 弹窗配置
   const [guideEnabled, setGuideEnabled] = useState(true);
@@ -133,6 +141,40 @@ export default function AntigravityOAuth() {
       setMessage({ type: "error", text: errorText });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // 上传凭证
+  const uploadCredential = async () => {
+    if (uploadFiles.length === 0) return;
+    setUploading(true);
+    setMessage({ type: "", text: "" });
+    try {
+      const formData = new FormData();
+      uploadFiles.forEach((file) => formData.append("files", file));
+      formData.append("is_public", uploadPublic);
+
+      const res = await api.post(
+        "/api/antigravity/credentials/upload",
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 600000,
+        },
+      );
+      setMessage({
+        type: "success",
+        text: `上传完成: 成功 ${res.data.uploaded_count}/${res.data.total_count} 个`,
+      });
+      setUploadFiles([]);
+      document.getElementById("antigravity-upload-input").value = "";
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err.response?.data?.detail || "上传失败",
+      });
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -396,6 +438,144 @@ export default function AntigravityOAuth() {
             )}
             提交并生成 Antigravity 凭证
           </button>
+        </div>
+
+        {/* 分隔线 */}
+        <div className="flex items-center gap-4 my-2">
+          <div className="flex-1 h-px bg-dark-600"></div>
+          <span className="text-gray-500 text-sm">或者</span>
+          <div className="flex-1 h-px bg-dark-600"></div>
+        </div>
+
+        {/* 上传凭证区域 */}
+        <div className="bg-dark-800 border border-dark-600 rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Upload className="text-orange-400" size={20} />
+            上传已有凭证
+          </h2>
+
+          <div className="space-y-4">
+            <div
+              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                dragOver
+                  ? "border-orange-500 bg-orange-500/10"
+                  : "border-dark-600 hover:border-orange-500"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const files = Array.from(e.dataTransfer.files).filter(
+                  (f) => f.name.endsWith(".json") || f.name.endsWith(".zip"),
+                );
+                if (files.length > 0)
+                  setUploadFiles((prev) => [...prev, ...files]);
+              }}
+            >
+              <input
+                type="file"
+                accept=".json,.zip"
+                multiple
+                onChange={(e) =>
+                  setUploadFiles((prev) => [
+                    ...prev,
+                    ...Array.from(e.target.files),
+                  ])
+                }
+                className="hidden"
+                id="antigravity-upload-input"
+              />
+              <label
+                htmlFor="antigravity-upload-input"
+                className="cursor-pointer block"
+              >
+                <Rocket size={28} className="mx-auto mb-2 text-orange-400" />
+                <div className="text-gray-300 text-sm mb-1">
+                  {uploadFiles.length > 0
+                    ? `已选择 ${uploadFiles.length} 个文件`
+                    : "点击或拖拽 JSON/ZIP 文件"}
+                </div>
+                <div className="text-xs text-gray-500">
+                  Antigravity 凭证会自动获取 project_id
+                </div>
+              </label>
+            </div>
+
+            {/* 已选文件列表 */}
+            {uploadFiles.length > 0 && (
+              <div className="bg-dark-900 rounded-lg p-3 space-y-2">
+                <div className="text-xs text-gray-400 mb-2">已选择的文件：</div>
+                {uploadFiles.map((file, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between text-sm bg-dark-700 rounded px-3 py-2"
+                  >
+                    <span className="truncate">{file.name}</span>
+                    <button
+                      onClick={() =>
+                        setUploadFiles((prev) =>
+                          prev.filter((_, i) => i !== idx),
+                        )
+                      }
+                      className="text-red-400 hover:text-red-300 ml-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    setUploadFiles([]);
+                    document.getElementById("antigravity-upload-input").value =
+                      "";
+                  }}
+                  className="text-xs text-gray-500 hover:text-gray-400"
+                >
+                  清空全部
+                </button>
+              </div>
+            )}
+
+            {/* 上传选项 */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:justify-between">
+              {!forceDonate && (
+                <label className="flex items-center gap-3 cursor-pointer p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg hover:bg-orange-500/20 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={uploadPublic}
+                    onChange={(e) => setUploadPublic(e.target.checked)}
+                    className="w-5 h-5 rounded flex-shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-orange-400 font-medium flex items-center gap-2 text-sm">
+                      <Gift size={14} className="flex-shrink-0" />
+                      <span className="truncate">上传到公共池</span>
+                    </div>
+                    <div className="text-xs text-orange-300/70">
+                      分享凭证，共同使用
+                    </div>
+                  </div>
+                </label>
+              )}
+
+              <button
+                onClick={uploadCredential}
+                disabled={uploading || uploadFiles.length === 0}
+                className="px-4 sm:px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 font-medium whitespace-nowrap flex-shrink-0"
+              >
+                {uploading ? (
+                  <RefreshCw className="animate-spin" size={18} />
+                ) : (
+                  <Upload size={18} />
+                )}
+                {uploading ? "上传中..." : "上传凭证"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
