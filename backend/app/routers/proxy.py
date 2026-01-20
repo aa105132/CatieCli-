@@ -859,24 +859,28 @@ async def chat_completions(
                 should_retry = any(code in error_str for code in ["404", "500", "502", "503", "504", "429", "RESOURCE_EXHAUSTED", "NOT_FOUND", "ECONNRESET", "socket hang up", "ConnectionReset", "Connection reset", "ETIMEDOUT", "ECONNREFUSED", "Gateway Timeout", "timeout"])
                 
                 if should_retry and retry_attempt < max_retries:
-                    print(f"[Proxy] ⚠️ 请求失败: {error_str}，切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Proxy] ⚠️ 请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                     
-                    # 获取新凭证
-                    credential = await CredentialPool.get_available_credential(
+                    # 尝试获取新凭证
+                    new_credential = await CredentialPool.get_available_credential(
                         db, user_id=user.id, user_has_public_creds=user_has_public,
                         model=model, exclude_ids=tried_credential_ids
                     )
-                    if not credential:
-                        break
-                    
-                    tried_credential_ids.add(credential.id)
-                    access_token = await CredentialPool.get_access_token(credential, db)
-                    if not access_token:
-                        continue
-                    
-                    project_id = credential.project_id or ""
-                    client = GeminiClient(access_token, project_id)
-                    print(f"[Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
+                    if new_credential:
+                        # 切换到新凭证
+                        tried_credential_ids.add(new_credential.id)
+                        new_token = await CredentialPool.get_access_token(new_credential, db)
+                        if new_token:
+                            credential = new_credential
+                            access_token = new_token
+                            project_id = new_credential.project_id or ""
+                            client = GeminiClient(access_token, project_id)
+                            print(f"[Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
+                        else:
+                            print(f"[Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                    else:
+                        # 没有新凭证可用，使用当前凭证继续重试
+                        print(f"[Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     continue
                 
                 # 失败：更新占位日志
@@ -1013,9 +1017,9 @@ async def chat_completions(
                 should_retry = any(code in error_str for code in ["404", "500", "502", "503", "504", "429", "RESOURCE_EXHAUSTED", "NOT_FOUND", "ECONNRESET", "socket hang up", "ConnectionReset", "Connection reset", "ETIMEDOUT", "ECONNREFUSED", "Gateway Timeout", "timeout"])
                 
                 if should_retry and stream_retry < max_retries:
-                    print(f"[Proxy] ⚠️ 流式请求失败: {error_str}，切换凭证重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Proxy] ⚠️ 流式请求失败: {error_str}，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
                     
-                    # 🚀 使用独立会话获取新凭证
+                    # 尝试获取新凭证
                     try:
                         async with async_session() as stream_db:
                             new_credential = await CredentialPool.get_available_credential(
@@ -1032,9 +1036,14 @@ async def chat_completions(
                                     project_id = new_credential.project_id or ""
                                     client = GeminiClient(access_token, project_id)
                                     print(f"[Proxy] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                    continue
+                                else:
+                                    print(f"[Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                            else:
+                                # 没有新凭证可用，使用当前凭证继续重试
+                                print(f"[Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     except Exception as retry_err:
-                        print(f"[Proxy] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                        print(f"[Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    continue
                 
                 # 无法重试，输出错误并记录日志
                 status_code = extract_status_code(error_str)
@@ -1356,7 +1365,8 @@ async def gemini_generate_content(
         if not credential:
             if retry_attempt == 0:
                 raise HTTPException(status_code=503, detail="暂无可用凭证")
-            break  # 无更多凭证可用，退出重试
+            # 无更多凭证可用，但仍有重试次数，使用上一个有效凭证继续重试
+            print(f"[Gemini API] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
         
         tried_credential_ids.add(credential.id)
         
@@ -1465,7 +1475,8 @@ async def gemini_generate_content(
                 # 检查是否应该重试
                 should_retry = response.status_code in [429, 500, 503, 404]
                 if should_retry and retry_attempt < max_retries:
-                    print(f"[Gemini API] 🔄 切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Gemini API] ⚠️ 请求失败，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    # 继续循环，会在下一次迭代时尝试获取新凭证或使用当前凭证
                     continue
                 
                 # 不重试，返回错误
@@ -1520,7 +1531,8 @@ async def gemini_generate_content(
             # 检查是否应该重试
             should_retry = any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "ECONNRESET", "ETIMEDOUT"])
             if should_retry and retry_attempt < max_retries:
-                print(f"[Gemini API] 🔄 切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                print(f"[Gemini API] ⚠️ 请求失败，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                # 继续循环，会在下一次迭代时尝试获取新凭证或使用当前凭证
                 continue
             
             # 不重试，返回错误
@@ -1789,7 +1801,9 @@ async def gemini_stream_generate_content(
                     # 检查是否应该重试
                     should_retry = response.status_code in [429, 500, 503, 404]
                     if should_retry and stream_retry < max_retries:
-                        print(f"[Gemini FakeStream] 🔄 切换凭证重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                        print(f"[Gemini FakeStream] ⚠️ 请求失败，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                        
+                        # 尝试获取新凭证
                         try:
                             async with async_session() as stream_db:
                                 new_credential = await CredentialPool.get_available_credential(
@@ -1805,9 +1819,14 @@ async def gemini_stream_generate_content(
                                         access_token = new_token
                                         project_id = new_credential.project_id or ""
                                         print(f"[Gemini FakeStream] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                        continue
+                                    else:
+                                        print(f"[Gemini FakeStream] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                                else:
+                                    # 没有新凭证可用，使用当前凭证继续重试
+                                    print(f"[Gemini FakeStream] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                         except Exception as retry_err:
-                            print(f"[Gemini FakeStream] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                            print(f"[Gemini FakeStream] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                        continue
                     
                     yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error_text}'})}\n\n"
                     return
@@ -1861,7 +1880,9 @@ async def gemini_stream_generate_content(
                 # 检查是否应该重试
                 should_retry = any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "ECONNRESET", "ETIMEDOUT"])
                 if should_retry and stream_retry < max_retries:
-                    print(f"[Gemini FakeStream] 🔄 切换凭证重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Gemini FakeStream] ⚠️ 请求失败，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                    
+                    # 尝试获取新凭证
                     try:
                         async with async_session() as stream_db:
                             new_credential = await CredentialPool.get_available_credential(
@@ -1877,9 +1898,14 @@ async def gemini_stream_generate_content(
                                     access_token = new_token
                                     project_id = new_credential.project_id or ""
                                     print(f"[Gemini FakeStream] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                    continue
+                                else:
+                                    print(f"[Gemini FakeStream] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                            else:
+                                # 没有新凭证可用，使用当前凭证继续重试
+                                print(f"[Gemini FakeStream] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     except Exception as retry_err:
-                        print(f"[Gemini FakeStream] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                        print(f"[Gemini FakeStream] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    continue
                 
                 yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error_str}'})}\n\n"
                 return
@@ -1935,9 +1961,9 @@ async def gemini_stream_generate_content(
                             # 检查是否应该重试
                             should_retry = response.status_code in [429, 500, 503, 404]
                             if should_retry and stream_retry < max_retries:
-                                print(f"[Gemini Stream] 🔄 切换凭证重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                                print(f"[Gemini Stream] ⚠️ 请求失败，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
                                 
-                                # 使用独立会话获取新凭证
+                                # 尝试获取新凭证
                                 try:
                                     async with async_session() as stream_db:
                                         new_credential = await CredentialPool.get_available_credential(
@@ -1953,9 +1979,14 @@ async def gemini_stream_generate_content(
                                                 access_token = new_token
                                                 project_id = new_credential.project_id or ""
                                                 print(f"[Gemini Stream] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                                continue
+                                            else:
+                                                print(f"[Gemini Stream] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                                        else:
+                                            # 没有新凭证可用，使用当前凭证继续重试
+                                            print(f"[Gemini Stream] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                                 except Exception as retry_err:
-                                    print(f"[Gemini Stream] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                                    print(f"[Gemini Stream] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                                continue
                             
                             # 无法重试，输出错误（日志已记录）
                             yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error.decode()}'})}\n\n"
@@ -2016,9 +2047,9 @@ async def gemini_stream_generate_content(
                 should_retry = any(code in error_str for code in ["429", "500", "503", "RESOURCE_EXHAUSTED", "ECONNRESET", "ETIMEDOUT"])
                 
                 if should_retry and stream_retry < max_retries:
-                    print(f"[Gemini Stream] ⚠️ 流式请求失败: {error_str}，切换凭证重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Gemini Stream] ⚠️ 流式请求失败: {error_str}，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
                     
-                    # 使用独立会话获取新凭证
+                    # 尝试获取新凭证
                     try:
                         async with async_session() as stream_db:
                             new_credential = await CredentialPool.get_available_credential(
@@ -2034,9 +2065,14 @@ async def gemini_stream_generate_content(
                                     access_token = new_token
                                     project_id = new_credential.project_id or ""
                                     print(f"[Gemini Stream] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                    continue
+                                else:
+                                    print(f"[Gemini Stream] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                            else:
+                                # 没有新凭证可用，使用当前凭证继续重试
+                                print(f"[Gemini Stream] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     except Exception as retry_err:
-                        print(f"[Gemini Stream] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                        print(f"[Gemini Stream] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    continue
                 
                 # 无法重试，输出错误（日志已记录）
                 yield f"data: {json.dumps({'error': f'API Error (已重试 {stream_retry + 1} 次): {error_str}'})}\n\n"
