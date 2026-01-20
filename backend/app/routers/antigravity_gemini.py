@@ -615,6 +615,33 @@ async def gemini_stream_generate_content(
                     except:
                         pass
                 
+                # 记录错误日志
+                status_code = extract_status_code(error_str)
+                latency = (time.time() - start_time) * 1000
+                try:
+                    async with async_session() as bg_db:
+                        log_result = await bg_db.execute(
+                            select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                        )
+                        log = log_result.scalar_one_or_none()
+                        if log:
+                            log.credential_id = credential.id
+                            log.status_code = status_code
+                            log.latency_ms = latency
+                            log.error_message = error_str[:2000]
+                            log.credential_email = credential.email
+                        await bg_db.commit()
+                except Exception as log_err:
+                    print(f"[AntigravityGemini] ⚠️ 假流式错误日志记录失败: {log_err}", flush=True)
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity-gemini/{real_model}",
+                    "status_code": status_code,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                
                 yield f"data: {json.dumps({'error': error_str})}\n\n".encode()
                 yield b"data: [DONE]\n\n"
                 return
@@ -724,6 +751,33 @@ async def gemini_stream_generate_content(
                                     continue
                     except:
                         pass
+                
+                # 记录错误日志
+                status_code = extract_status_code(error_str)
+                latency = (time.time() - start_time) * 1000
+                try:
+                    async with async_session() as bg_db:
+                        log_result = await bg_db.execute(
+                            select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                        )
+                        log = log_result.scalar_one_or_none()
+                        if log:
+                            log.credential_id = credential.id
+                            log.status_code = status_code
+                            log.latency_ms = latency
+                            log.error_message = error_str[:2000]
+                            log.credential_email = credential.email
+                        await bg_db.commit()
+                except Exception as log_err:
+                    print(f"[AntigravityGemini] ⚠️ 流式错误日志记录失败: {log_err}", flush=True)
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity-gemini/{real_model}",
+                    "status_code": status_code,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
                 
                 yield f"data: {json.dumps({'error': error_str})}\n\n".encode()
                 yield b"data: [DONE]\n\n"

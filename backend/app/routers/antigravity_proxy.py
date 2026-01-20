@@ -811,9 +811,64 @@ async def chat_completions(
                     except Exception as retry_err:
                         print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
                 
-                # 失败，返回错误 JSON
+                # 失败，记录日志并返回错误 JSON
+                status_code = extract_status_code(error_str)
+                latency = (time.time() - start_time) * 1000
+                error_type, error_code = classify_error_simple(status_code, error_str)
+                
+                try:
+                    async with async_session() as bg_db:
+                        log_result = await bg_db.execute(
+                            select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                        )
+                        log = log_result.scalar_one_or_none()
+                        if log:
+                            log.credential_id = credential.id
+                            log.status_code = status_code
+                            log.latency_ms = latency
+                            log.error_message = error_str[:2000]
+                            log.error_type = error_type
+                            log.error_code = error_code
+                            log.credential_email = credential.email
+                            log.request_body = request_body_str
+                            log.retry_count = retry_attempt
+                        await bg_db.commit()
+                except Exception as log_err:
+                    print(f"[Antigravity Proxy] ⚠️ 假非流错误日志记录失败: {log_err}", flush=True)
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity/{model}",
+                    "status_code": status_code,
+                    "error_type": error_type,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                
                 yield json.dumps({"error": f"Antigravity 假非流调用失败: {error_str}"})
                 return
+        
+        # 所有重试都失败了，记录最终错误
+        status_code = extract_status_code(str(last_error)) if last_error else 503
+        latency = (time.time() - start_time) * 1000
+        error_type, error_code = classify_error_simple(status_code, str(last_error) if last_error else "所有凭证失败")
+        
+        try:
+            async with async_session() as bg_db:
+                log_result = await bg_db.execute(
+                    select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                )
+                log = log_result.scalar_one_or_none()
+                if log:
+                    log.status_code = status_code
+                    log.latency_ms = latency
+                    log.error_message = (str(last_error) if last_error else "所有凭证失败")[:2000]
+                    log.error_type = error_type
+                    log.error_code = error_code
+                    log.request_body = request_body_str
+                await bg_db.commit()
+        except Exception as log_err:
+            print(f"[Antigravity Proxy] ⚠️ 假非流最终错误日志记录失败: {log_err}", flush=True)
         
         yield json.dumps({"error": f"所有凭证都失败了: {last_error}"})
     

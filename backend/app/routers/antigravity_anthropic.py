@@ -343,6 +343,33 @@ async def anthropic_messages(
                     except:
                         pass
                 
+                # 记录错误日志
+                status_code = extract_status_code(error_str)
+                latency = (time.time() - start_time) * 1000
+                try:
+                    async with async_session() as bg_db:
+                        log_result = await bg_db.execute(
+                            select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                        )
+                        log = log_result.scalar_one_or_none()
+                        if log:
+                            log.credential_id = credential.id
+                            log.status_code = status_code
+                            log.latency_ms = latency
+                            log.error_message = error_str[:2000]
+                            log.credential_email = credential.email
+                        await bg_db.commit()
+                except Exception as log_err:
+                    print(f"[AntigravityAnthropic] ⚠️ 流式错误日志记录失败: {log_err}", flush=True)
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity-anthropic/{real_model}",
+                    "status_code": status_code,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                
                 # 返回 Anthropic 格式错误
                 error_event = {
                     "type": "error",
