@@ -196,28 +196,49 @@ async def gemini_generate_content(
     # 检查是否是图片模型 - 图片模型不支持流式端点，必须使用真正的非流式端点
     is_image_model = "image" in final_model.lower()
     
-    # 图片模型处理：使用真正的非流式端点
+    # 图片模型处理：使用非流式端点 + 心跳机制（防止超时）
     if is_image_model:
-        print(f"[AntigravityGemini] 🖼️ 图片模型检测到，使用真正的非流式端点 (model={final_model})", flush=True)
+        print(f"[AntigravityGemini] 🖼️ 图片模型检测到，使用假非流模式（非流式端点 + 心跳） (model={final_model})", flush=True)
         
-        for retry_attempt in range(max_retries + 1):
-            try:
-                async with client._get_client() as http_client:
-                    url = client.get_generate_url()  # 使用非流式端点
-                    headers = client.get_headers(final_model)
+        # 图片模型假非流生成器
+        async def image_fake_non_stream_generator():
+            nonlocal credential, access_token, project_id, client
+            
+            heartbeat_interval = 2  # 每2秒发送一次心跳（适应网络环境较差的用户）
+            
+            for retry_attempt in range(max_retries + 1):
+                try:
+                    # 创建非流式请求任务
+                    async def make_request():
+                        async with client._get_client() as http_client:
+                            url = client.get_generate_url()  # 使用非流式端点
+                            headers = client.get_headers(final_model)
+                            
+                            payload = {
+                                "model": final_model,
+                                "project": project_id,
+                                "request": normalized_request
+                            }
+                            
+                            response = await http_client.post(
+                                url,
+                                headers=headers,
+                                json=payload,
+                                timeout=300.0
+                            )
+                            return response
                     
-                    payload = {
-                        "model": final_model,
-                        "project": project_id,
-                        "request": normalized_request
-                    }
+                    request_task = asyncio.create_task(make_request())
                     
-                    response = await http_client.post(
-                        url,
-                        headers=headers,
-                        json=payload,
-                        timeout=300.0
-                    )
+                    # 在等待响应期间发送心跳
+                    while not request_task.done():
+                        await asyncio.sleep(heartbeat_interval)
+                        if not request_task.done():
+                            yield " "  # 发送空格作为心跳
+                            print(f"[AntigravityGemini] 💓 图片模型心跳发送 (retry={retry_attempt})", flush=True)
+                    
+                    # 获取结果
+                    response = await request_task
                     
                     if response.status_code != 200:
                         error_text = response.text
@@ -230,11 +251,22 @@ async def gemini_generate_content(
                         gemini_response = gemini_response["response"]
                     
                     latency = (time.time() - start_time) * 1000
-                    placeholder_log.credential_id = credential.id
-                    placeholder_log.status_code = 200
-                    placeholder_log.latency_ms = latency
-                    placeholder_log.credential_email = credential.email
-                    await db.commit()
+                    
+                    # 更新日志
+                    try:
+                        async with async_session() as bg_db:
+                            log_result = await bg_db.execute(
+                                select(UsageLog).where(UsageLog.id == placeholder_log.id)
+                            )
+                            log = log_result.scalar_one_or_none()
+                            if log:
+                                log.credential_id = credential.id
+                                log.status_code = 200
+                                log.latency_ms = latency
+                                log.credential_email = credential.email
+                            await bg_db.commit()
+                    except Exception as log_err:
+                        print(f"[AntigravityGemini] ⚠️ 图片模型日志记录失败: {log_err}", flush=True)
                     
                     await notify_log_update({
                         "username": user.username,
@@ -244,43 +276,74 @@ async def gemini_generate_content(
                         "created_at": datetime.utcnow().isoformat()
                     })
                     
-                    return JSONResponse(content=gemini_response)
+                    # 返回完整 JSON 响应
+                    yield json.dumps(gemini_response)
+                    return
                     
-            except Exception as e:
-                error_str = str(e)
-                
-                should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
-                
-                if should_retry and retry_attempt < max_retries:
-                    print(f"[AntigravityGemini] ⚠️ 图片模型请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                except Exception as e:
+                    error_str = str(e)
                     
-                    # 尝试获取新凭证
-                    new_credential = await CredentialPool.get_available_credential(
-                        db, user_id=user.id, user_has_public_creds=user_has_public,
-                        model=real_model, exclude_ids=tried_credential_ids,
-                        mode="antigravity"
-                    )
-                    if new_credential:
-                        tried_credential_ids.add(new_credential.id)
-                        new_token, new_project = await CredentialPool.get_access_token_and_project(new_credential, db, mode="antigravity")
-                        if new_token and new_project:
-                            credential = new_credential
-                            access_token = new_token
-                            project_id = new_project
-                            client = AntigravityClient(access_token, project_id)
-                            print(f"[AntigravityGemini] 🔄 切换到凭证: {credential.email}", flush=True)
-                        else:
-                            print(f"[AntigravityGemini] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
-                    else:
-                        # 没有新凭证可用，使用当前凭证继续重试
-                        print(f"[AntigravityGemini] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
-                    continue
-                
-                status_code = extract_status_code(error_str)
-                placeholder_log.status_code = status_code
-                placeholder_log.error_message = error_str[:2000]
-                await db.commit()
-                raise HTTPException(status_code=status_code, detail=f"Gemini API 调用失败: {error_str}")
+                    should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
+                    
+                    if should_retry and retry_attempt < max_retries:
+                        print(f"[AntigravityGemini] ⚠️ 图片模型请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                        
+                        # 尝试获取新凭证
+                        try:
+                            async with async_session() as bg_db:
+                                new_cred = await CredentialPool.get_available_credential(
+                                    bg_db, user_id=user.id, user_has_public_creds=user_has_public,
+                                    model=real_model, exclude_ids=tried_credential_ids,
+                                    mode="antigravity"
+                                )
+                                if new_cred:
+                                    tried_credential_ids.add(new_cred.id)
+                                    new_token, new_project = await CredentialPool.get_access_token_and_project(new_cred, bg_db, mode="antigravity")
+                                    if new_token and new_project:
+                                        credential = new_cred
+                                        access_token = new_token
+                                        project_id = new_project
+                                        client = AntigravityClient(access_token, project_id)
+                                        print(f"[AntigravityGemini] 🔄 切换到凭证: {credential.email}", flush=True)
+                                    else:
+                                        print(f"[AntigravityGemini] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                                else:
+                                    # 没有新凭证可用，使用当前凭证继续重试
+                                    print(f"[AntigravityGemini] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
+                        except Exception as retry_err:
+                            print(f"[AntigravityGemini] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                        continue
+                    
+                    # 记录错误日志
+                    status_code = extract_status_code(error_str)
+                    latency = (time.time() - start_time) * 1000
+                    
+                    try:
+                        async with async_session() as bg_db:
+                            log_result = await bg_db.execute(
+                                select(UsageLog).where(UsageLog.id == placeholder_log.id)
+                            )
+                            log = log_result.scalar_one_or_none()
+                            if log:
+                                log.status_code = status_code
+                                log.latency_ms = latency
+                                log.error_message = error_str[:2000]
+                                log.credential_email = credential.email
+                            await bg_db.commit()
+                    except Exception as log_err:
+                        print(f"[AntigravityGemini] ⚠️ 图片模型错误日志记录失败: {log_err}", flush=True)
+                    
+                    yield json.dumps({"error": {"code": status_code, "message": f"Gemini API 调用失败: {error_str}"}})
+                    return
+            
+            # 所有重试都失败
+            yield json.dumps({"error": {"code": 503, "message": "所有凭证都失败了"}})
+        
+        return StreamingResponse(
+            image_fake_non_stream_generator(),
+            media_type="application/json",
+            headers={"Cache-Control": "no-cache"}
+        )
     
     # 非图片模型处理：使用流式获取数据，最终返回非流式格式的JSON（更快）
     for retry_attempt in range(max_retries + 1):

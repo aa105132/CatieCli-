@@ -908,18 +908,201 @@ async def chat_completions(
         yield json.dumps({"error": f"所有凭证都失败了: {last_error}"})
     
     # 路由逻辑：
-    # 1. 图片模型：无论 stream 参数如何，都强制使用真正的非流式请求（不支持流式端点）
+    # 1. 图片模型：使用假非流模式（非流式端点 + 心跳机制），防止生成时间长导致超时
     # 2. 假非流模式（假非流/前缀 或 stream=false）：使用 StreamingResponse + 心跳，返回 JSON
     # 3. 普通流式：调用流式 API
-    # 注意：反重力 API 非流式可能超时，所以非流式请求也自动使用假非流模式（图片模型除外）
+    # 注意：反重力 API 非流式可能超时，所以非流式请求也自动使用假非流模式
     
     # 检查是否是图片生成模型
     is_image_model = "image" in model.lower()
     
+    # 图片模型假非流模式：使用非流式端点，但通过 StreamingResponse 包装并发送心跳
+    async def image_fake_non_stream_generator():
+        """图片模型专用假非流：使用非流式端点 + 心跳机制，防止超时"""
+        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error
+        
+        import asyncio
+        heartbeat_interval = 2  # 每2秒发送一次心跳（适应网络环境较差的用户）
+        
+        for retry_attempt in range(max_retries + 1):
+            try:
+                # 创建非流式请求任务
+                request_task = asyncio.create_task(
+                    client.chat_completions(
+                        model=model,
+                        messages=messages,
+                        server_base_url=str(request.base_url).rstrip("/"),
+                        **{k: v for k, v in body.items() if k not in ["model", "messages", "stream"]}
+                    )
+                )
+                
+                # 在等待响应期间发送心跳
+                while not request_task.done():
+                    await asyncio.sleep(heartbeat_interval)
+                    if not request_task.done():
+                        yield " "  # 发送空格作为心跳
+                        print(f"[Antigravity Proxy] 💓 图片模型心跳发送 (retry={retry_attempt})", flush=True)
+                
+                # 获取结果
+                result = await request_task
+                
+                # 更新日志
+                latency = (time.time() - start_time) * 1000
+                
+                try:
+                    async with async_session() as bg_db:
+                        log_result = await bg_db.execute(
+                            select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                        )
+                        log = log_result.scalar_one_or_none()
+                        if log:
+                            log.credential_id = credential.id
+                            log.status_code = 200
+                            log.latency_ms = latency
+                            log.credential_email = credential.email
+                            log.retry_count = retry_attempt
+                        
+                        # 更新凭证使用次数
+                        from app.models.user import Credential as CredentialModel
+                        cred_result = await bg_db.execute(
+                            select(CredentialModel).where(CredentialModel.id == credential.id)
+                        )
+                        cred = cred_result.scalar_one_or_none()
+                        if cred:
+                            cred.total_requests = (cred.total_requests or 0) + 1
+                            cred.last_used_at = datetime.utcnow()
+                        
+                        await bg_db.commit()
+                except Exception as log_err:
+                    print(f"[Antigravity Proxy] ⚠️ 图片模型日志记录失败: {log_err}", flush=True)
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity/{model}",
+                    "status_code": 200,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                await notify_stats_update()
+                
+                # 返回完整 JSON 响应
+                yield json.dumps(result)
+                return
+                
+            except Exception as e:
+                error_str = str(e)
+                last_error = error_str
+                
+                # 检查是否是 Token 过期导致的 401 错误
+                is_auth_error = any(code in error_str for code in ["401", "UNAUTHENTICATED", "invalid_grant", "Token has been expired", "token expired"])
+                
+                if is_auth_error:
+                    print(f"[Antigravity Proxy] ⚠️ 图片模型认证失败，尝试刷新 Token: {credential.email}", flush=True)
+                    try:
+                        async with async_session() as bg_db:
+                            from app.models.user import Credential as CredentialModel
+                            result = await bg_db.execute(select(CredentialModel).where(CredentialModel.id == credential.id))
+                            cred_obj = result.scalar_one_or_none()
+                            if cred_obj:
+                                new_token = await CredentialPool.refresh_access_token(cred_obj)
+                                if new_token:
+                                    from app.services.crypto import encrypt_credential
+                                    cred_obj.api_key = encrypt_credential(new_token)
+                                    await bg_db.commit()
+                                    access_token = new_token
+                                    client = AntigravityClient(new_token, project_id)
+                                    print(f"[Antigravity Proxy] ✅ 图片模型 Token 刷新成功: {credential.email}", flush=True)
+                                    continue
+                                else:
+                                    print(f"[Antigravity Proxy] ❌ 图片模型 Token 刷新失败: {credential.email}", flush=True)
+                                    await CredentialPool.handle_credential_failure(bg_db, credential.id, error_str)
+                    except Exception as refresh_err:
+                        print(f"[Antigravity Proxy] ⚠️ 图片模型 Token 刷新异常: {refresh_err}", flush=True)
+                else:
+                    try:
+                        async with async_session() as bg_db:
+                            await CredentialPool.handle_credential_failure(bg_db, credential.id, error_str)
+                    except:
+                        pass
+                
+                should_retry = any(code in error_str for code in ["401", "404", "500", "502", "503", "504", "429", "UNAUTHENTICATED", "RESOURCE_EXHAUSTED", "NOT_FOUND"])
+                
+                if should_retry and retry_attempt < max_retries:
+                    print(f"[Antigravity Proxy] ⚠️ 图片模型请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    
+                    try:
+                        async with async_session() as bg_db:
+                            new_cred = await CredentialPool.get_available_credential(
+                                bg_db, user_id=user.id, user_has_public_creds=user_has_public,
+                                model=model, exclude_ids=tried_credential_ids,
+                                mode="antigravity"
+                            )
+                            if new_cred:
+                                tried_credential_ids.add(new_cred.id)
+                                new_token, new_project = await CredentialPool.get_access_token_and_project(new_cred, bg_db, mode="antigravity")
+                                if new_token and new_project:
+                                    credential = new_cred
+                                    access_token = new_token
+                                    project_id = new_project
+                                    client = AntigravityClient(access_token, project_id)
+                                    print(f"[Antigravity Proxy] 🔄 图片模型切换到凭证: {credential.email}", flush=True)
+                                else:
+                                    print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                            else:
+                                print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
+                    except Exception as retry_err:
+                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    continue
+                
+                # 记录错误日志
+                status_code = extract_status_code(error_str)
+                latency = (time.time() - start_time) * 1000
+                error_type, error_code = classify_error_simple(status_code, error_str)
+                
+                try:
+                    async with async_session() as bg_db:
+                        log_result = await bg_db.execute(
+                            select(UsageLog).where(UsageLog.id == placeholder_log_id)
+                        )
+                        log = log_result.scalar_one_or_none()
+                        if log:
+                            log.credential_id = credential.id
+                            log.status_code = status_code
+                            log.latency_ms = latency
+                            log.error_message = error_str[:2000]
+                            log.error_type = error_type
+                            log.error_code = error_code
+                            log.credential_email = credential.email
+                            log.request_body = request_body_str
+                            log.retry_count = retry_attempt
+                        await bg_db.commit()
+                except Exception as log_err:
+                    print(f"[Antigravity Proxy] ⚠️ 图片模型错误日志记录失败: {log_err}", flush=True)
+                
+                await notify_log_update({
+                    "username": user.username,
+                    "model": f"antigravity/{model}",
+                    "status_code": status_code,
+                    "error_type": error_type,
+                    "latency_ms": round(latency, 0),
+                    "created_at": datetime.utcnow().isoformat()
+                })
+                
+                yield json.dumps({"error": f"Antigravity 图片模型调用失败: {error_str}"})
+                return
+        
+        # 所有重试都失败
+        status_code = extract_status_code(str(last_error)) if last_error else 503
+        yield json.dumps({"error": f"所有凭证都失败了: {last_error}"})
+    
     if is_image_model:
-        # 图片模型：无论 stream 参数如何，都强制使用真正的非流式请求
-        print(f"[Antigravity Proxy] 🖼️ 图片模型检测到，强制使用真正的非流式请求 (model={model}, stream={stream})", flush=True)
-        return await handle_non_stream()
+        # 图片模型：使用假非流模式（非流式端点 + 心跳机制）
+        print(f"[Antigravity Proxy] 🖼️ 图片模型检测到，使用假非流模式（非流式端点 + 心跳） (model={model}, stream={stream})", flush=True)
+        return StreamingResponse(
+            image_fake_non_stream_generator(),
+            media_type="application/json",
+            headers={"Cache-Control": "no-cache"}
+        )
     
     if use_fake_streaming or not stream:
         print(f"[Antigravity Proxy] 🔄 使用假非流模式 (use_fake_streaming={use_fake_streaming}, stream={stream})", flush=True)
