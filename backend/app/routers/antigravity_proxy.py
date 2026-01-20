@@ -558,22 +558,29 @@ async def chat_completions(
                 should_retry = any(code in error_str for code in ["401", "404", "500", "502", "503", "504", "429", "UNAUTHENTICATED", "RESOURCE_EXHAUSTED", "NOT_FOUND", "ECONNRESET", "socket hang up", "ConnectionReset", "Connection reset", "ETIMEDOUT", "ECONNREFUSED", "Gateway Timeout", "timeout"])
                 
                 if should_retry and retry_attempt < max_retries:
-                    print(f"[Antigravity Proxy] ⚠️ 请求失败: {error_str}，切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Antigravity Proxy] ⚠️ 请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                     
-                    credential = await CredentialPool.get_available_credential(
+                    # 尝试获取新凭证
+                    new_credential = await CredentialPool.get_available_credential(
                         db, user_id=user.id, user_has_public_creds=user_has_public,
                         model=model, exclude_ids=tried_credential_ids,
                         mode="antigravity"  # 使用 Antigravity 凭证
                     )
-                    if not credential:
-                        break
-                    
-                    tried_credential_ids.add(credential.id)
-                    access_token, project_id = await CredentialPool.get_access_token_and_project(credential, db, mode="antigravity")
-                    if not access_token or not project_id:
-                        continue
-                    client = AntigravityClient(access_token, project_id)
-                    print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
+                    if new_credential:
+                        # 切换到新凭证
+                        tried_credential_ids.add(new_credential.id)
+                        new_token, new_project = await CredentialPool.get_access_token_and_project(new_credential, db, mode="antigravity")
+                        if new_token and new_project:
+                            credential = new_credential
+                            access_token = new_token
+                            project_id = new_project
+                            client = AntigravityClient(access_token, project_id)
+                            print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
+                        else:
+                            print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                    else:
+                        # 没有新凭证可用，使用当前凭证继续重试
+                        print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     continue
                 
                 status_code = extract_status_code(error_str)
@@ -811,8 +818,9 @@ async def chat_completions(
                 should_retry = any(code in error_str for code in ["401", "404", "500", "502", "503", "504", "429", "UNAUTHENTICATED", "RESOURCE_EXHAUSTED", "NOT_FOUND"])
                 
                 if should_retry and retry_attempt < max_retries:
-                    print(f"[Antigravity Proxy] ⚠️ 假非流请求失败: {error_str}，切换凭证重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Antigravity Proxy] ⚠️ 假非流请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                     
+                    # 尝试获取新凭证
                     try:
                         async with async_session() as bg_db:
                             new_cred = await CredentialPool.get_available_credential(
@@ -829,9 +837,14 @@ async def chat_completions(
                                     project_id = new_project
                                     client = AntigravityClient(access_token, project_id)
                                     print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
-                                    continue
+                                else:
+                                    print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                            else:
+                                # 没有新凭证可用，使用当前凭证继续重试
+                                print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     except Exception as retry_err:
-                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    continue
                 
                 # 失败，记录日志并返回错误 JSON
                 status_code = extract_status_code(error_str)
@@ -1044,8 +1057,9 @@ async def chat_completions(
                 should_retry = any(code in error_str for code in ["401", "404", "500", "502", "503", "504", "429", "UNAUTHENTICATED", "RESOURCE_EXHAUSTED", "NOT_FOUND", "ECONNRESET", "socket hang up", "ConnectionReset", "Connection reset", "ETIMEDOUT", "ECONNREFUSED", "Gateway Timeout", "timeout"])
                 
                 if should_retry and stream_retry < max_retries:
-                    print(f"[Antigravity Proxy] ⚠️ 流式请求失败: {error_str}，切换凭证重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
+                    print(f"[Antigravity Proxy] ⚠️ 流式请求失败: {error_str}，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
                     
+                    # 尝试获取新凭证
                     try:
                         async with async_session() as stream_db:
                             new_credential = await CredentialPool.get_available_credential(
@@ -1063,9 +1077,14 @@ async def chat_completions(
                                     project_id = new_project_id
                                     client = AntigravityClient(access_token, project_id)
                                     print(f"[Antigravity Proxy] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                    continue
+                                else:
+                                    print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                            else:
+                                # 没有新凭证可用，使用当前凭证继续重试
+                                print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
                     except Exception as retry_err:
-                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    continue
                 
                 status_code = extract_status_code(error_str)
                 latency = (time.time() - start_time) * 1000
