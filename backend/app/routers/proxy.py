@@ -1306,7 +1306,14 @@ async def gemini_generate_content(
     # 对于 GeminiCLI：记录是否使用假流式，模型名用于日志
     use_fake_streaming = stream_prefix == "假流/"
     display_model = stream_prefix + base_model  # 用于日志显示
-    api_model = base_model  # 发送给 Google API 的模型名（不含假流前缀）
+    
+    # 检测 -search 后缀并移除（但需要记住以便添加 googleSearch 工具）
+    use_search = "-search" in base_model
+    api_model = base_model  # 发送给 Google API 的模型名
+    if use_search:
+        # 移除 -search 后缀用于 API 调用
+        api_model = base_model.replace("-maxthinking-search", "-maxthinking").replace("-nothinking-search", "-nothinking").replace("-search", "")
+        print(f"[Gemini API] 🔍 已启用搜索功能 (googleSearch)", flush=True)
     
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
@@ -1347,6 +1354,9 @@ async def gemini_generate_content(
         request_body["safetySettings"] = body["safetySettings"]
     if "tools" in body:
         request_body["tools"] = body["tools"]
+    # 自动添加 googleSearch 工具（如果模型名含 -search）
+    elif use_search:
+        request_body["tools"] = [{"googleSearch": {}}]
     
     # 重试逻辑
     max_retries = settings.error_retry_count
@@ -1604,7 +1614,14 @@ async def gemini_stream_generate_content(
     # 对于 GeminiCLI：记录是否使用假流式，模型名用于日志
     use_fake_streaming = stream_prefix == "假流/"
     display_model = stream_prefix + base_model  # 用于日志显示
-    api_model = base_model  # 发送给 Google API 的模型名（不含假流前缀）
+    
+    # 检测 -search 后缀并移除（但需要记住以便添加 googleSearch 工具）
+    use_search = "-search" in base_model
+    api_model = base_model  # 发送给 Google API 的模型名
+    if use_search:
+        # 移除 -search 后缀用于 API 调用
+        api_model = base_model.replace("-maxthinking-search", "-maxthinking").replace("-nothinking-search", "-nothinking").replace("-search", "")
+        print(f"[Gemini Stream] 🔍 已启用搜索功能 (googleSearch)", flush=True)
     
     # 检查用户是否参与大锅饭
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id)
@@ -1645,6 +1662,9 @@ async def gemini_stream_generate_content(
         request_body["safetySettings"] = body["safetySettings"]
     if "tools" in body:
         request_body["tools"] = body["tools"]
+    # 自动添加 googleSearch 工具（如果模型名含 -search）
+    elif use_search:
+        request_body["tools"] = [{"googleSearch": {}}]
     
     # 预先获取第一个凭证（使用主db）
     max_retries = settings.error_retry_count

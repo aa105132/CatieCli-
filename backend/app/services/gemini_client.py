@@ -45,8 +45,19 @@ class GeminiClient:
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
         ]
         
+        # 添加搜索工具配置（根据模型名检测）
+        use_search = "-search" in model
+        if use_search:
+            request_body["tools"] = [{"googleSearch": {}}]
+            print(f"[GeminiClient] 🔍 已启用搜索功能 (googleSearch)", flush=True)
+        
+        # 清理模型名中的 -search 后缀（API 不识别带 -search 的模型名）
+        api_model = model
+        if use_search:
+            api_model = model.replace("-maxthinking-search", "-maxthinking").replace("-nothinking-search", "-nothinking").replace("-search", "")
+        
         payload = {
-            "model": model,
+            "model": api_model,
             "project": self.project_id,
             "request": request_body,
         }
@@ -107,8 +118,19 @@ class GeminiClient:
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
         ]
         
+        # 添加搜索工具配置（根据模型名检测）
+        use_search = "-search" in model
+        if use_search:
+            request_body["tools"] = [{"googleSearch": {}}]
+            print(f"[GeminiClient] 🔍 已启用搜索功能 (googleSearch) - 流式", flush=True)
+        
+        # 清理模型名中的 -search 后缀（API 不识别带 -search 的模型名）
+        api_model = model
+        if use_search:
+            api_model = model.replace("-maxthinking-search", "-maxthinking").replace("-nothinking-search", "-nothinking").replace("-search", "")
+        
         payload = {
-            "model": model,
+            "model": api_model,
             "project": self.project_id,
             "request": request_body,
         }
@@ -448,7 +470,7 @@ class GeminiClient:
         return contents, system_instruction
     
     def _map_model_name(self, model: str) -> str:
-        """映射模型名称"""
+        """映射模型名称 - 只清理前缀，保留后缀（-search, -maxthinking 等）供 generate_content 使用"""
         # 移除前缀（假流/流式抗截断）- gcli 有假流，没有假非流
         stream_prefixes = ["假流/", "流式抗截断/"]
         for prefix in stream_prefixes:
@@ -463,7 +485,7 @@ class GeminiClient:
                 model = model[len(prefix):]
                 break
         
-        # OpenAI 别名映射
+        # OpenAI 别名映射（只对完整匹配的别名生效）
         model_mapping = {
             "gpt-4": "gemini-2.5-pro",
             "gpt-4-turbo": "gemini-2.5-pro",
@@ -474,16 +496,13 @@ class GeminiClient:
             "gemini-flash": "gemini-2.5-flash",
         }
         
-        base_model = model_mapping.get(model, model)
+        # 检查是否有别名映射（完整匹配）
+        if model in model_mapping:
+            return model_mapping[model]
         
-        # 移除变体后缀（保留基础模型名）
-        suffixes = ["-maxthinking", "-nothinking", "-search", "-maxthinking-search", "-nothinking-search"]
-        for suffix in suffixes:
-            if base_model.endswith(suffix):
-                base_model = base_model[:-len(suffix)]
-                break
-        
-        return base_model
+        # 保留后缀（-search, -maxthinking, -nothinking）
+        # 这些后缀会在 generate_content/generate_content_stream 中处理
+        return model
     
     def _get_thinking_config(self, model: str) -> Optional[Dict]:
         """根据模型名获取 thinking 配置"""
@@ -507,11 +526,7 @@ class GeminiClient:
             return {"thinkingConfig": {"thinkingBudget": 1024, "includeThoughts": True}}
         return None
     
-    def _get_search_config(self, model: str) -> Optional[Dict]:
-        """根据模型名获取 search grounding 配置"""
-        if "-search" in model:
-            return {"tools": [{"googleSearch": {}}]}
-        return None
+    # _get_search_config 已废弃，搜索检测直接在 generate_content 中进行
     
     def _convert_to_openai_response(self, gemini_response: dict, model: str) -> dict:
         """将Gemini响应转换为OpenAI格式"""
