@@ -593,7 +593,29 @@ async def chat_completions(
                 
                 raise HTTPException(status_code=status_code, detail=f"Antigravity API调用失败 (已重试 {retry_attempt + 1} 次): {error_str}")
         
-        raise HTTPException(status_code=503, detail=f"所有凭证都失败了: {last_error}")
+        # 所有重试都失败或没有更多凭证，记录最终错误日志
+        status_code = extract_status_code(str(last_error)) if last_error else 503
+        latency = (time.time() - start_time) * 1000
+        error_type, error_code = classify_error_simple(status_code, str(last_error) if last_error else "所有凭证失败")
+        
+        placeholder_log.status_code = status_code
+        placeholder_log.latency_ms = latency
+        placeholder_log.error_message = (str(last_error) if last_error else "所有凭证失败")[:2000]
+        placeholder_log.error_type = error_type
+        placeholder_log.error_code = error_code
+        placeholder_log.request_body = request_body_str
+        await db.commit()
+        
+        await notify_log_update({
+            "username": user.username,
+            "model": f"antigravity/{model}",
+            "status_code": status_code,
+            "error_type": error_type,
+            "latency_ms": round(latency, 0),
+            "created_at": datetime.utcnow().isoformat()
+        })
+        
+        raise HTTPException(status_code=status_code, detail=f"所有凭证都失败了: {last_error}")
     
     # 假非流模式：以流式调用 API，发送心跳保持连接，最后返回普通 JSON
     # 适用于：前端强制非流式（stream=false），但需要防止 Cloudflare 504 超时
