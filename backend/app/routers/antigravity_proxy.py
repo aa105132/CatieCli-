@@ -818,9 +818,19 @@ async def chat_completions(
         yield json.dumps({"error": f"所有凭证都失败了: {last_error}"})
     
     # 路由逻辑：
-    # 1. 假非流模式（假非流/前缀 或 stream=false）：使用 StreamingResponse + 心跳，返回 JSON
-    # 2. 普通流式：调用流式 API
-    # 注意：反重力 API 非流式可能超时，所以非流式请求也自动使用假非流模式
+    # 1. 图片模型：无论 stream 参数如何，都强制使用真正的非流式请求（不支持流式端点）
+    # 2. 假非流模式（假非流/前缀 或 stream=false）：使用 StreamingResponse + 心跳，返回 JSON
+    # 3. 普通流式：调用流式 API
+    # 注意：反重力 API 非流式可能超时，所以非流式请求也自动使用假非流模式（图片模型除外）
+    
+    # 检查是否是图片生成模型
+    is_image_model = "image" in model.lower()
+    
+    if is_image_model:
+        # 图片模型：无论 stream 参数如何，都强制使用真正的非流式请求
+        print(f"[Antigravity Proxy] 🖼️ 图片模型检测到，强制使用真正的非流式请求 (model={model}, stream={stream})", flush=True)
+        return await handle_non_stream()
+    
     if use_fake_streaming or not stream:
         print(f"[Antigravity Proxy] 🔄 使用假非流模式 (use_fake_streaming={use_fake_streaming}, stream={stream})", flush=True)
         return StreamingResponse(

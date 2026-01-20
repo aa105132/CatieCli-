@@ -193,7 +193,84 @@ async def gemini_generate_content(
     
     client = AntigravityClient(access_token, project_id)
     
-    # Antigravity 最佳实践：非流式请求使用流式获取数据，最终返回非流式格式的JSON（更快）
+    # 检查是否是图片模型 - 图片模型不支持流式端点，必须使用真正的非流式端点
+    is_image_model = "image" in final_model.lower()
+    
+    # 图片模型处理：使用真正的非流式端点
+    if is_image_model:
+        print(f"[AntigravityGemini] 🖼️ 图片模型检测到，使用真正的非流式端点 (model={final_model})", flush=True)
+        
+        for retry_attempt in range(max_retries + 1):
+            try:
+                async with client._get_client() as http_client:
+                    url = client.get_generate_url()  # 使用非流式端点
+                    headers = client.get_headers(final_model)
+                    
+                    payload = {
+                        "model": final_model,
+                        "project": project_id,
+                        "request": normalized_request
+                    }
+                    
+                    response = await http_client.post(
+                        url,
+                        headers=headers,
+                        json=payload,
+                        timeout=300.0
+                    )
+                    
+                    if response.status_code != 200:
+                        error_text = response.text
+                        raise Exception(f"API Error {response.status_code}: {error_text}")
+                    
+                    gemini_response = response.json()
+                    
+                    # 解包装
+                    if "response" in gemini_response and "candidates" not in gemini_response:
+                        gemini_response = gemini_response["response"]
+                    
+                    latency = (time.time() - start_time) * 1000
+                    placeholder_log.credential_id = credential.id
+                    placeholder_log.status_code = 200
+                    placeholder_log.latency_ms = latency
+                    placeholder_log.credential_email = credential.email
+                    await db.commit()
+                    
+                    await notify_log_update({
+                        "username": user.username,
+                        "model": f"antigravity-gemini/{real_model}",
+                        "status_code": 200,
+                        "latency_ms": round(latency, 0),
+                        "created_at": datetime.utcnow().isoformat()
+                    })
+                    
+                    return JSONResponse(content=gemini_response)
+                    
+            except Exception as e:
+                error_str = str(e)
+                
+                should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
+                
+                if should_retry and retry_attempt < max_retries:
+                    credential = await CredentialPool.get_available_credential(
+                        db, user_id=user.id, user_has_public_creds=user_has_public,
+                        model=real_model, exclude_ids=tried_credential_ids,
+                        mode="antigravity"
+                    )
+                    if credential:
+                        tried_credential_ids.add(credential.id)
+                        access_token, project_id = await CredentialPool.get_access_token_and_project(credential, db, mode="antigravity")
+                        if access_token and project_id:
+                            client = AntigravityClient(access_token, project_id)
+                            continue
+                
+                status_code = extract_status_code(error_str)
+                placeholder_log.status_code = status_code
+                placeholder_log.error_message = error_str[:2000]
+                await db.commit()
+                raise HTTPException(status_code=status_code, detail=f"Gemini API 调用失败: {error_str}")
+    
+    # 非图片模型处理：使用流式获取数据，最终返回非流式格式的JSON（更快）
     for retry_attempt in range(max_retries + 1):
         try:
             async with client._get_client() as http_client:
@@ -440,6 +517,12 @@ async def gemini_stream_generate_content(
         raise HTTPException(status_code=400, detail=f"请求规范化失败: {e}")
     
     client = AntigravityClient(access_token, project_id)
+    
+    # 检查是否是图片模型 - 图片模型不支持流式端点，必须使用假流式（非流式端点获取数据）
+    is_image_model = "image" in final_model.lower()
+    if is_image_model:
+        use_fake_streaming = True  # 图片模型强制使用假流式
+        print(f"[AntigravityGemini] 🖼️ 图片模型检测到，强制使用假流式模式 (model={final_model})", flush=True)
     
     # 假流式生成器
     async def fake_stream_generator():
