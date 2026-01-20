@@ -473,229 +473,215 @@ export default function AntigravityCredentials() {
               </Link>
             </div>
           ) : (
-            /* 网格布局的凭证卡片 - 桌面端4列，平板2列，移动端1列 */
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="space-y-3">
               {credentials.map((cred, index) => (
                 <div
                   key={cred.id}
-                  className={`rounded-xl border-2 transition-all hover:shadow-lg ${
+                  className={`p-4 rounded-lg border transition-colors ${
                     cred.is_active
-                      ? "bg-gradient-to-br from-dark-800 to-dark-900 border-cyan-500/30 hover:border-cyan-500/50"
-                      : "bg-dark-900 border-red-500/30 opacity-70"
+                      ? "bg-dark-800 border-dark-600"
+                      : "bg-dark-900 border-dark-700 opacity-60"
                   }`}
                 >
-                  {/* 卡片头部 - 状态和序号 */}
-                  <div className="flex items-center justify-between p-3 border-b border-dark-600/50">
-                    <div className="flex items-center gap-1.5">
+                  {/* 顶部：状态标签 + 序号 */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
                       {cred.is_active ? (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-green-500 text-white rounded font-medium">
+                        <span className="text-xs px-2 py-0.5 bg-green-600 text-white rounded font-medium">
                           ✓ 启用
                         </span>
                       ) : (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded font-medium">
+                        <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded font-medium">
                           ✕ 禁用
                         </span>
                       )}
-                      <span className="text-[10px] px-1.5 py-0.5 bg-orange-500/30 text-orange-400 rounded">
+                      <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded font-medium">
                         🚀
                       </span>
                       {cred.remark?.includes("[PRO]") && (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-yellow-500/30 text-yellow-400 rounded">
+                        <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded font-medium">
                           ⭐
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {/* 搜索/查看按钮 */}
-                      <button
-                        onClick={() => fetchQuota(cred.id, cred.email || cred.name)}
-                        disabled={loadingQuota === cred.id || !cred.is_active}
-                        className="w-7 h-7 rounded-lg bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 flex items-center justify-center text-white"
-                        title="查看额度详情"
-                      >
-                        {loadingQuota === cred.id ? (
-                          <RefreshCw size={14} className="animate-spin" />
-                        ) : (
-                          <span className="text-xs">🔍</span>
-                        )}
-                      </button>
-                      <span className="text-xs text-gray-500">#{index + 1}</span>
-                    </div>
+                    <span className="text-xs text-gray-500">#{index + 1}</span>
                   </div>
 
-                  {/* 凭证信息区 */}
-                  <div className="p-3 space-y-2">
+                  {/* 凭证信息 */}
+                  <div className="space-y-1.5 mb-3">
                     {/* Project ID */}
                     {cred.project_id && (
                       <div className="flex items-center gap-2">
-                        <span className="text-green-400 text-xs">📦</span>
-                        <span className="text-xs font-mono text-gray-300 truncate flex-1" title={cred.project_id}>
-                          {cred.project_id}
-                        </span>
+                        <span className="text-green-400">●</span>
+                        <span className="text-sm font-mono text-gray-300 truncate">{cred.project_id}</span>
                       </div>
                     )}
                     {/* Email */}
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500 text-xs">📧</span>
-                      <span className="text-xs text-gray-400 truncate flex-1" title={cred.email || cred.name}>
-                        {cred.email || cred.name}
-                      </span>
+                      <span className="text-gray-500">📧</span>
+                      <span className="text-sm text-gray-400 truncate">{cred.email || cred.name}</span>
                     </div>
-                    {/* 密钥图标（装饰） */}
-                    {cred.is_public && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-purple-400 text-xs">🔑</span>
-                        <span className="text-xs text-purple-400">已公开</span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* 额度预览区域 */}
-                  <div className="px-3 pb-2">
+                  {/* 额度预览区域 - 可折叠 */}
+                  <div className="mb-3">
                     <button
                       onClick={() => cred.is_active && toggleQuotaPreview(cred.id)}
                       disabled={!cred.is_active}
-                      className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
                         cred.is_active
-                          ? "bg-dark-700/50 hover:bg-dark-600/50 cursor-pointer"
-                          : "bg-dark-800/50 text-gray-600 cursor-not-allowed"
+                          ? "bg-dark-700 hover:bg-dark-600 cursor-pointer"
+                          : "bg-dark-800 text-gray-600 cursor-not-allowed"
                       }`}
                     >
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <span>📊</span>
                         <span className="text-gray-400">
                           {loadingQuotaPreview === cred.id
-                            ? "加载..."
+                            ? "加载中..."
                             : quotaCache[cred.id]
-                              ? "额度"
+                              ? "额度信息"
                               : "暂无额度"}
                         </span>
                       </div>
                       {cred.is_active && (
                         expandedQuota === cred.id
-                          ? <ChevronUp size={12} className="text-gray-500" />
-                          : <ChevronDown size={12} className="text-gray-500" />
+                          ? <ChevronUp size={16} className="text-gray-500" />
+                          : <ChevronDown size={16} className="text-gray-500" />
                       )}
                     </button>
 
                     {/* 展开的额度详情 */}
                     {expandedQuota === cred.id && cred.is_active && (
-                      <div className="mt-2 space-y-1.5 bg-dark-700/30 rounded-lg p-2">
+                      <div className="mt-2 space-y-2 px-1">
                         {loadingQuotaPreview === cred.id ? (
-                          <div className="flex items-center justify-center py-3 text-gray-500 text-xs">
-                            <RefreshCw size={12} className="animate-spin mr-1" />
-                            加载中...
+                          <div className="flex items-center justify-center py-4 text-gray-500">
+                            <RefreshCw size={16} className="animate-spin mr-2" />
+                            加载额度中...
                           </div>
                         ) : quotaCache[cred.id]?.error ? (
-                          <div className="text-center py-2 text-red-400 text-xs">
+                          <div className="text-center py-3 text-red-400 text-sm">
                             {quotaCache[cred.id].error}
                           </div>
                         ) : quotaCache[cred.id] ? (
                           <>
                             {/* Claude 额度 */}
                             {quotaCache[cred.id].claude?.count > 0 && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-purple-400 text-xs w-12">Claude</span>
-                                <div className="flex-1 bg-dark-600 rounded-full h-1.5">
+                              <div className="flex items-center gap-3">
+                                <span className="text-purple-400 w-16 text-sm">Claude</span>
+                                <div className="flex-1 bg-dark-600 rounded-full h-2">
                                   <div
-                                    className={`h-1.5 rounded-full ${getQuotaColor(quotaCache[cred.id].claude.remaining).bar}`}
+                                    className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.id].claude.remaining).bar}`}
                                     style={{ width: `${Math.min(quotaCache[cred.id].claude.remaining, 100)}%` }}
                                   />
                                 </div>
-                                <span className={`text-xs w-12 text-right ${getQuotaColor(quotaCache[cred.id].claude.remaining).text}`}>
-                                  {quotaCache[cred.id].claude.remaining.toFixed(0)}%
+                                <span className={`text-sm font-medium w-16 text-right ${getQuotaColor(quotaCache[cred.id].claude.remaining).text}`}>
+                                  {quotaCache[cred.id].claude.remaining.toFixed(1)}%
                                 </span>
                               </div>
                             )}
                             {/* Gemini 额度 */}
                             {quotaCache[cred.id].gemini?.count > 0 && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-cyan-400 text-xs w-12">Gemini</span>
-                                <div className="flex-1 bg-dark-600 rounded-full h-1.5">
+                              <div className="flex items-center gap-3">
+                                <span className="text-cyan-400 w-16 text-sm">Gemini</span>
+                                <div className="flex-1 bg-dark-600 rounded-full h-2">
                                   <div
-                                    className={`h-1.5 rounded-full ${getQuotaColor(quotaCache[cred.id].gemini.remaining).bar}`}
+                                    className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.id].gemini.remaining).bar}`}
                                     style={{ width: `${Math.min(quotaCache[cred.id].gemini.remaining, 100)}%` }}
                                   />
                                 </div>
-                                <span className={`text-xs w-12 text-right ${getQuotaColor(quotaCache[cred.id].gemini.remaining).text}`}>
-                                  {quotaCache[cred.id].gemini.remaining.toFixed(0)}%
+                                <span className={`text-sm font-medium w-16 text-right ${getQuotaColor(quotaCache[cred.id].gemini.remaining).text}`}>
+                                  {quotaCache[cred.id].gemini.remaining.toFixed(1)}%
                                 </span>
                               </div>
                             )}
                             {/* banana/image 额度 */}
                             {quotaCache[cred.id].banana?.count > 0 && (
-                              <div className="flex items-center gap-2">
-                                <span className="text-yellow-400 text-xs w-12">banana</span>
-                                <div className="flex-1 bg-dark-600 rounded-full h-1.5">
+                              <div className="flex items-center gap-3">
+                                <span className="text-yellow-400 w-16 text-sm">banana</span>
+                                <div className="flex-1 bg-dark-600 rounded-full h-2">
                                   <div
-                                    className={`h-1.5 rounded-full ${getQuotaColor(quotaCache[cred.id].banana.remaining).bar}`}
+                                    className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.id].banana.remaining).bar}`}
                                     style={{ width: `${Math.min(quotaCache[cred.id].banana.remaining, 100)}%` }}
                                   />
                                 </div>
-                                <span className={`text-xs w-12 text-right ${getQuotaColor(quotaCache[cred.id].banana.remaining).text}`}>
-                                  {quotaCache[cred.id].banana.remaining.toFixed(0)}%
+                                <span className={`text-sm font-medium w-16 text-right ${getQuotaColor(quotaCache[cred.id].banana.remaining).text}`}>
+                                  {quotaCache[cred.id].banana.remaining.toFixed(1)}%
                                 </span>
                               </div>
                             )}
+                            {/* 无数据提示 */}
                             {!quotaCache[cred.id].claude?.count && !quotaCache[cred.id].gemini?.count && !quotaCache[cred.id].banana?.count && (
-                              <div className="text-center py-1 text-gray-500 text-xs">
-                                暂无数据
+                              <div className="text-center py-2 text-gray-500 text-sm">
+                                暂无额度数据
                               </div>
                             )}
+                            {/* 重置时间 */}
                             {(quotaCache[cred.id].claude?.resetTime || quotaCache[cred.id].gemini?.resetTime) && (
-                              <div className="text-[10px] text-gray-500 text-right">
+                              <div className="text-xs text-gray-500 text-right mt-1">
                                 重置: {quotaCache[cred.id].claude?.resetTime || quotaCache[cred.id].gemini?.resetTime}
                               </div>
                             )}
                           </>
-                        ) : null}
+                        ) : (
+                          <div className="text-center py-3 text-gray-500 text-sm">
+                            点击加载额度信息
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
 
-                  {/* 操作按钮 - 三个主要按钮 */}
-                  <div className="p-3 pt-0 grid grid-cols-3 gap-1.5">
+                  {/* 操作按钮 - 简化为三个主要按钮 */}
+                  <div className="flex items-center gap-2">
                     {/* 详情按钮 */}
                     <button
                       onClick={() => fetchQuota(cred.id, cred.email || cred.name)}
                       disabled={loadingQuota === cred.id || !cred.is_active}
-                      className="px-2 py-2 rounded-lg text-xs font-medium bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 hover:bg-cyan-500/30 disabled:opacity-50 flex items-center justify-center gap-1"
+                      className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-cyan-600/20 text-cyan-400 border border-cyan-600/50 hover:bg-cyan-600/30 disabled:opacity-50 flex items-center justify-center gap-1.5"
                     >
-                      📊 详情
+                      {loadingQuota === cred.id ? (
+                        <RefreshCw size={14} className="animate-spin" />
+                      ) : (
+                        <span>📊</span>
+                      )}
+                      详情
                     </button>
 
                     {/* 启用/禁用按钮 */}
                     <button
                       onClick={() => toggleActive(cred.id, cred.is_active)}
-                      className={`px-2 py-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1 ${
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border flex items-center justify-center gap-1.5 ${
                         cred.is_active
-                          ? "bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30"
-                          : "bg-green-500/20 text-green-400 border-green-500/40 hover:bg-green-500/30"
+                          ? "bg-amber-600/20 text-amber-400 border-amber-600/50 hover:bg-amber-600/30"
+                          : "bg-green-600/20 text-green-400 border-green-600/50 hover:bg-green-600/30"
                       }`}
                     >
-                      ▶ {cred.is_active ? "禁用" : "启用"}
+                      <span>{cred.is_active ? "▶" : "▶"}</span>
+                      {cred.is_active ? "禁用" : "启用"}
                     </button>
 
                     {/* 删除按钮 */}
                     <button
                       onClick={() => deleteCred(cred.id)}
-                      className="px-2 py-2 rounded-lg text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30 flex items-center justify-center gap-1"
+                      className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-red-600/20 text-red-400 border border-red-600/50 hover:bg-red-600/30 flex items-center justify-center gap-1.5"
                     >
-                      🗑️ 删除
+                      <span>🗑️</span>
+                      删除
                     </button>
                   </div>
 
-                  {/* 更多操作 - 折叠 */}
-                  <details className="border-t border-dark-600/50">
-                    <summary className="text-[10px] text-gray-500 cursor-pointer hover:text-gray-400 p-2 text-center">
-                      ▼ 更多操作
+                  {/* 更多操作 - 折叠显示 */}
+                  <details className="mt-2">
+                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400 py-1">
+                      更多操作...
                     </summary>
-                    <div className="p-2 pt-0 grid grid-cols-2 gap-1">
+                    <div className="mt-2 grid grid-cols-4 gap-1.5">
                       {/* 检测 */}
                       <button
                         onClick={() => verifyCred(cred.id, cred.email || cred.name)}
                         disabled={verifying === cred.id}
-                        className="px-2 py-1.5 rounded text-[10px] font-medium bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
                       >
                         {verifying === cred.id ? (
                           <RefreshCw size={10} className="animate-spin" />
@@ -709,7 +695,7 @@ export default function AntigravityCredentials() {
                       <button
                         onClick={() => refreshProjectId(cred.id, cred.email || cred.name)}
                         disabled={verifying === cred.id}
-                        className="px-2 py-1.5 rounded text-[10px] font-medium bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
                       >
                         <RefreshCw size={10} />
                         刷新ID
@@ -718,7 +704,7 @@ export default function AntigravityCredentials() {
                       {/* 导出 */}
                       <button
                         onClick={() => showExportModal(cred.id, cred.email)}
-                        className="px-2 py-1.5 rounded text-[10px] font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center gap-1"
+                        className="px-2 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center gap-1"
                       >
                         <Download size={10} />
                         导出
@@ -728,7 +714,7 @@ export default function AntigravityCredentials() {
                       <button
                         onClick={() => togglePublic(cred.id, cred.is_public)}
                         disabled={!cred.is_public && !cred.is_active}
-                        className={`px-2 py-1.5 rounded text-[10px] font-medium ${
+                        className={`px-2 py-1.5 rounded text-xs font-medium text-center ${
                           cred.is_public
                             ? "bg-gray-600 hover:bg-gray-500 text-white"
                             : !cred.is_active
@@ -736,7 +722,7 @@ export default function AntigravityCredentials() {
                               : "bg-purple-600 hover:bg-purple-500 text-white"
                         }`}
                       >
-                        {cred.is_public ? "取消公开" : "设为公开"}
+                        {cred.is_public ? "取消公开" : "公开"}
                       </button>
                     </div>
                   </details>
