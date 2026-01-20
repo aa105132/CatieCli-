@@ -19,7 +19,8 @@ class GeminiClient:
         model: str,
         contents: list,
         generation_config: Optional[Dict] = None,
-        system_instruction: Optional[Dict] = None
+        system_instruction: Optional[Dict] = None,
+        tools: Optional[list] = None
     ) -> Dict[str, Any]:
         """生成内容 (非流式) - 使用内部 API"""
         url = f"{self.INTERNAL_API_BASE}/v1internal:generateContent"
@@ -36,6 +37,8 @@ class GeminiClient:
             request_body["generationConfig"] = generation_config
         if system_instruction:
             request_body["systemInstruction"] = system_instruction
+        if tools:
+            request_body["tools"] = tools
         
         # 添加安全设置
         request_body["safetySettings"] = [
@@ -81,7 +84,8 @@ class GeminiClient:
         model: str,
         contents: list,
         generation_config: Optional[Dict] = None,
-        system_instruction: Optional[Dict] = None
+        system_instruction: Optional[Dict] = None,
+        tools: Optional[list] = None
     ) -> AsyncGenerator[str, None]:
         """生成内容 (流式) - 使用内部 API"""
         url = f"{self.INTERNAL_API_BASE}/v1internal:streamGenerateContent?alt=sse"
@@ -98,6 +102,8 @@ class GeminiClient:
             request_body["generationConfig"] = generation_config
         if system_instruction:
             request_body["systemInstruction"] = system_instruction
+        if tools:
+            request_body["tools"] = tools
         
         # 添加安全设置
         request_body["safetySettings"] = [
@@ -209,8 +215,9 @@ class GeminiClient:
         contents, system_instruction = self._convert_messages_to_contents(messages)
         generation_config = self._build_generation_config(model, kwargs)
         gemini_model = self._map_model_name(model)
+        tools = self._get_search_tools(model)
         
-        result = await self.generate_content(gemini_model, contents, generation_config, system_instruction)
+        result = await self.generate_content(gemini_model, contents, generation_config, system_instruction, tools)
         return self._convert_to_openai_response(result, model)
     
     async def chat_completions_stream(
@@ -223,8 +230,9 @@ class GeminiClient:
         contents, system_instruction = self._convert_messages_to_contents(messages)
         generation_config = self._build_generation_config(model, kwargs)
         gemini_model = self._map_model_name(model)
+        tools = self._get_search_tools(model)
         
-        async for chunk in self.generate_content_stream(gemini_model, contents, generation_config, system_instruction):
+        async for chunk in self.generate_content_stream(gemini_model, contents, generation_config, system_instruction, tools):
             yield self._convert_to_openai_stream(chunk, model)
     
     async def chat_completions_fake_stream(
@@ -239,6 +247,7 @@ class GeminiClient:
         contents, system_instruction = self._convert_messages_to_contents(messages)
         generation_config = self._build_generation_config(model, kwargs)
         gemini_model = self._map_model_name(model)
+        tools = self._get_search_tools(model)
         
         # 发送初始 chunk（空内容，保持连接）
         initial_chunk = {
@@ -252,7 +261,7 @@ class GeminiClient:
         
         # 创建请求任务
         request_task = asyncio.create_task(
-            self.generate_content(gemini_model, contents, generation_config, system_instruction)
+            self.generate_content(gemini_model, contents, generation_config, system_instruction, tools)
         )
         
         # 每2秒发送心跳，直到请求完成
@@ -511,6 +520,13 @@ class GeminiClient:
         """根据模型名获取 search grounding 配置"""
         if "-search" in model:
             return {"tools": [{"googleSearch": {}}]}
+        return None
+    
+    def _get_search_tools(self, model: str) -> Optional[list]:
+        """根据模型名获取 search 工具列表"""
+        if "-search" in model.lower():
+            print(f"[GeminiClient] 🔍 检测到 search 模型，添加 googleSearch 工具", flush=True)
+            return [{"googleSearch": {}}]
         return None
     
     def _convert_to_openai_response(self, gemini_response: dict, model: str) -> dict:
