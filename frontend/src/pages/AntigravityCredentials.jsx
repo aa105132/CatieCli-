@@ -2,14 +2,14 @@ import {
     ArrowLeft,
     Cat,
     CheckCircle,
+    ChevronDown,
+    ChevronUp,
     Download,
     ExternalLink,
-    Gift,
     RefreshCw,
     Rocket,
     Shield,
     Trash2,
-    Upload,
     X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -21,15 +21,16 @@ export default function AntigravityCredentials() {
   const { user } = useAuth();
   const [credentials, setCredentials] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploadFiles, setUploadFiles] = useState([]);
-  const [uploadPublic, setUploadPublic] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
-  const [dragOver, setDragOver] = useState(false);
   const [verifyResult, setVerifyResult] = useState(null);
   const [quotaResult, setQuotaResult] = useState(null);
   const [loadingQuota, setLoadingQuota] = useState(null);
   const [stats, setStats] = useState(null);
+  
+  // 额度预览相关状态
+  const [expandedQuota, setExpandedQuota] = useState(null); // 当前展开的凭证ID
+  const [quotaCache, setQuotaCache] = useState({}); // 缓存额度数据 { credId: { claude, gemini, banana } }
+  const [loadingQuotaPreview, setLoadingQuotaPreview] = useState(null);
 
   useEffect(() => {
     fetchCredentials();
@@ -54,41 +55,6 @@ export default function AntigravityCredentials() {
       setStats(res.data);
     } catch (err) {
       console.error("获取统计失败", err);
-    }
-  };
-
-  const uploadCredential = async () => {
-    if (uploadFiles.length === 0) return;
-    setUploading(true);
-    setMessage({ type: "", text: "" });
-    try {
-      const formData = new FormData();
-      uploadFiles.forEach((file) => formData.append("files", file));
-      formData.append("is_public", uploadPublic);
-
-      const res = await api.post(
-        "/api/antigravity/credentials/upload",
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-          timeout: 600000,
-        },
-      );
-      setMessage({
-        type: "success",
-        text: `上传完成: 成功 ${res.data.uploaded_count}/${res.data.total_count} 个`,
-      });
-      setUploadFiles([]);
-      document.getElementById("antigravity-file-input").value = "";
-      fetchCredentials();
-      fetchStats();
-    } catch (err) {
-      setMessage({
-        type: "error",
-        text: err.response?.data?.detail || "上传失败",
-      });
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -247,6 +213,91 @@ export default function AntigravityCredentials() {
     }
   };
 
+  // 切换额度预览展开/收起
+  const toggleQuotaPreview = async (credId) => {
+    if (expandedQuota === credId) {
+      setExpandedQuota(null);
+      return;
+    }
+    
+    setExpandedQuota(credId);
+    
+    // 如果没有缓存，则加载额度
+    if (!quotaCache[credId]) {
+      await fetchQuotaPreview(credId);
+    }
+  };
+
+  // 获取额度预览（简化版本）
+  const fetchQuotaPreview = async (credId) => {
+    setLoadingQuotaPreview(credId);
+    try {
+      const res = await api.get(`/api/antigravity/credentials/${credId}/quota`);
+      if (res.data.success) {
+        // 聚合额度数据
+        const models = res.data.models || {};
+        const aggregated = aggregateQuota(models);
+        setQuotaCache(prev => ({ ...prev, [credId]: aggregated }));
+      } else {
+        setQuotaCache(prev => ({ ...prev, [credId]: { error: res.data.error || "获取失败" } }));
+      }
+    } catch (err) {
+      setQuotaCache(prev => ({ ...prev, [credId]: { error: "获取额度失败" } }));
+    } finally {
+      setLoadingQuotaPreview(null);
+    }
+  };
+
+  // 聚合额度数据为三类：Claude、Gemini、banana
+  const aggregateQuota = (models) => {
+    const result = {
+      claude: { remaining: 0, count: 0, resetTime: "" },
+      gemini: { remaining: 0, count: 0, resetTime: "" },
+      banana: { remaining: 0, count: 0, resetTime: "" },
+    };
+    
+    Object.entries(models).forEach(([modelId, data]) => {
+      const lower = modelId.toLowerCase();
+      const remaining = data.remaining || 0;
+      const resetTime = data.resetTime || "";
+      
+      if (lower.includes("claude")) {
+        result.claude.remaining += remaining;
+        result.claude.count += 1;
+        if (!result.claude.resetTime && resetTime) result.claude.resetTime = resetTime;
+      } else if (lower.includes("gemini") || lower.includes("flash") || lower.includes("pro")) {
+        // 排除 image 模型
+        if (!lower.includes("image") && !lower.includes("banana")) {
+          result.gemini.remaining += remaining;
+          result.gemini.count += 1;
+          if (!result.gemini.resetTime && resetTime) result.gemini.resetTime = resetTime;
+        }
+      }
+      
+      // banana / image 模型
+      if (lower.includes("image") || lower.includes("banana")) {
+        result.banana.remaining += remaining;
+        result.banana.count += 1;
+        if (!result.banana.resetTime && resetTime) result.banana.resetTime = resetTime;
+      }
+    });
+    
+    // 计算平均值
+    if (result.claude.count > 0) result.claude.remaining = Math.round(result.claude.remaining / result.claude.count);
+    if (result.gemini.count > 0) result.gemini.remaining = Math.round(result.gemini.remaining / result.gemini.count);
+    if (result.banana.count > 0) result.banana.remaining = Math.round(result.banana.remaining / result.banana.count);
+    
+    return result;
+  };
+
+  // 额度进度条颜色
+  const getQuotaColor = (remaining) => {
+    if (remaining >= 80) return { bar: "bg-green-500", text: "text-green-400" };
+    if (remaining >= 40) return { bar: "bg-yellow-500", text: "text-yellow-400" };
+    if (remaining >= 20) return { bar: "bg-orange-500", text: "text-orange-400" };
+    return { bar: "bg-red-500", text: "text-red-400" };
+  };
+
   return (
     <div className="min-h-screen">
       {/* 导出格式选择弹窗 */}
@@ -300,13 +351,23 @@ export default function AntigravityCredentials() {
               <span className="hidden sm:inline">Antigravity</span> 凭证
             </span>
           </div>
-          <Link
-            to="/dashboard"
-            className="text-gray-400 hover:text-white flex items-center gap-1 sm:gap-2 text-sm"
-          >
-            <ArrowLeft size={18} />
-            <span className="hidden xs:inline">返回</span>
-          </Link>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              to="/antigravity-oauth"
+              className="px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded text-xs sm:text-sm font-medium flex items-center gap-1"
+            >
+              <ExternalLink size={14} />
+              <span className="hidden xs:inline">获取凭证</span>
+              <span className="xs:hidden">获取</span>
+            </Link>
+            <Link
+              to="/dashboard"
+              className="text-gray-400 hover:text-white flex items-center gap-2"
+            >
+              <ArrowLeft size={20} />
+              返回
+            </Link>
+          </div>
         </div>
       </nav>
 
@@ -353,135 +414,6 @@ export default function AntigravityCredentials() {
             {message.text}
           </div>
         )}
-
-        {/* 上传区域 */}
-        <div className="card p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Upload className="text-orange-400" />
-            上传 Antigravity 凭证
-          </h2>
-
-          <div className="space-y-4">
-            <div
-              className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-                dragOver
-                  ? "border-orange-500 bg-orange-500/10"
-                  : "border-dark-600 hover:border-orange-500"
-              }`}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(false);
-                const files = Array.from(e.dataTransfer.files).filter(
-                  (f) => f.name.endsWith(".json") || f.name.endsWith(".zip"),
-                );
-                if (files.length > 0)
-                  setUploadFiles((prev) => [...prev, ...files]);
-              }}
-            >
-              <input
-                type="file"
-                accept=".json,.zip"
-                multiple
-                onChange={(e) =>
-                  setUploadFiles((prev) => [
-                    ...prev,
-                    ...Array.from(e.target.files),
-                  ])
-                }
-                className="hidden"
-                id="antigravity-file-input"
-              />
-              <label
-                htmlFor="antigravity-file-input"
-                className="cursor-pointer block"
-              >
-                <Rocket size={32} className="mx-auto mb-3 text-orange-400" />
-                <div className="text-gray-300 mb-1">
-                  {uploadFiles.length > 0
-                    ? `已选择 ${uploadFiles.length} 个文件`
-                    : "点击或拖拽 JSON/ZIP 文件"}
-                </div>
-                <div className="text-xs text-gray-500">
-                  Antigravity 凭证会自动获取 project_id
-                </div>
-              </label>
-            </div>
-
-            {/* 已选文件列表 */}
-            {uploadFiles.length > 0 && (
-              <div className="bg-dark-800 rounded-lg p-3 space-y-2">
-                <div className="text-xs text-gray-400 mb-2">已选择的文件：</div>
-                {uploadFiles.map((file, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between text-sm bg-dark-700 rounded px-3 py-2"
-                  >
-                    <span className="truncate">{file.name}</span>
-                    <button
-                      onClick={() =>
-                        setUploadFiles((prev) =>
-                          prev.filter((_, i) => i !== idx),
-                        )
-                      }
-                      className="text-red-400 hover:text-red-300 ml-2"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                <button
-                  onClick={() => {
-                    setUploadFiles([]);
-                    document.getElementById("antigravity-file-input").value =
-                      "";
-                  }}
-                  className="text-xs text-gray-500 hover:text-gray-400"
-                >
-                  清空全部
-                </button>
-              </div>
-            )}
-
-            {/* 上传选项 - 移动端垂直堆叠 */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:justify-between">
-              <label className="flex items-center gap-3 cursor-pointer p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg hover:bg-orange-500/20 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={uploadPublic}
-                  onChange={(e) => setUploadPublic(e.target.checked)}
-                  className="w-5 h-5 rounded flex-shrink-0"
-                />
-                <div className="min-w-0">
-                  <div className="text-orange-400 font-medium flex items-center gap-2 text-sm sm:text-base">
-                    <Gift size={16} className="flex-shrink-0" />
-                    <span className="truncate">上传到公共池</span>
-                  </div>
-                  <div className="text-xs text-orange-300/70">
-                    分享凭证，共同使用
-                  </div>
-                </div>
-              </label>
-
-              <button
-                onClick={uploadCredential}
-                disabled={uploading || uploadFiles.length === 0}
-                className="px-4 sm:px-6 py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2 font-medium whitespace-nowrap flex-shrink-0"
-              >
-                {uploading ? (
-                  <RefreshCw className="animate-spin" size={18} />
-                ) : (
-                  <Upload size={18} />
-                )}
-                {uploading ? "上传中..." : "上传凭证"}
-              </button>
-            </div>
-          </div>
-        </div>
 
         {/* 凭证列表 */}
         <div className="card p-4 sm:p-6">
@@ -530,7 +462,7 @@ export default function AntigravityCredentials() {
               <Rocket size={48} className="mx-auto mb-4 opacity-30" />
               <p>暂无 Antigravity 凭证</p>
               <p className="text-sm mt-2">
-                上传 JSON 文件或通过 OAuth 获取凭证
+                点击上方"获取凭证"按钮获取或上传凭证
               </p>
               <Link
                 to="/antigravity-oauth"
@@ -542,7 +474,7 @@ export default function AntigravityCredentials() {
             </div>
           ) : (
             <div className="space-y-3">
-              {credentials.map((cred) => (
+              {credentials.map((cred, index) => (
                 <div
                   key={cred.id}
                   className={`p-4 rounded-lg border transition-colors ${
@@ -551,131 +483,222 @@ export default function AntigravityCredentials() {
                       : "bg-dark-900 border-dark-700 opacity-60"
                   }`}
                 >
-                  {/* 移动端垂直布局，桌面端水平布局 */}
-                  <div className="flex flex-col gap-3">
-                    {/* 凭证信息区 */}
-                    <div className="flex-1 min-w-0">
-                      {/* 凭证名称 */}
-                      <div className="text-gray-400 italic mb-2 truncate text-sm">
-                        {cred.email || cred.name}
-                      </div>
-
-                      {/* 状态标签行 */}
-                      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                        {/* 启用状态 */}
-                        {cred.is_active ? (
-                          <span className="text-xs px-2 py-0.5 bg-green-600 text-white rounded font-medium">
-                            有效
-                          </span>
-                        ) : (
-                          <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded font-medium">
-                            ❌ 已失效
-                          </span>
-                        )}
-
-                        {/* Antigravity 标签 */}
-                        <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded font-medium">
-                          🚀 Antigravity
+                  {/* 顶部：状态标签 + 序号 */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      {cred.is_active ? (
+                        <span className="text-xs px-2 py-0.5 bg-green-600 text-white rounded font-medium">
+                          ✓ 启用
                         </span>
-
-                        {/* PRO/Normal 标签 */}
-                        {cred.remark?.includes("[PRO]") && (
-                          <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded font-medium">
-                            ⭐ PRO
-                          </span>
-                        )}
-                        {cred.remark?.includes("[NORMAL]") && (
-                          <span className="text-xs px-2 py-0.5 bg-gray-500/20 text-gray-400 rounded font-medium">
-                            普通号
-                          </span>
-                        )}
-
-                        {/* 公开状态 */}
-                        {cred.is_public && (
-                          <span className="text-xs px-2 py-0.5 border border-purple-500 text-purple-400 rounded font-medium">
-                            已公开
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Project ID */}
-                      {cred.project_id && (
-                        <div className="text-xs text-gray-500 truncate mb-1">
-                          Project: {cred.project_id}
-                        </div>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded font-medium">
+                          ✕ 禁用
+                        </span>
                       )}
-
-                      {/* 信息行 */}
-                      <div className="text-xs text-gray-500">
-                        最后使用:{" "}
-                        {cred.last_used_at
-                          ? new Date(cred.last_used_at).toLocaleString()
-                          : "从未使用"}
-                      </div>
+                      <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded font-medium">
+                        🚀
+                      </span>
+                      {cred.remark?.includes("[PRO]") && (
+                        <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded font-medium">
+                          ⭐
+                        </span>
+                      )}
                     </div>
+                    <span className="text-xs text-gray-500">#{index + 1}</span>
+                  </div>
 
-                    {/* 操作按钮区 - 移动端使用网格布局 */}
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:flex md:flex-wrap gap-1.5 md:gap-2">
-                      {/* 启用/禁用 */}
-                      <button
-                        onClick={() => toggleActive(cred.id, cred.is_active)}
-                        className={`px-2 py-1.5 rounded text-xs font-medium text-center ${
-                          cred.is_active
-                            ? "bg-amber-600 hover:bg-amber-500 text-white"
-                            : "bg-green-600 hover:bg-green-500 text-white"
-                        }`}
-                      >
-                        {cred.is_active ? "禁用" : "启用"}
-                      </button>
+                  {/* 凭证信息 */}
+                  <div className="space-y-1.5 mb-3">
+                    {/* Project ID */}
+                    {cred.project_id && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-green-400">●</span>
+                        <span className="text-sm font-mono text-gray-300 truncate">{cred.project_id}</span>
+                      </div>
+                    )}
+                    {/* Email */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-500">📧</span>
+                      <span className="text-sm text-gray-400 truncate">{cred.email || cred.name}</span>
+                    </div>
+                  </div>
 
+                  {/* 额度预览区域 - 可折叠 */}
+                  <div className="mb-3">
+                    <button
+                      onClick={() => cred.is_active && toggleQuotaPreview(cred.id)}
+                      disabled={!cred.is_active}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
+                        cred.is_active
+                          ? "bg-dark-700 hover:bg-dark-600 cursor-pointer"
+                          : "bg-dark-800 text-gray-600 cursor-not-allowed"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>📊</span>
+                        <span className="text-gray-400">
+                          {loadingQuotaPreview === cred.id
+                            ? "加载中..."
+                            : quotaCache[cred.id]
+                              ? "额度信息"
+                              : "暂无额度"}
+                        </span>
+                      </div>
+                      {cred.is_active && (
+                        expandedQuota === cred.id
+                          ? <ChevronUp size={16} className="text-gray-500" />
+                          : <ChevronDown size={16} className="text-gray-500" />
+                      )}
+                    </button>
+
+                    {/* 展开的额度详情 */}
+                    {expandedQuota === cred.id && cred.is_active && (
+                      <div className="mt-2 space-y-2 px-1">
+                        {loadingQuotaPreview === cred.id ? (
+                          <div className="flex items-center justify-center py-4 text-gray-500">
+                            <RefreshCw size={16} className="animate-spin mr-2" />
+                            加载额度中...
+                          </div>
+                        ) : quotaCache[cred.id]?.error ? (
+                          <div className="text-center py-3 text-red-400 text-sm">
+                            {quotaCache[cred.id].error}
+                          </div>
+                        ) : quotaCache[cred.id] ? (
+                          <>
+                            {/* Claude 额度 */}
+                            {quotaCache[cred.id].claude?.count > 0 && (
+                              <div className="flex items-center gap-3">
+                                <span className="text-purple-400 w-16 text-sm">Claude</span>
+                                <div className="flex-1 bg-dark-600 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.id].claude.remaining).bar}`}
+                                    style={{ width: `${Math.min(quotaCache[cred.id].claude.remaining, 100)}%` }}
+                                  />
+                                </div>
+                                <span className={`text-sm font-medium w-16 text-right ${getQuotaColor(quotaCache[cred.id].claude.remaining).text}`}>
+                                  {quotaCache[cred.id].claude.remaining.toFixed(1)}%
+                                </span>
+                              </div>
+                            )}
+                            {/* Gemini 额度 */}
+                            {quotaCache[cred.id].gemini?.count > 0 && (
+                              <div className="flex items-center gap-3">
+                                <span className="text-cyan-400 w-16 text-sm">Gemini</span>
+                                <div className="flex-1 bg-dark-600 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.id].gemini.remaining).bar}`}
+                                    style={{ width: `${Math.min(quotaCache[cred.id].gemini.remaining, 100)}%` }}
+                                  />
+                                </div>
+                                <span className={`text-sm font-medium w-16 text-right ${getQuotaColor(quotaCache[cred.id].gemini.remaining).text}`}>
+                                  {quotaCache[cred.id].gemini.remaining.toFixed(1)}%
+                                </span>
+                              </div>
+                            )}
+                            {/* banana/image 额度 */}
+                            {quotaCache[cred.id].banana?.count > 0 && (
+                              <div className="flex items-center gap-3">
+                                <span className="text-yellow-400 w-16 text-sm">banana</span>
+                                <div className="flex-1 bg-dark-600 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${getQuotaColor(quotaCache[cred.id].banana.remaining).bar}`}
+                                    style={{ width: `${Math.min(quotaCache[cred.id].banana.remaining, 100)}%` }}
+                                  />
+                                </div>
+                                <span className={`text-sm font-medium w-16 text-right ${getQuotaColor(quotaCache[cred.id].banana.remaining).text}`}>
+                                  {quotaCache[cred.id].banana.remaining.toFixed(1)}%
+                                </span>
+                              </div>
+                            )}
+                            {/* 无数据提示 */}
+                            {!quotaCache[cred.id].claude?.count && !quotaCache[cred.id].gemini?.count && !quotaCache[cred.id].banana?.count && (
+                              <div className="text-center py-2 text-gray-500 text-sm">
+                                暂无额度数据
+                              </div>
+                            )}
+                            {/* 重置时间 */}
+                            {(quotaCache[cred.id].claude?.resetTime || quotaCache[cred.id].gemini?.resetTime) && (
+                              <div className="text-xs text-gray-500 text-right mt-1">
+                                重置: {quotaCache[cred.id].claude?.resetTime || quotaCache[cred.id].gemini?.resetTime}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-center py-3 text-gray-500 text-sm">
+                            点击加载额度信息
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 操作按钮 - 简化为三个主要按钮 */}
+                  <div className="flex items-center gap-2">
+                    {/* 详情按钮 */}
+                    <button
+                      onClick={() => fetchQuota(cred.id, cred.email || cred.name)}
+                      disabled={loadingQuota === cred.id || !cred.is_active}
+                      className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-cyan-600/20 text-cyan-400 border border-cyan-600/50 hover:bg-cyan-600/30 disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    >
+                      {loadingQuota === cred.id ? (
+                        <RefreshCw size={14} className="animate-spin" />
+                      ) : (
+                        <span>📊</span>
+                      )}
+                      详情
+                    </button>
+
+                    {/* 启用/禁用按钮 */}
+                    <button
+                      onClick={() => toggleActive(cred.id, cred.is_active)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border flex items-center justify-center gap-1.5 ${
+                        cred.is_active
+                          ? "bg-amber-600/20 text-amber-400 border-amber-600/50 hover:bg-amber-600/30"
+                          : "bg-green-600/20 text-green-400 border-green-600/50 hover:bg-green-600/30"
+                      }`}
+                    >
+                      <span>{cred.is_active ? "▶" : "▶"}</span>
+                      {cred.is_active ? "禁用" : "启用"}
+                    </button>
+
+                    {/* 删除按钮 */}
+                    <button
+                      onClick={() => deleteCred(cred.id)}
+                      className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-red-600/20 text-red-400 border border-red-600/50 hover:bg-red-600/30 flex items-center justify-center gap-1.5"
+                    >
+                      <span>🗑️</span>
+                      删除
+                    </button>
+                  </div>
+
+                  {/* 更多操作 - 折叠显示 */}
+                  <details className="mt-2">
+                    <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-400 py-1">
+                      更多操作...
+                    </summary>
+                    <div className="mt-2 grid grid-cols-4 gap-1.5">
                       {/* 检测 */}
                       <button
-                        onClick={() =>
-                          verifyCred(cred.id, cred.email || cred.name)
-                        }
+                        onClick={() => verifyCred(cred.id, cred.email || cred.name)}
                         disabled={verifying === cred.id}
                         className="px-2 py-1.5 rounded text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
                       >
                         {verifying === cred.id ? (
-                          <RefreshCw size={12} className="animate-spin" />
+                          <RefreshCw size={10} className="animate-spin" />
                         ) : (
-                          <CheckCircle size={12} />
+                          <CheckCircle size={10} />
                         )}
                         检测
                       </button>
 
-                      {/* 刷新 Project ID */}
+                      {/* 刷新ID */}
                       <button
-                        onClick={() =>
-                          refreshProjectId(cred.id, cred.email || cred.name)
-                        }
+                        onClick={() => refreshProjectId(cred.id, cred.email || cred.name)}
                         disabled={verifying === cred.id}
                         className="px-2 py-1.5 rounded text-xs font-medium bg-orange-600 hover:bg-orange-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
-                        title="重新获取 Project ID"
                       >
-                        <RefreshCw size={12} />
+                        <RefreshCw size={10} />
                         刷新ID
-                      </button>
-
-                      {/* 查看额度 */}
-                      <button
-                        onClick={() =>
-                          fetchQuota(cred.id, cred.email || cred.name)
-                        }
-                        disabled={loadingQuota === cred.id || !cred.is_active}
-                        className="px-2 py-1.5 rounded text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 flex items-center justify-center gap-1"
-                        title={
-                          !cred.is_active
-                            ? "凭证无效，无法查询额度"
-                            : "查看各模型额度"
-                        }
-                      >
-                        {loadingQuota === cred.id ? (
-                          <RefreshCw size={12} className="animate-spin" />
-                        ) : (
-                          "📊"
-                        )}
-                        额度
                       </button>
 
                       {/* 导出 */}
@@ -683,19 +706,14 @@ export default function AntigravityCredentials() {
                         onClick={() => showExportModal(cred.id, cred.email)}
                         className="px-2 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center gap-1"
                       >
-                        <Download size={12} />
+                        <Download size={10} />
                         导出
                       </button>
 
-                      {/* 捐赠/取消捐赠 */}
+                      {/* 公开/取消公开 */}
                       <button
                         onClick={() => togglePublic(cred.id, cred.is_public)}
                         disabled={!cred.is_public && !cred.is_active}
-                        title={
-                          !cred.is_public && !cred.is_active
-                            ? "请先检测凭证有效后再设为公开"
-                            : ""
-                        }
                         className={`px-2 py-1.5 rounded text-xs font-medium text-center ${
                           cred.is_public
                             ? "bg-gray-600 hover:bg-gray-500 text-white"
@@ -704,19 +722,10 @@ export default function AntigravityCredentials() {
                               : "bg-purple-600 hover:bg-purple-500 text-white"
                         }`}
                       >
-                        {cred.is_public ? "取消公开" : "设为公开"}
-                      </button>
-
-                      {/* 删除 */}
-                      <button
-                        onClick={() => deleteCred(cred.id)}
-                        className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded flex items-center justify-center"
-                        title="删除"
-                      >
-                        <Trash2 size={16} />
+                        {cred.is_public ? "取消公开" : "公开"}
                       </button>
                     </div>
-                  </div>
+                  </details>
                 </div>
               ))}
             </div>
@@ -730,7 +739,7 @@ export default function AntigravityCredentials() {
           </div>
           <ul className="text-orange-300/70 space-y-1">
             <li>• Antigravity 凭证与 GeminiCLI 凭证是独立的，不能混用</li>
-            <li>• 上传后会自动使用 Antigravity 方式获取 project_id</li>
+            <li>• 点击导航栏"获取凭证"可获取或上传凭证</li>
             <li>
               • 调用端点:{" "}
               <code className="bg-dark-800 px-1 rounded">
