@@ -46,6 +46,7 @@ export default function Admin() {
   const [verifyResult, setVerifyResult] = useState(null);
   const [startingAll, setStartingAll] = useState(false);
   const [startResult, setStartResult] = useState(null);
+  const [migratingAgy, setMigratingAgy] = useState(false);
 
   // 凭证分页与筛选
   const [credPage, setCredPage] = useState(1);
@@ -1124,6 +1125,49 @@ export default function Admin() {
                       开始检测
                     </button>
                   </div>
+
+                  <div className="bg-purple-600/20 border border-purple-500/30 rounded-xl p-4">
+                    <div className="font-medium text-purple-400 mb-1">
+                      🚀 迁移 AGY 等级
+                    </div>
+                    <p className="text-sm text-gray-400 mb-3">
+                      将旧 Antigravity 凭证迁移到独立 AGY 等级
+                    </p>
+                    <button
+                      onClick={async () => {
+                        if (!confirm("确定要将所有旧 Antigravity 凭证的等级迁移为 AGY 吗？")) {
+                          return;
+                        }
+                        setMigratingAgy(true);
+                        try {
+                          const res = await api.post("/api/antigravity/manage/credentials/migrate-tier");
+                          showAlert(
+                            "迁移成功",
+                            `已迁移 ${res.data.migrated} 个凭证的等级为 AGY`,
+                            "success"
+                          );
+                          fetchData();
+                        } catch (err) {
+                          showAlert(
+                            "迁移失败",
+                            err.response?.data?.detail || err.message,
+                            "error"
+                          );
+                        } finally {
+                          setMigratingAgy(false);
+                        }
+                      }}
+                      disabled={migratingAgy}
+                      className="btn bg-purple-600 hover:bg-purple-500 text-white flex items-center gap-2 w-full justify-center disabled:opacity-50"
+                    >
+                      {migratingAgy ? (
+                        <RefreshCw size={16} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={16} />
+                      )}
+                      {migratingAgy ? "迁移中..." : "开始迁移"}
+                    </button>
+                  </div>
                 </div>
 
                 {/* 检测结果 */}
@@ -1390,7 +1434,11 @@ export default function Admin() {
                                 </span>
                               )}
                               {/* 模型等级 */}
-                              {c.model_tier === "3" ? (
+                              {c.model_tier === "agy" ? (
+                                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                                  AGY
+                                </span>
+                              ) : c.model_tier === "3" ? (
                                 <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
                                   3.0
                                 </span>
@@ -2142,9 +2190,13 @@ export default function Admin() {
                     </div>
                     <div>
                       <span className="text-gray-500">等级:</span>{" "}
-                      {credDetailModal.data.model_tier === "3" ? (
-                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
-                          🚀 3.0可用
+                      {credDetailModal.data.model_tier === "agy" ? (
+                        <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                          AGY
+                        </span>
+                      ) : credDetailModal.data.model_tier === "3" ? (
+                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs font-medium">
+                          3.0
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 bg-gray-600/50 text-gray-400 rounded text-xs">

@@ -86,6 +86,22 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
     # 获取请求的模型
     body = await request.json()
     model = body.get("model", "gemini-2.5-flash")
+    
+    # 检测是否是 Antigravity 请求（agy- 前缀）
+    # Antigravity 请求将在对应的路由函数中转发到 antigravity 模块处理
+    # 这里跳过 GeminiCLI 特有的等级检查逻辑，让 antigravity 模块处理配额检查
+    #
+    # 需要检查两个位置：
+    # 1. 请求体中的 model 字段（用于 OpenAI/Anthropic 格式）
+    # 2. URL 路径中的模型名（用于 Gemini 原生格式，如 /v1beta/models/agy-xxx:generateContent）
+    if model.startswith("agy-"):
+        return user  # 直接返回用户，Antigravity 有自己的配额检查机制
+    
+    # 检查 URL 路径（用于 Gemini 原生接口）
+    url_path = request.url.path
+    if "/models/agy-" in url_path:
+        return user  # 直接返回用户，Antigravity 有自己的配额检查机制
+    
     required_tier = CredentialPool.get_required_tier(model)
     
     # 检查用户凭证情况

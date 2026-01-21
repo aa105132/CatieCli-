@@ -206,7 +206,7 @@ async def upload_antigravity_credentials(
                     is_public=actual_public,
                     is_active=is_valid,
                     api_type=MODE,  # 标记为 Antigravity 凭证
-                    model_tier="3"  # Antigravity 全是 3.0 模型
+                    model_tier="agy"  # Antigravity 独立等级，可调用所有模型
                 )
                 db.add(credential)
             
@@ -1140,6 +1140,44 @@ async def start_all_antigravity_credentials(
 
 
 # ===== 统计信息 =====
+
+@router.post("/manage/credentials/migrate-tier")
+async def migrate_antigravity_credentials_tier(
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    一键迁移旧 Antigravity 凭证的等级为 'agy'
+    
+    将所有 api_type='antigravity' 但 model_tier != 'agy' 的凭证更新为 'agy' 等级
+    """
+    # 查找需要迁移的凭证
+    result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.api_type == MODE)
+        .where(Credential.model_tier != "agy")
+    )
+    count_before = result.scalar() or 0
+    
+    if count_before == 0:
+        return {"message": "没有需要迁移的凭证", "migrated_count": 0}
+    
+    # 批量更新
+    await db.execute(
+        update(Credential)
+        .where(Credential.api_type == MODE)
+        .where(Credential.model_tier != "agy")
+        .values(model_tier="agy")
+    )
+    await db.commit()
+    
+    print(f"[Antigravity迁移] 已将 {count_before} 个凭证的等级更新为 'agy'", flush=True)
+    
+    return {
+        "message": f"已迁移 {count_before} 个 Antigravity 凭证到 'agy' 等级",
+        "migrated_count": count_before
+    }
+
 
 @router.get("/stats")
 async def get_antigravity_stats(
