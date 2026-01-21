@@ -1435,8 +1435,8 @@ export default function Admin() {
                               )}
                               {/* 模型等级 */}
                               {c.model_tier === "agy" ? (
-                                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs">
-                                  🚀 AGY
+                                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                                  AGY
                                 </span>
                               ) : c.model_tier === "3" ? (
                                 <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
@@ -2191,12 +2191,12 @@ export default function Admin() {
                     <div>
                       <span className="text-gray-500">等级:</span>{" "}
                       {credDetailModal.data.model_tier === "agy" ? (
-                        <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs">
-                          🚀 AGY
+                        <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                          AGY
                         </span>
                       ) : credDetailModal.data.model_tier === "3" ? (
-                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
-                          🚀 3.0可用
+                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs font-medium">
+                          3.0
                         </span>
                       ) : (
                         <span className="px-2 py-0.5 bg-gray-600/50 text-gray-400 rounded text-xs">

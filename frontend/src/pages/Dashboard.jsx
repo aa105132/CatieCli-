@@ -1000,7 +1000,7 @@ export default function Dashboard() {
                             {/* 模型等级 - 蓝色边框空心 */}
                             {cred.model_tier === "agy" ? (
                               <span className="text-xs px-2.5 py-1 border border-orange-500 text-orange-400 rounded font-medium">
-                                🚀 AGY
+                                AGY
                               </span>
                             ) : cred.model_tier === "3" ? (
                               <span className="text-xs px-2.5 py-1 border border-blue-500 text-blue-400 rounded font-medium">
