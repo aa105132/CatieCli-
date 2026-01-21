@@ -93,76 +93,61 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
     from app.models.user import Credential
     from sqlalchemy import case
     
-    # 只统计 Antigravity 类型的凭证
+    # Antigravity 凭证统计 - 使用 "agy" 等级，不区分 2.5/3.0
+    # Antigravity 凭证可以调用所有模型，不受等级限制
     cred_stats_result = await db.execute(
-        select(
-            func.count(Credential.id).label("total"),
-            func.sum(case((Credential.model_tier == "3", 1), else_=0)).label("tier_30")
-        )
+        select(func.count(Credential.id).label("total"))
         .where(Credential.user_id == user.id)
-        .where(Credential.api_type == "antigravity")  # 只统计 Antigravity 凭证
+        .where(Credential.api_type == "antigravity")
         .where(Credential.is_active == True)
     )
     cred_stats = cred_stats_result.one()
     total_cred_count = cred_stats.total or 0
-    cred_30_count = cred_stats.tier_30 or 0
-    cred_25_count = total_cred_count - cred_30_count
     has_credential = total_cred_count > 0
 
-    if user.quota_flash and user.quota_flash > 0:
-        user_quota_flash = user.quota_flash
-    elif has_credential:
-        user_quota_flash = total_cred_count * settings.quota_flash
-    else:
-        user_quota_flash = settings.no_cred_quota_flash
-    
-    if user.quota_25pro and user.quota_25pro > 0:
-        user_quota_pro = user.quota_25pro
-    elif cred_30_count > 0:
-        user_quota_pro = cred_30_count * settings.quota_30pro
-    elif has_credential:
-        user_quota_pro = total_cred_count * settings.quota_25pro
-    else:
-        user_quota_pro = settings.no_cred_quota_25pro
-    
-    has_30_access = cred_30_count > 0 or (user.quota_30pro and user.quota_30pro > 0)
-
-    if required_tier == "3":
-        if not has_30_access:
-            raise HTTPException(status_code=403, detail="无 3.0 模型使用配额")
-        quota_limit = user_quota_pro
-        model_filter = or_(UsageLog.model.like('%pro%'), UsageLog.model.like('%3%'))
-        quota_name = "Pro模型(2.5pro+3.0共享)"
-    elif "pro" in model.lower():
-        quota_limit = user_quota_pro
-        if has_30_access:
-            model_filter = or_(UsageLog.model.like('%pro%'), UsageLog.model.like('%3%'))
-            quota_name = "Pro模型(2.5pro+3.0共享)"
-        else:
-            model_filter = UsageLog.model.like('%pro%')
-            quota_name = "2.5 Pro模型"
-    else:
-        quota_limit = user_quota_flash
-        model_filter = and_(UsageLog.model.notlike('%pro%'), UsageLog.model.notlike('%3%'))
-        quota_name = "Flash模型"
-
-    if quota_limit > 0 or has_credential:
-        usage_stats_result = await db.execute(
-            select(
-                func.sum(case((model_filter, 1), else_=0)).label("model_usage"),
-                func.count(UsageLog.id).label("total_usage")
+    # Antigravity 模式不检查模型等级，所有凭证都可以调用任何模型
+    # 只检查用户是否有 Antigravity 凭证
+    if not has_credential:
+        # 检查用户是否有公开的 Antigravity 凭证（可以使用公共池）
+        public_cred_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == "antigravity")
+            .where(Credential.is_public == True)
+            .where(Credential.is_active == True)
+        )
+        public_count = public_cred_result.scalar() or 0
+        
+        # 检查用户自己是否有捐赠的凭证（可以使用公共池）
+        user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id, mode="antigravity")
+        
+        if public_count == 0 and not user_has_public:
+            raise HTTPException(
+                status_code=403,
+                detail="您没有可用的 Antigravity 凭证。请上传 Antigravity 凭证或捐赠凭证以使用公共池。"
             )
+
+    # Antigravity 配额检查（基于凭证数量，不区分模型等级）
+    if user.quota_flash and user.quota_flash > 0:
+        user_quota = user.quota_flash
+    elif has_credential:
+        user_quota = total_cred_count * settings.quota_flash
+    else:
+        user_quota = settings.no_cred_quota_flash
+
+    if user_quota > 0 or has_credential:
+        usage_stats_result = await db.execute(
+            select(func.count(UsageLog.id).label("total_usage"))
             .where(UsageLog.user_id == user.id)
             .where(UsageLog.created_at >= start_of_day)
+            .where(UsageLog.model.like('antigravity/%'))  # 只统计 Antigravity 请求
         )
         usage_stats = usage_stats_result.one()
-        current_usage = usage_stats.model_usage or 0
         total_usage = usage_stats.total_usage or 0
         
-        if quota_limit > 0 and current_usage >= quota_limit:
+        if user_quota > 0 and total_usage >= user_quota:
             raise HTTPException(
-                status_code=429, 
-                detail=f"已达到{quota_name}每日配额限制 ({current_usage}/{quota_limit})"
+                status_code=429,
+                detail=f"已达到 Antigravity 每日配额限制 ({total_usage}/{user_quota})"
             )
         
         if has_credential and total_usage >= user.daily_quota:
