@@ -5,6 +5,7 @@ from sqlalchemy import select, func, or_, and_
 from datetime import datetime, timedelta
 import json
 import time
+import asyncio
 
 from app.database import get_db, async_session
 from app.models.user import User, UsageLog
@@ -415,6 +416,7 @@ async def chat_completions(
     # 获取 Antigravity 凭证
     max_retries = settings.error_retry_count
     tried_credential_ids = set()
+    preheat_task = None  # 凭证预热任务
     
     credential = await CredentialPool.get_available_credential(
         db,
@@ -484,6 +486,18 @@ async def chat_completions(
     print(f"[Antigravity Proxy] ★ Token前20字符: {access_token[:20] if access_token else 'None'}...", flush=True)
     print(f"[Antigravity Proxy] ★★★★★★★★★★★★★★★", flush=True)
     
+    # 启动凭证预热任务（并行获取下一个可用凭证）
+    tried_credential_ids.add(credential.id)
+    if max_retries > 0:
+        preheat_task = CredentialPool.create_preheat_task(
+            user_id=user.id,
+            user_has_public_creds=user_has_public,
+            model=model,
+            exclude_ids=tried_credential_ids.copy(),
+            mode="antigravity"
+        )
+        print(f"[Antigravity Proxy] 🔥 已启动凭证预热任务", flush=True)
+    
     client = AntigravityClient(access_token, project_id)
     print(f"[Antigravity Proxy] AntigravityClient 已创建, api_base: {client.api_base}", flush=True)
     use_fake_streaming = client.is_fake_streaming(model)
@@ -491,7 +505,7 @@ async def chat_completions(
     
     # 非流式处理
     async def handle_non_stream():
-        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error
+        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error, preheat_task
         
         for retry_attempt in range(max_retries + 1):
             try:
@@ -560,24 +574,65 @@ async def chat_completions(
                 if should_retry and retry_attempt < max_retries:
                     print(f"[Antigravity Proxy] ⚠️ 请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                     
-                    # 尝试获取新凭证
-                    new_credential = await CredentialPool.get_available_credential(
-                        db, user_id=user.id, user_has_public_creds=user_has_public,
-                        model=model, exclude_ids=tried_credential_ids,
-                        mode="antigravity"  # 使用 Antigravity 凭证
-                    )
-                    if new_credential:
+                    # 优先使用预热的凭证（如果可用）
+                    new_credential = None
+                    new_token = None
+                    new_project = None
+                    
+                    if preheat_task and not preheat_task.done():
+                        # 预热任务还在运行，等待完成（最多等待 5 秒）
+                        try:
+                            print(f"[Antigravity Proxy] ⏳ 等待预热任务完成...", flush=True)
+                            preheat_result = await asyncio.wait_for(preheat_task, timeout=5.0)
+                            if preheat_result:
+                                new_credential, new_token, new_project = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 使用预热凭证: {new_credential.email}", flush=True)
+                        except asyncio.TimeoutError:
+                            print(f"[Antigravity Proxy] ⚠️ 预热任务超时，手动获取凭证", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 预热任务异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    elif preheat_task and preheat_task.done():
+                        # 预热任务已完成，获取结果
+                        try:
+                            preheat_result = preheat_task.result()
+                            if preheat_result:
+                                new_credential, new_token, new_project = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 使用已预热凭证: {new_credential.email}", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 获取预热结果异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    
+                    # 如果预热没有结果，手动获取新凭证
+                    if not new_credential:
+                        new_credential = await CredentialPool.get_available_credential(
+                            db, user_id=user.id, user_has_public_creds=user_has_public,
+                            model=model, exclude_ids=tried_credential_ids,
+                            mode="antigravity"
+                        )
+                        if new_credential:
+                            tried_credential_ids.add(new_credential.id)
+                            new_token, new_project = await CredentialPool.get_access_token_and_project(new_credential, db, mode="antigravity")
+                    
+                    if new_credential and new_token and new_project:
                         # 切换到新凭证
                         tried_credential_ids.add(new_credential.id)
-                        new_token, new_project = await CredentialPool.get_access_token_and_project(new_credential, db, mode="antigravity")
-                        if new_token and new_project:
-                            credential = new_credential
-                            access_token = new_token
-                            project_id = new_project
-                            client = AntigravityClient(access_token, project_id)
-                            print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
-                        else:
-                            print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
+                        credential = new_credential
+                        access_token = new_token
+                        project_id = new_project
+                        client = AntigravityClient(access_token, project_id)
+                        print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
+                        
+                        # 启动下一个预热任务
+                        if retry_attempt + 1 < max_retries:
+                            preheat_task = CredentialPool.create_preheat_task(
+                                user_id=user.id,
+                                user_has_public_creds=user_has_public,
+                                model=model,
+                                exclude_ids=tried_credential_ids.copy(),
+                                mode="antigravity"
+                            )
+                            print(f"[Antigravity Proxy] 🔥 已启动下一个预热任务", flush=True)
                     else:
                         # 没有新凭证可用，使用当前凭证继续重试
                         print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
@@ -627,7 +682,7 @@ async def chat_completions(
     # 假非流模式：以流式调用 API，发送心跳保持连接，最后返回普通 JSON
     # 适用于：前端强制非流式（stream=false），但需要防止 Cloudflare 504 超时
     async def fake_non_stream_generator():
-        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error
+        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error, preheat_task
         
         heartbeat_interval = 15  # 每15秒发送一次心跳（空格）
         
@@ -638,6 +693,7 @@ async def chat_completions(
                 collected_tool_calls = {}  # 用于收集工具调用 {index: tool_call_obj}
                 last_finish_reason = None
                 last_heartbeat = time.time()
+                collected_usage = None  # 收集 usage 信息
                 
                 async for chunk in client.chat_completions_stream(
                     model=model,
@@ -695,6 +751,10 @@ async def chat_completions(
                                 # 收集 finish_reason
                                 if choice.get("finish_reason"):
                                     last_finish_reason = choice["finish_reason"]
+                            
+                            # 收集 usage 信息（通常在最后一个 chunk 中）
+                            if "usage" in chunk_json and chunk_json["usage"]:
+                                collected_usage = chunk_json["usage"]
                         except json.JSONDecodeError:
                             pass
                 
@@ -755,6 +815,13 @@ async def chat_completions(
                 if reasoning_content:
                     message["reasoning_content"] = reasoning_content
                 
+                # 使用收集的 usage 信息，如果没有则使用默认值
+                usage_data = collected_usage if collected_usage else {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0
+                }
+                
                 result = {
                     "id": "chatcmpl-antigravity",
                     "object": "chat.completion",
@@ -765,11 +832,7 @@ async def chat_completions(
                         "message": message,
                         "finish_reason": finish_reason
                     }],
-                    "usage": {
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0
-                    }
+                    "usage": usage_data
                 }
                 yield json.dumps(result)
                 return
@@ -820,30 +883,67 @@ async def chat_completions(
                 if should_retry and retry_attempt < max_retries:
                     print(f"[Antigravity Proxy] ⚠️ 假非流请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                     
-                    # 尝试获取新凭证
-                    try:
-                        async with async_session() as bg_db:
-                            new_cred = await CredentialPool.get_available_credential(
-                                bg_db, user_id=user.id, user_has_public_creds=user_has_public,
-                                model=model, exclude_ids=tried_credential_ids,
+                    # 优先使用预热的凭证
+                    new_cred = None
+                    new_token = None
+                    new_project = None
+                    
+                    if preheat_task and not preheat_task.done():
+                        try:
+                            print(f"[Antigravity Proxy] ⏳ 假非流等待预热任务...", flush=True)
+                            preheat_result = await asyncio.wait_for(preheat_task, timeout=5.0)
+                            if preheat_result:
+                                new_cred, new_token, new_project = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 假非流使用预热凭证: {new_cred.email}", flush=True)
+                        except asyncio.TimeoutError:
+                            print(f"[Antigravity Proxy] ⚠️ 假非流预热超时", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 假非流预热异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    elif preheat_task and preheat_task.done():
+                        try:
+                            preheat_result = preheat_task.result()
+                            if preheat_result:
+                                new_cred, new_token, new_project = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 假非流使用已预热凭证: {new_cred.email}", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 假非流获取预热结果异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    
+                    # 如果预热没有结果，手动获取
+                    if not new_cred:
+                        try:
+                            async with async_session() as bg_db:
+                                new_cred = await CredentialPool.get_available_credential(
+                                    bg_db, user_id=user.id, user_has_public_creds=user_has_public,
+                                    model=model, exclude_ids=tried_credential_ids,
+                                    mode="antigravity"
+                                )
+                                if new_cred:
+                                    tried_credential_ids.add(new_cred.id)
+                                    new_token, new_project = await CredentialPool.get_access_token_and_project(new_cred, bg_db, mode="antigravity")
+                        except Exception as retry_err:
+                            print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}", flush=True)
+                    
+                    if new_cred and new_token and new_project:
+                        tried_credential_ids.add(new_cred.id)
+                        credential = new_cred
+                        access_token = new_token
+                        project_id = new_project
+                        client = AntigravityClient(access_token, project_id)
+                        print(f"[Antigravity Proxy] 🔄 假非流切换到凭证: {credential.email}", flush=True)
+                        
+                        # 启动下一个预热任务
+                        if retry_attempt + 1 < max_retries:
+                            preheat_task = CredentialPool.create_preheat_task(
+                                user_id=user.id,
+                                user_has_public_creds=user_has_public,
+                                model=model,
+                                exclude_ids=tried_credential_ids.copy(),
                                 mode="antigravity"
                             )
-                            if new_cred:
-                                tried_credential_ids.add(new_cred.id)
-                                new_token, new_project = await CredentialPool.get_access_token_and_project(new_cred, bg_db, mode="antigravity")
-                                if new_token and new_project:
-                                    credential = new_cred
-                                    access_token = new_token
-                                    project_id = new_project
-                                    client = AntigravityClient(access_token, project_id)
-                                    print(f"[Antigravity Proxy] 🔄 切换到凭证: {credential.email}", flush=True)
-                                else:
-                                    print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
-                            else:
-                                # 没有新凭证可用，使用当前凭证继续重试
-                                print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
-                    except Exception as retry_err:
-                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 假非流没有更多凭证可用", flush=True)
                     continue
                 
                 # 失败，记录日志并返回错误 JSON
@@ -919,7 +1019,7 @@ async def chat_completions(
     # 图片模型假非流模式：使用非流式端点，但通过 StreamingResponse 包装并发送心跳
     async def image_fake_non_stream_generator():
         """图片模型专用假非流：使用非流式端点 + 心跳机制，防止超时"""
-        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error
+        nonlocal credential, access_token, project_id, client, tried_credential_ids, last_error, preheat_task
         
         import asyncio
         heartbeat_interval = 2  # 每2秒发送一次心跳（适应网络环境较差的用户）
@@ -1030,28 +1130,67 @@ async def chat_completions(
                 if should_retry and retry_attempt < max_retries:
                     print(f"[Antigravity Proxy] ⚠️ 图片模型请求失败: {error_str}，准备重试 ({retry_attempt + 2}/{max_retries + 1})", flush=True)
                     
-                    try:
-                        async with async_session() as bg_db:
-                            new_cred = await CredentialPool.get_available_credential(
-                                bg_db, user_id=user.id, user_has_public_creds=user_has_public,
-                                model=model, exclude_ids=tried_credential_ids,
+                    # 优先使用预热的凭证
+                    new_cred = None
+                    new_token = None
+                    new_project = None
+                    
+                    if preheat_task and not preheat_task.done():
+                        try:
+                            print(f"[Antigravity Proxy] ⏳ 图片模型等待预热任务...", flush=True)
+                            preheat_result = await asyncio.wait_for(preheat_task, timeout=5.0)
+                            if preheat_result:
+                                new_cred, new_token, new_project = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 图片模型使用预热凭证: {new_cred.email}", flush=True)
+                        except asyncio.TimeoutError:
+                            print(f"[Antigravity Proxy] ⚠️ 图片模型预热超时", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 图片模型预热异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    elif preheat_task and preheat_task.done():
+                        try:
+                            preheat_result = preheat_task.result()
+                            if preheat_result:
+                                new_cred, new_token, new_project = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 图片模型使用已预热凭证: {new_cred.email}", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 图片模型获取预热结果异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    
+                    # 如果预热没有结果，手动获取
+                    if not new_cred:
+                        try:
+                            async with async_session() as bg_db:
+                                new_cred = await CredentialPool.get_available_credential(
+                                    bg_db, user_id=user.id, user_has_public_creds=user_has_public,
+                                    model=model, exclude_ids=tried_credential_ids,
+                                    mode="antigravity"
+                                )
+                                if new_cred:
+                                    tried_credential_ids.add(new_cred.id)
+                                    new_token, new_project = await CredentialPool.get_access_token_and_project(new_cred, bg_db, mode="antigravity")
+                        except Exception as retry_err:
+                            print(f"[Antigravity Proxy] ⚠️ 图片模型获取新凭证失败: {retry_err}", flush=True)
+                    
+                    if new_cred and new_token and new_project:
+                        tried_credential_ids.add(new_cred.id)
+                        credential = new_cred
+                        access_token = new_token
+                        project_id = new_project
+                        client = AntigravityClient(access_token, project_id)
+                        print(f"[Antigravity Proxy] 🔄 图片模型切换到凭证: {credential.email}", flush=True)
+                        
+                        # 启动下一个预热任务
+                        if retry_attempt + 1 < max_retries:
+                            preheat_task = CredentialPool.create_preheat_task(
+                                user_id=user.id,
+                                user_has_public_creds=user_has_public,
+                                model=model,
+                                exclude_ids=tried_credential_ids.copy(),
                                 mode="antigravity"
                             )
-                            if new_cred:
-                                tried_credential_ids.add(new_cred.id)
-                                new_token, new_project = await CredentialPool.get_access_token_and_project(new_cred, bg_db, mode="antigravity")
-                                if new_token and new_project:
-                                    credential = new_cred
-                                    access_token = new_token
-                                    project_id = new_project
-                                    client = AntigravityClient(access_token, project_id)
-                                    print(f"[Antigravity Proxy] 🔄 图片模型切换到凭证: {credential.email}", flush=True)
-                                else:
-                                    print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
-                            else:
-                                print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
-                    except Exception as retry_err:
-                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 图片模型没有更多凭证可用", flush=True)
                     continue
                 
                 # 记录错误日志
@@ -1167,7 +1306,7 @@ async def chat_completions(
             print(f"[Antigravity Proxy] ❌ 后台日志记录失败: {log_err}", flush=True)
     
     async def stream_generator_with_retry():
-        nonlocal access_token, project_id, client, tried_credential_ids, last_error
+        nonlocal access_token, project_id, client, tried_credential_ids, last_error, preheat_task
         current_cred_id = first_credential_id
         current_cred_email = first_credential_email
         
@@ -1242,31 +1381,68 @@ async def chat_completions(
                 if should_retry and stream_retry < max_retries:
                     print(f"[Antigravity Proxy] ⚠️ 流式请求失败: {error_str}，准备重试 ({stream_retry + 2}/{max_retries + 1})", flush=True)
                     
-                    # 尝试获取新凭证
-                    try:
-                        async with async_session() as stream_db:
-                            new_credential = await CredentialPool.get_available_credential(
-                                stream_db, user_id=user.id, user_has_public_creds=user_has_public,
-                                model=model, exclude_ids=tried_credential_ids,
-                                mode="antigravity"  # 使用 Antigravity 凭证
+                    # 优先使用预热的凭证
+                    new_credential = None
+                    new_token = None
+                    new_project_id = None
+                    
+                    if preheat_task and not preheat_task.done():
+                        try:
+                            print(f"[Antigravity Proxy] ⏳ 流式等待预热任务...", flush=True)
+                            preheat_result = await asyncio.wait_for(preheat_task, timeout=5.0)
+                            if preheat_result:
+                                new_credential, new_token, new_project_id = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 流式使用预热凭证: {new_credential.email}", flush=True)
+                        except asyncio.TimeoutError:
+                            print(f"[Antigravity Proxy] ⚠️ 流式预热超时", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 流式预热异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    elif preheat_task and preheat_task.done():
+                        try:
+                            preheat_result = preheat_task.result()
+                            if preheat_result:
+                                new_credential, new_token, new_project_id = preheat_result
+                                print(f"[Antigravity Proxy] ✅ 流式使用已预热凭证: {new_credential.email}", flush=True)
+                        except Exception as preheat_err:
+                            print(f"[Antigravity Proxy] ⚠️ 流式获取预热结果异常: {preheat_err}", flush=True)
+                        preheat_task = None
+                    
+                    # 如果预热没有结果，手动获取
+                    if not new_credential:
+                        try:
+                            async with async_session() as stream_db:
+                                new_credential = await CredentialPool.get_available_credential(
+                                    stream_db, user_id=user.id, user_has_public_creds=user_has_public,
+                                    model=model, exclude_ids=tried_credential_ids,
+                                    mode="antigravity"
+                                )
+                                if new_credential:
+                                    tried_credential_ids.add(new_credential.id)
+                                    new_token, new_project_id = await CredentialPool.get_access_token_and_project(new_credential, stream_db, mode="antigravity")
+                        except Exception as retry_err:
+                            print(f"[Antigravity Proxy] ⚠️ 流式获取新凭证失败: {retry_err}", flush=True)
+                    
+                    if new_credential and new_token and new_project_id:
+                        tried_credential_ids.add(new_credential.id)
+                        current_cred_id = new_credential.id
+                        current_cred_email = new_credential.email
+                        access_token = new_token
+                        project_id = new_project_id
+                        client = AntigravityClient(access_token, project_id)
+                        print(f"[Antigravity Proxy] 🔄 流式切换到凭证: {current_cred_email}", flush=True)
+                        
+                        # 启动下一个预热任务
+                        if stream_retry + 1 < max_retries:
+                            preheat_task = CredentialPool.create_preheat_task(
+                                user_id=user.id,
+                                user_has_public_creds=user_has_public,
+                                model=model,
+                                exclude_ids=tried_credential_ids.copy(),
+                                mode="antigravity"
                             )
-                            if new_credential:
-                                tried_credential_ids.add(new_credential.id)
-                                new_token, new_project_id = await CredentialPool.get_access_token_and_project(new_credential, stream_db, mode="antigravity")
-                                if new_token and new_project_id:
-                                    current_cred_id = new_credential.id
-                                    current_cred_email = new_credential.email
-                                    access_token = new_token
-                                    project_id = new_project_id
-                                    client = AntigravityClient(access_token, project_id)
-                                    print(f"[Antigravity Proxy] 🔄 切换到凭证: {current_cred_email}", flush=True)
-                                else:
-                                    print(f"[Antigravity Proxy] ⚠️ 新凭证 Token 获取失败，使用当前凭证继续重试", flush=True)
-                            else:
-                                # 没有新凭证可用，使用当前凭证继续重试
-                                print(f"[Antigravity Proxy] ⚠️ 没有更多凭证可用，使用当前凭证继续重试", flush=True)
-                    except Exception as retry_err:
-                        print(f"[Antigravity Proxy] ⚠️ 获取新凭证失败: {retry_err}，使用当前凭证继续重试", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 流式没有更多凭证可用", flush=True)
                     continue
                 
                 status_code = extract_status_code(error_str)

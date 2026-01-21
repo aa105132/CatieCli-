@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, or_
@@ -8,6 +8,7 @@ from app.config import settings
 import httpx
 import asyncio
 import logging
+import weakref
 
 log = logging.getLogger(__name__)
 
@@ -1050,6 +1051,106 @@ class CredentialPool:
             print(f"[429 CD] 凭证 {credential_id} 模型组 {model_group} 设置 CD {cd_seconds}s", flush=True)
         
         return cd_seconds
+    
+    # ===== 凭证预热机制 (从 gcli2api 移植) =====
+    
+    # 预热任务缓存 (使用 weakref 避免内存泄漏)
+    _preheat_cache: dict = {}
+    
+    @staticmethod
+    async def preheat_next_credential(
+        db: AsyncSession,
+        user_id: int,
+        user_has_public_creds: bool,
+        model: str,
+        exclude_ids: set,
+        mode: str = "antigravity"
+    ) -> Optional[Tuple[Credential, str, str]]:
+        """
+        预热下一个凭证（并行获取凭证 + token + project_id）
+        
+        这是从 gcli2api 移植的功能，用于减少凭证切换时的延迟。
+        在当前请求处理期间，预先获取下一个可用凭证及其 token。
+        
+        Args:
+            db: 数据库会话
+            user_id: 用户ID
+            user_has_public_creds: 用户是否有公共凭证
+            model: 模型名称
+            exclude_ids: 排除的凭证ID集合
+            mode: 凭证模式
+        
+        Returns:
+            (credential, access_token, project_id) 元组，如果预热失败返回 None
+        """
+        mode = CredentialPool.validate_mode(mode)
+        
+        try:
+            # 获取下一个可用凭证
+            next_credential = await CredentialPool.get_available_credential(
+                db,
+                user_id=user_id,
+                user_has_public_creds=user_has_public_creds,
+                model=model,
+                exclude_ids=exclude_ids,
+                mode=mode
+            )
+            
+            if not next_credential:
+                print(f"[{mode.upper()}][预热] 没有可用的下一个凭证", flush=True)
+                return None
+            
+            # 获取 token 和 project_id
+            access_token, project_id = await CredentialPool.get_access_token_and_project(
+                next_credential, db, mode=mode
+            )
+            
+            if not access_token or not project_id:
+                print(f"[{mode.upper()}][预热] 凭证 {next_credential.email} token/project 获取失败", flush=True)
+                return None
+            
+            print(f"[{mode.upper()}][预热] ✅ 成功预热凭证: {next_credential.email}", flush=True)
+            return (next_credential, access_token, project_id)
+            
+        except Exception as e:
+            print(f"[{mode.upper()}][预热] ❌ 预热异常: {e}", flush=True)
+            return None
+    
+    @staticmethod
+    def create_preheat_task(
+        user_id: int,
+        user_has_public_creds: bool,
+        model: str,
+        exclude_ids: set,
+        mode: str = "antigravity"
+    ) -> asyncio.Task:
+        """
+        创建凭证预热任务（非阻塞）
+        
+        用法示例:
+        ```python
+        # 在请求开始时创建预热任务
+        preheat_task = CredentialPool.create_preheat_task(...)
+        
+        # 当需要切换凭证时，等待预热结果
+        if preheat_task:
+            result = await preheat_task
+            if result:
+                next_cred, next_token, next_project = result
+        ```
+        
+        Returns:
+            asyncio.Task 对象
+        """
+        from app.database import async_session
+        
+        async def do_preheat():
+            async with async_session() as db:
+                return await CredentialPool.preheat_next_credential(
+                    db, user_id, user_has_public_creds, model, exclude_ids, mode
+                )
+        
+        return asyncio.create_task(do_preheat())
     
     @staticmethod
     async def get_all_credentials(db: AsyncSession, mode: str = None):

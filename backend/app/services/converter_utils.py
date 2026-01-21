@@ -16,14 +16,13 @@ log = logging.getLogger(__name__)
 # ==================== thoughtSignature 处理 ====================
 
 # 在工具调用ID中嵌入thoughtSignature的分隔符
-THOUGHT_SIGNATURE_SEPARATOR = "::sig:"
+# 与 gcli2api 和 openai2gemini_full.py 保持一致
+THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
 
 
 def encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str:
     """
     将 thoughtSignature 编码到工具调用ID中，以便往返保留。
-
-    使用 base64 编码签名以避免特殊字符问题。
 
     Args:
         tool_id: 原始工具调用ID
@@ -34,19 +33,13 @@ def encode_tool_id_with_signature(tool_id: str, signature: Optional[str]) -> str
 
     Examples:
         >>> encode_tool_id_with_signature("call_123", "abc")
-        'call_123::sig:YWJj'  # YWJj 是 "abc" 的 base64 编码
+        'call_123__thought__abc'
         >>> encode_tool_id_with_signature("call_123", None)
         'call_123'
     """
-    if not signature:
-        return tool_id
-    
-    import base64
-    try:
-        encoded_sig = base64.b64encode(signature.encode('utf-8')).decode('ascii')
-        return f"{tool_id}{THOUGHT_SIGNATURE_SEPARATOR}{encoded_sig}"
-    except Exception:
-        return tool_id
+    if signature:
+        return f"{tool_id}{THOUGHT_SIGNATURE_SEPARATOR}{signature}"
+    return tool_id
 
 
 def decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, Optional[str]]:
@@ -60,7 +53,7 @@ def decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, Optional[str]]:
         (原始工具ID, thoughtSignature) 元组
 
     Examples:
-        >>> decode_tool_id_and_signature("call_123::sig:YWJj")
+        >>> decode_tool_id_and_signature("call_123__thought__abc")
         ('call_123', 'abc')
         >>> decode_tool_id_and_signature("call_123")
         ('call_123', None)
@@ -68,17 +61,8 @@ def decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, Optional[str]]:
     if not encoded_id or THOUGHT_SIGNATURE_SEPARATOR not in encoded_id:
         return encoded_id, None
     
-    import base64
-    try:
-        parts = encoded_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)
-        if len(parts) != 2:
-            return encoded_id, None
-        
-        tool_id, encoded_sig = parts
-        signature = base64.b64decode(encoded_sig.encode('ascii')).decode('utf-8')
-        return tool_id, signature
-    except Exception:
-        return encoded_id, None
+    parts = encoded_id.split(THOUGHT_SIGNATURE_SEPARATOR, 1)
+    return parts[0], parts[1] if len(parts) == 2 else None
 
 
 # ==================== 内容提取 ====================
