@@ -845,6 +845,29 @@ class AntigravityClient:
         
         return model
     
+    def _convert_usage_metadata(self, usage_metadata: dict) -> dict:
+        """
+        将Gemini的usageMetadata转换为OpenAI格式的usage字段
+        
+        Args:
+            usage_metadata: Gemini API的usageMetadata字段
+        
+        Returns:
+            OpenAI格式的usage字典
+        """
+        if not usage_metadata:
+            return {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        
+        return {
+            "prompt_tokens": usage_metadata.get("promptTokenCount", 0),
+            "completion_tokens": usage_metadata.get("candidatesTokenCount", 0),
+            "total_tokens": usage_metadata.get("totalTokenCount", 0),
+        }
+    
     def _convert_to_openai_response(self, gemini_response: dict, model: str, server_base_url: str = None) -> dict:
         """将Gemini响应转换为OpenAI格式 - 支持工具调用"""
         from app.services.openai2gemini_full import extract_tool_calls_from_parts
@@ -855,6 +878,9 @@ class AntigravityClient:
         finish_reason = "stop"
         
         response_data = gemini_response.get("response", gemini_response)
+        
+        # 提取 usageMetadata
+        usage_metadata = response_data.get("usageMetadata")
         
         if "candidates" in response_data and response_data["candidates"]:
             candidate = response_data["candidates"][0]
@@ -952,15 +978,11 @@ class AntigravityClient:
                 "message": message,
                 "finish_reason": finish_reason
             }],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0
-            }
+            "usage": self._convert_usage_metadata(usage_metadata)
         }
     
     def _convert_to_openai_stream(self, chunk_data: str, model: str, server_base_url: str = None) -> str:
-        """将Gemini流式响应转换为OpenAI SSE格式 - 支持工具调用"""
+        """将Gemini流式响应转换为OpenAI SSE格式 - 支持工具调用和usage统计"""
         try:
             from app.services.openai2gemini_full import extract_tool_calls_from_parts
             
@@ -969,8 +991,13 @@ class AntigravityClient:
             reasoning_content = ""
             tool_calls = []
             finish_reason = None
+            usage = None
             
             response_data = data.get("response", data)
+            
+            # 提取 usageMetadata（通常在最后一个 chunk 中）
+            if "usageMetadata" in response_data:
+                usage = self._convert_usage_metadata(response_data["usageMetadata"])
             
             if "candidates" in response_data and response_data["candidates"]:
                 candidate = response_data["candidates"][0]
@@ -1060,6 +1087,11 @@ class AntigravityClient:
                     "finish_reason": finish_reason
                 }]
             }
+            
+            # 在最后一个 chunk 中添加 usage 信息
+            if usage:
+                openai_chunk["usage"] = usage
+            
             return f"data: {json.dumps(openai_chunk)}\n\n"
         except Exception as e:
             print(f"[AntigravityClient] ⚠️ 流式转换异常: {e}", flush=True)
