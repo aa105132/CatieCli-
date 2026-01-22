@@ -94,6 +94,10 @@ export default function Settings() {
         config.antigravity_contributor_rpm ?? 10,
       );
       formData.append(
+        "antigravity_pool_mode",
+        config.antigravity_pool_mode ?? "full_shared",
+      );
+      formData.append(
         "oauth_guide_enabled",
         config.oauth_guide_enabled ?? true,
       );
@@ -1170,6 +1174,43 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
                       贡献凭证用户每分钟请求数
                     </p>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Antigravity 凭证池模式 */}
+            {config?.antigravity_enabled && (
+              <div className="mt-4 bg-gray-700/30 rounded-lg p-4">
+                <label className="block text-sm font-medium mb-3">
+                  🍲 Antigravity 凭证池模式
+                </label>
+                <select
+                  value={config?.antigravity_pool_mode ?? "full_shared"}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      antigravity_pool_mode: e.target.value,
+                    })
+                  }
+                  className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="private">🔒 私有模式 - 只能用自己的凭证</option>
+                  <option value="full_shared">🍲 大锅饭模式 - 捐赠凭证即可用所有公共池</option>
+                </select>
+                <div className="mt-3 text-sm space-y-1">
+                  {config?.antigravity_pool_mode === "private" && (
+                    <p className="text-gray-400">
+                      🔒 每个用户只能使用自己上传的 Antigravity 凭证
+                    </p>
+                  )}
+                  {config?.antigravity_pool_mode === "full_shared" && (
+                    <>
+                      <p className="text-green-400">
+                        🎉 上传凭证后可使用所有公共 Antigravity 凭证
+                      </p>
+                      <p className="text-gray-400">🚫 未上传只能用自己的凭证</p>
+                    </>
+                  )}
                 </div>
               </div>
             )}

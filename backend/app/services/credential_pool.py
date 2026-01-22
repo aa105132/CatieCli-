@@ -528,9 +528,24 @@ class CredentialPool:
         # Antigravity 模式或者 2.5 模型可以用任何等级凭证（不添加额外筛选）
         
         # 根据模式决定凭证访问规则
-        # Antigravity 模式强制只用自己的凭证（自用模式，不使用公共池）
+        # Antigravity 模式使用独立的 antigravity_pool_mode 配置
         if mode == "antigravity":
-            query = query.where(Credential.user_id == user_id)
+            agy_pool_mode = settings.antigravity_pool_mode
+            if agy_pool_mode == "private":
+                # 私有模式：只能用自己的凭证
+                query = query.where(Credential.user_id == user_id)
+            else:  # full_shared (大锅饭模式)
+                if user_has_public_creds:
+                    # 用户有贡献，可以用所有公共凭证 + 自己的私有凭证
+                    query = query.where(
+                        or_(
+                            Credential.is_public == True,
+                            Credential.user_id == user_id
+                        )
+                    )
+                else:
+                    # 用户没有贡献，只能用自己的凭证
+                    query = query.where(Credential.user_id == user_id)
         elif pool_mode == "private":
             # 私有模式：只能用自己的凭证
             query = query.where(Credential.user_id == user_id)

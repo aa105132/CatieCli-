@@ -890,6 +890,10 @@ async def export_my_credential(
     """导出我的凭证为 JSON 格式"""
     from app.services.crypto import decrypt_credential
     
+    # 检查是否允许导出凭证（管理员不受限制）
+    if not settings.allow_export_credentials and not user.is_admin:
+        raise HTTPException(status_code=403, detail="管理员已禁用凭证导出功能")
+    
     result = await db.execute(
         select(Credential).where(Credential.id == cred_id, Credential.user_id == user.id)
     )
@@ -909,6 +913,47 @@ async def export_my_credential(
     }
     
     return cred_data
+
+
+@router.get("/credentials/export-all")
+async def export_all_my_credentials(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """导出用户的所有 CLI 凭证为 JSON 数组格式"""
+    from app.services.crypto import decrypt_credential
+    from sqlalchemy import or_
+    
+    # 检查是否允许导出凭证（管理员不受限制）
+    if not settings.allow_export_credentials and not user.is_admin:
+        raise HTTPException(status_code=403, detail="管理员已禁用凭证导出功能")
+    
+    # 查询用户的所有 CLI 凭证
+    result = await db.execute(
+        select(Credential)
+        .where(Credential.user_id == user.id)
+        .where(or_(
+            Credential.api_type == "geminicli",
+            Credential.api_type == None,
+            Credential.api_type == ""
+        ))
+    )
+    credentials = result.scalars().all()
+    
+    cred_list = []
+    for cred in credentials:
+        cred_data = {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "refresh_token": decrypt_credential(cred.refresh_token) if cred.refresh_token else "",
+            "token": decrypt_credential(cred.api_key) if cred.api_key else "",
+            "project_id": cred.project_id or "",
+            "email": cred.email or "",
+            "type": "authorized_user"
+        }
+        cred_list.append(cred_data)
+    
+    return cred_list
 
 
 @router.post("/credentials/{cred_id}/verify")

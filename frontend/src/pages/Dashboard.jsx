@@ -1,92 +1,87 @@
 import {
   Activity,
   BarChart2,
-  Cat,
   Check,
   CheckCircle,
   Copy,
   Download,
   ExternalLink,
   Gift,
+  Github,
   HelpCircle,
   Key,
   LogOut,
   RefreshCcw,
   RefreshCw,
   Rocket,
+  Server,
   Settings,
   Shield,
   Trash2,
-  Upload,
   Users,
   X,
   Zap,
+  AlertCircle,
+  Info,
+  Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../App";
 import { useWebSocket } from "../hooks/useWebSocket";
+
+// 太极图标组件
+const TaijiIcon = ({ className = "w-8 h-8" }) => (
+  <svg viewBox="0 0 1024 1024" className={className} fill="currentColor">
+    <path d="M803.4816 515.84c-1.9968 159.2576-131.712 287.744-291.456 287.744S222.5664 675.0976 220.5696 515.84c-0.0256-1.2544-0.0512-2.5088-0.0512-3.7632 0-80.4864 65.2544-145.7664 145.7408-145.7664s145.7664 65.28 145.7664 145.7664 65.2544 145.7664 145.7664 145.7664 143.6928-63.2576 145.6896-142.0032z" />
+    <path d="M366.2592 512.1024m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" fill="#1e1e2e" />
+    <path d="M220.5184 508.16c1.9968-159.2576 131.712-287.744 291.456-287.744s289.4592 128.4864 291.456 287.744c0.0256 1.2544 0.0512 2.5088 0.0512 3.7632 0 80.4864-65.2544 145.7664-145.7408 145.7664s-145.7664-65.28-145.7664-145.7664-65.2544-145.7664-145.7664-145.7664-143.6928 63.2576-145.6896 142.0032z" fill="#1e1e2e" />
+    <path d="M657.7408 511.8976m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" />
+  </svg>
+);
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [userInfo, setUserInfo] = useState(null);
   const [oauthMessage, setOauthMessage] = useState(null);
-  const [copied, setCopied] = useState(false);
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [helpLink, setHelpLink] = useState(null);
   const [anthropicEnabled, setAnthropicEnabled] = useState(false);
 
   // API Key 相关
-  const [showKeyModal, setShowKeyModal] = useState(false);
   const [myKey, setMyKey] = useState(null);
   const [keyLoading, setKeyLoading] = useState(false);
   const [keyCopied, setKeyCopied] = useState(false);
 
   // 凭证管理相关
-  const [showCredModal, setShowCredModal] = useState(false);
   const [myCredentials, setMyCredentials] = useState([]);
   const [credLoading, setCredLoading] = useState(false);
-  const [uploadFiles, setUploadFiles] = useState([]);
-  const [uploadPublic, setUploadPublic] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [quotaModal, setQuotaModal] = useState(null);
-  const [loadingQuota, setLoadingQuota] = useState(false);
-  const [verifyResult, setVerifyResult] = useState(null); // 检测结果弹窗
+  const [verifyResult, setVerifyResult] = useState(null);
   const [forceDonate, setForceDonate] = useState(false);
   const [rpmConfig, setRpmConfig] = useState({ base: 5, contributor: 10 });
+  const [allowExportCredentials, setAllowExportCredentials] = useState(true);
 
-  // localStorage 文件夹映射（纯前端分类，不影响后端）
-  const [credFolders, setCredFolders] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("myCredFolders") || "{}");
-    } catch {
-      return {};
-    }
-  });
-  const [credFolderFilter, setCredFolderFilter] = useState("all");
+  // Antigravity 凭证相关
+  const [agyCredentials, setAgyCredentials] = useState([]);
+  const [agyCredLoading, setAgyCredLoading] = useState(false);
+  const [agyStats, setAgyStats] = useState(null);
+  const [agyQuotaResult, setAgyQuotaResult] = useState(null);
+  const [agyLoadingQuota, setAgyLoadingQuota] = useState(null);
+  const [agyVerifyResult, setAgyVerifyResult] = useState(null);
+  const [agyVerifying, setAgyVerifying] = useState(null);
+  const [agyMessage, setAgyMessage] = useState({ type: "", text: "" });
+  const [exportModal, setExportModal] = useState(null);
 
-  const saveCredFolders = (newFolders) => {
-    setCredFolders(newFolders);
-    localStorage.setItem("myCredFolders", JSON.stringify(newFolders));
-  };
-
-  const allFolders = [...new Set(Object.values(credFolders).filter((f) => f))];
-
-  const updateCredFolder = (credId) => {
-    const currentFolder = credFolders[credId] || "";
-    const newFolder = prompt("设置分类/文件夹（留空移除分类）", currentFolder);
-    if (newFolder === null) return;
-    const updated = { ...credFolders };
-    if (newFolder.trim()) {
-      updated[credId] = newFolder.trim();
-    } else {
-      delete updated[credId];
-    }
-    saveCredFolders(updated);
-  };
+  // 文件上传相关
+  const [cliUploading, setCliUploading] = useState(false);
+  const [cliUploadResult, setCliUploadResult] = useState(null);
+  const [agyUploading, setAgyUploading] = useState(false);
+  const [agyUploadResult, setAgyUploadResult] = useState(null);
+  const cliFileInputRef = useRef(null);
+  const agyFileInputRef = useRef(null);
 
   // 获取捐赠配置
   useEffect(() => {
@@ -98,6 +93,8 @@ export default function Dashboard() {
           base: res.data.base_rpm || 5,
           contributor: res.data.contributor_rpm || 10,
         });
+        // 默认为 true，如果后端返回 false 则禁用导出
+        setAllowExportCredentials(res.data.allow_export_credentials !== false);
       })
       .catch(() => {});
   }, []);
@@ -106,7 +103,7 @@ export default function Dashboard() {
   useEffect(() => {
     const oauth = searchParams.get("oauth");
     if (oauth === "success") {
-      setOauthMessage({ type: "success", text: "🎉 凭证上传成功！" });
+      setOauthMessage({ type: "success", text: "凭证上传成功！" });
       setSearchParams({});
     } else if (oauth === "error") {
       const msg = searchParams.get("msg") || "未知错误";
@@ -139,7 +136,6 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    // 并行加载数据以提升性能
     setStatsLoading(true);
     Promise.all([
       api.get("/api/auth/me").catch(() => null),
@@ -150,22 +146,18 @@ export default function Dashboard() {
         if (meRes?.data) setUserInfo(meRes.data);
         if (statsRes?.data) setStats(statsRes.data);
 
-        // 检查首次访问强制跳转教程
         if (
           configRes?.data?.tutorial_enabled &&
           configRes?.data?.tutorial_force_first_visit
         ) {
           const hasReadTutorial = localStorage.getItem("hasReadTutorial");
           if (!hasReadTutorial) {
-            // 首次访问，强制跳转教程页面
             window.location.href = "/tutorial";
             return;
           }
         }
 
-        // 优先使用内置教程，其次使用外链
         if (configRes?.data?.tutorial_enabled) {
-          // 内置教程
           setHelpLink({
             url: "/tutorial",
             text: configRes.data.help_link_text || "使用教程",
@@ -175,14 +167,12 @@ export default function Dashboard() {
           configRes?.data?.help_link_enabled &&
           configRes?.data?.help_link_url
         ) {
-          // 外链
           setHelpLink({
             url: configRes.data.help_link_url,
             text: configRes.data.help_link_text || "使用教程",
             isInternal: false,
           });
         }
-        // Anthropic 功能状态
         if (configRes?.data?.anthropic_enabled) {
           setAnthropicEnabled(true);
         }
@@ -190,32 +180,14 @@ export default function Dashboard() {
       .finally(() => setStatsLoading(false));
   }, []);
 
-  const copyToClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // HTTP 环境下的备用方案
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   // 获取或创建 API Key
   const fetchOrCreateKey = async () => {
     setKeyLoading(true);
     try {
-      // 先尝试获取现有的 key
       const res = await api.get("/api/auth/api-keys");
       if (res.data.length > 0) {
         setMyKey(res.data[0]);
       } else {
-        // 没有则创建一个
         const createRes = await api.post("/api/auth/api-keys", {
           name: "default",
         });
@@ -233,7 +205,6 @@ export default function Dashboard() {
       try {
         await navigator.clipboard.writeText(myKey.key);
       } catch {
-        // HTTP 环境下的备用方案
         const textarea = document.createElement("textarea");
         textarea.value = myKey.key;
         document.body.appendChild(textarea);
@@ -275,51 +246,6 @@ export default function Dashboard() {
     }
   };
 
-  const uploadCredential = async () => {
-    if (uploadFiles.length === 0) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      uploadFiles.forEach((file) => formData.append("files", file));
-      formData.append("is_public", uploadPublic);
-
-      const res = await api.post("/api/auth/credentials/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      alert(
-        `上传完成: 成功 ${res.data.uploaded_count}/${res.data.total_count} 个`,
-      );
-      setUploadFiles([]);
-      fetchMyCredentials();
-    } catch (err) {
-      alert(err.response?.data?.detail || "上传失败");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const toggleCredActive = async (id, currentActive) => {
-    try {
-      await api.patch(`/api/auth/credentials/${id}`, null, {
-        params: { is_active: !currentActive },
-      });
-      fetchMyCredentials();
-    } catch (err) {
-      alert("操作失败: " + (err.response?.data?.detail || err.message));
-    }
-  };
-
-  const toggleCredPublic = async (id, currentPublic) => {
-    try {
-      await api.patch(`/api/auth/credentials/${id}`, null, {
-        params: { is_public: !currentPublic },
-      });
-      fetchMyCredentials();
-    } catch (err) {
-      console.error("更新失败", err);
-    }
-  };
-
   const deleteCred = async (id) => {
     if (!confirm("确定删除此凭证？")) return;
     try {
@@ -327,18 +253,6 @@ export default function Dashboard() {
       fetchMyCredentials();
     } catch (err) {
       console.error("删除失败", err);
-    }
-  };
-
-  const fetchQuota = async (id) => {
-    setLoadingQuota(true);
-    try {
-      const res = await api.get(`/api/manage/credentials/${id}/quota`);
-      setQuotaModal(res.data);
-    } catch (err) {
-      alert("获取配额失败: " + (err.response?.data?.detail || err.message));
-    } finally {
-      setLoadingQuota(false);
     }
   };
 
@@ -361,7 +275,6 @@ export default function Dashboard() {
     }
   };
 
-  // 检测单个凭证
   const [verifyingCred, setVerifyingCred] = useState(null);
   const verifyCred = async (id, email) => {
     setVerifyingCred(id);
@@ -380,21 +293,250 @@ export default function Dashboard() {
     }
   };
 
-  // 编辑凭证备注
-  const updateCredNote = async (id, currentNote) => {
-    const newNote = prompt("编辑备注（可为空）", currentNote || "");
-    if (newNote === null) return; // 用户取消
+  // ========== Antigravity 相关函数 ==========
+  const fetchAgyCredentials = async () => {
+    setAgyCredLoading(true);
     try {
-      await api.patch(`/api/auth/credentials/${id}`, null, {
-        params: { note: newNote || "" },
-      });
-      fetchMyCredentials();
+      const res = await api.get("/api/antigravity/credentials");
+      setAgyCredentials(res.data);
     } catch (err) {
-      alert("更新失败: " + (err.response?.data?.detail || err.message));
+      setAgyMessage({ type: "error", text: "获取凭证失败" });
+    } finally {
+      setAgyCredLoading(false);
     }
   };
 
-  const [activeTab, setActiveTab] = useState("stats");
+  const fetchAgyStats = async () => {
+    try {
+      const res = await api.get("/api/antigravity/stats");
+      setAgyStats(res.data);
+    } catch (err) {
+      console.error("获取统计失败", err);
+    }
+  };
+
+  const toggleAgyActive = async (id, currentActive) => {
+    try {
+      await api.patch(`/api/antigravity/credentials/${id}`, null, {
+        params: { is_active: !currentActive },
+      });
+      fetchAgyCredentials();
+    } catch (err) {
+      setAgyMessage({ type: "error", text: "操作失败" });
+    }
+  };
+
+  const deleteAgyCred = async (id) => {
+    if (!confirm("确定删除此凭证？此操作不可恢复！")) return;
+    try {
+      await api.delete(`/api/antigravity/credentials/${id}`);
+      setAgyMessage({ type: "success", text: "删除成功" });
+      fetchAgyCredentials();
+      fetchAgyStats();
+    } catch (err) {
+      setAgyMessage({ type: "error", text: "删除失败" });
+    }
+  };
+
+  const exportAgyCred = async (format = "full") => {
+    if (!exportModal) return;
+    const { id, email } = exportModal;
+    try {
+      const res = await api.get(`/api/antigravity/credentials/${id}/export`, {
+        params: { format },
+      });
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        format === "simple"
+          ? `simple_${email || id}.json`
+          : `antigravity_${email || id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setAgyMessage({ type: "success", text: "凭证已导出！" });
+      setExportModal(null);
+    } catch (err) {
+      setAgyMessage({
+        type: "error",
+        text: "导出失败: " + (err.response?.data?.detail || err.message),
+      });
+    }
+  };
+
+  const verifyAgyCred = async (id, email) => {
+    setAgyVerifying(id);
+    try {
+      const res = await api.post(`/api/antigravity/credentials/${id}/verify`);
+      setAgyVerifyResult({ ...res.data, email });
+      fetchAgyCredentials();
+    } catch (err) {
+      setAgyVerifyResult({
+        error: err.response?.data?.detail || err.message,
+        is_valid: false,
+        email,
+      });
+    } finally {
+      setAgyVerifying(null);
+    }
+  };
+
+  const fetchAgyQuota = async (id, email) => {
+    setAgyLoadingQuota(id);
+    try {
+      const res = await api.get(`/api/antigravity/credentials/${id}/quota`);
+      setAgyQuotaResult({ ...res.data, email });
+    } catch (err) {
+      setAgyQuotaResult({
+        success: false,
+        error: err.response?.data?.detail || err.message,
+        email,
+      });
+    } finally {
+      setAgyLoadingQuota(null);
+    }
+  };
+
+  const deleteAllAgyInactive = async () => {
+    if (!confirm("确定删除所有失效的凭证？此操作不可恢复！"))
+      return;
+    try {
+      const res = await api.delete(
+        "/api/antigravity/credentials/inactive/batch",
+      );
+      setAgyMessage({ type: "success", text: res.data.message });
+      fetchAgyCredentials();
+      fetchAgyStats();
+    } catch (err) {
+      setAgyMessage({
+        type: "error",
+        text: err.response?.data?.detail || "删除失败",
+      });
+    }
+  };
+
+  // ========== CLI 文件上传 ==========
+  const handleCliFileUpload = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setCliUploading(true);
+    setCliUploadResult(null);
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append("files", files[i]);
+    }
+    formData.append("is_public", forceDonate ? "true" : "false");
+
+    try {
+      const res = await api.post("/api/auth/credentials/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setCliUploadResult({
+        type: "success",
+        message: `成功上传 ${res.data.uploaded_count}/${res.data.total_count} 个凭证`,
+        results: res.data.results,
+      });
+      fetchMyCredentials();
+    } catch (err) {
+      setCliUploadResult({
+        type: "error",
+        message: err.response?.data?.detail || "上传失败",
+      });
+    } finally {
+      setCliUploading(false);
+      if (cliFileInputRef.current) {
+        cliFileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // ========== AGY 文件上传 ==========
+  const handleAgyFileUpload = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setAgyUploading(true);
+    setAgyUploadResult(null);
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append("files", files[i]);
+    }
+    formData.append("is_public", forceDonate ? "true" : "false");
+
+    try {
+      const res = await api.post("/api/antigravity/credentials/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setAgyUploadResult({
+        type: "success",
+        message: `成功上传 ${res.data.uploaded_count}/${res.data.total_count} 个凭证`,
+        results: res.data.results,
+      });
+      fetchAgyCredentials();
+      fetchAgyStats();
+    } catch (err) {
+      setAgyUploadResult({
+        type: "error",
+        message: err.response?.data?.detail || "上传失败",
+      });
+    } finally {
+      setAgyUploading(false);
+      if (agyFileInputRef.current) {
+        agyFileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // ========== 导出所有凭证 ==========
+  const exportAllCliCredentials = async () => {
+    try {
+      const res = await api.get("/api/auth/credentials/export-all");
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cli_credentials_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("导出失败: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  const exportAllAgyCredentials = async () => {
+    try {
+      const res = await api.get("/api/antigravity/credentials/export-all");
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `agy_credentials_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("导出失败: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // 主标签页状态：cli, antigravity, apikey
+  const [mainTab, setMainTab] = useState("cli");
+
   const apiEndpoint = `${window.location.origin}/v1`;
 
   // 自动获取 API Key
@@ -402,737 +544,587 @@ export default function Dashboard() {
     fetchOrCreateKey();
   }, []);
 
+  // 当切换标签时加载数据
+  useEffect(() => {
+    if (mainTab === "antigravity" && agyCredentials.length === 0) {
+      fetchAgyCredentials();
+      fetchAgyStats();
+    }
+    if (mainTab === "cli" && myCredentials.length === 0) {
+      fetchMyCredentials();
+    }
+  }, [mainTab]);
+
   return (
-    <div className="min-h-screen">
-      {/* 导航栏 */}
-      <nav className="bg-dark-900 border-b border-dark-700">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          {/* 移动端：两行布局 */}
+    <div className="min-h-screen" style={{ background: '#12121a', color: '#d4d4dc' }}>
+      {/* 顶部导航 */}
+      <header className="border-b" style={{ borderColor: '#2a2a3a', background: '#18181f' }}>
+        <div className="max-w-5xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Cat className="w-8 h-8 text-purple-400" />
-              <span className="text-xl font-bold">Catiecli</span>
+              <TaijiIcon className="w-9 h-9 text-violet-400" />
+              <span className="text-lg font-semibold text-violet-300">同尘</span>
               {connected && (
-                <span className="flex items-center gap-1 text-xs text-green-400">
-                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
-                  <span className="hidden sm:inline">实时</span>
+                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>
+                  实时
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 sm:gap-4">
-              <span className="text-gray-300 text-sm sm:text-base hidden sm:inline">
-                欢迎，{user?.discord_name || user?.username}
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-400 hidden sm:inline">
+                {user?.discord_name || user?.username}
               </span>
               <button
                 onClick={logout}
-                className="px-3 py-1.5 sm:px-4 sm:py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
+                className="px-3 py-1.5 text-sm text-gray-400 hover:text-red-400 bg-gray-800/50 hover:bg-red-500/10 border border-gray-700 hover:border-red-500/50 rounded-md transition-all"
               >
-                <LogOut size={16} />
-                <span className="hidden sm:inline">退出登录</span>
+                <LogOut size={14} className="inline mr-1" />
+                登出
               </button>
             </div>
           </div>
-          {/* 管理员链接 - 移动端显示在第二行 */}
+          
+          {/* 管理员链接 */}
           {user?.is_admin && (
-            <div className="flex items-center gap-4 mt-3 pt-3 border-t border-dark-700 overflow-x-auto">
-              <Link
-                to="/stats"
-                className="text-gray-400 hover:text-white flex items-center gap-1 text-sm whitespace-nowrap"
-              >
-                <Activity size={16} />
-                统计
+            <div className="flex items-center gap-4 mt-2 pt-2 border-t border-gray-800 text-xs">
+              <Link to="/stats" className="text-gray-500 hover:text-violet-400 flex items-center gap-1 transition-colors">
+                <Activity size={12} /> 统计
               </Link>
-              <Link
-                to="/settings"
-                className="text-gray-400 hover:text-white flex items-center gap-1 text-sm whitespace-nowrap"
-              >
-                <Settings size={16} />
-                设置
+              <Link to="/settings" className="text-gray-500 hover:text-violet-400 flex items-center gap-1 transition-colors">
+                <Settings size={12} /> 设置
               </Link>
-              <Link
-                to="/admin"
-                className="text-gray-400 hover:text-white flex items-center gap-1 text-sm whitespace-nowrap"
-              >
-                <Users size={16} />
-                用户
+              <Link to="/admin" className="text-gray-500 hover:text-violet-400 flex items-center gap-1 transition-colors">
+                <Users size={12} /> 用户
               </Link>
             </div>
           )}
-          {/* Antigravity 入口 - 所有用户可见 */}
-          <div
-            className={`flex items-center gap-2 sm:gap-4 overflow-x-auto pb-2 ${user?.is_admin ? "mt-2" : "mt-3 pt-3 border-t border-dark-700"}`}
-          >
-            <Link
-              to="/antigravity-credentials"
-              className="text-orange-400 hover:text-orange-300 flex items-center gap-1 text-sm whitespace-nowrap flex-shrink-0"
-            >
-              <Rocket size={16} />
-              Antigravity 凭证
-            </Link>
-            {anthropicEnabled && (
-              <Link
-                to="/anthropic-credentials"
-                className="text-pink-400 hover:text-pink-300 flex items-center gap-1 text-sm whitespace-nowrap flex-shrink-0"
-              >
-                <Key size={16} />
-                Anthropic 凭证
-              </Link>
-            )}
-            {helpLink &&
-              (helpLink.isInternal ? (
-                <Link
-                  to={helpLink.url}
-                  className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm flex-shrink-0"
-                  title={helpLink.text}
-                >
-                  <HelpCircle size={16} className="flex-shrink-0" />
-                  <span className="max-w-[120px] sm:max-w-[200px] truncate">
-                    {helpLink.text}
-                  </span>
-                </Link>
-              ) : (
-                <a
-                  href={helpLink.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm flex-shrink-0"
-                  title={helpLink.text}
-                >
-                  <HelpCircle size={16} className="flex-shrink-0" />
-                  <span className="max-w-[120px] sm:max-w-[200px] truncate">
-                    {helpLink.text}
-                  </span>
-                </a>
-              ))}
-          </div>
         </div>
-      </nav>
+      </header>
 
-      <div className="max-w-4xl mx-auto px-4 py-6">
+      <div className="max-w-5xl mx-auto px-4 py-5">
         {/* OAuth 消息提示 */}
         {oauthMessage && (
-          <div
-            className={`mb-6 p-4 rounded-xl border ${
-              oauthMessage.type === "success"
-                ? "bg-green-500/10 border-green-500/30 text-green-400"
-                : "bg-red-500/10 border-red-500/30 text-red-400"
-            }`}
-          >
+          <div className={`mb-4 p-3 rounded-lg border text-sm ${
+            oauthMessage.type === "success"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+              : "bg-red-500/10 border-red-500/30 text-red-400"
+          }`}>
             <div className="flex items-center justify-between">
               <span>{oauthMessage.text}</span>
-              <button
-                onClick={() => setOauthMessage(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                ✕
+              <button onClick={() => setOauthMessage(null)} className="text-gray-400 hover:text-white">
+                <X size={14} />
               </button>
             </div>
           </div>
         )}
 
-        {/* Tab 导航 */}
-        <div className="flex gap-2 border-b border-dark-700 mb-6">
+        {/* 标签页导航 - 更明显的按钮样式 */}
+        <div className="flex gap-2 mb-5">
           <button
-            onClick={() => setActiveTab("stats")}
-            className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-              activeTab === "stats"
-                ? "text-white border-purple-500"
-                : "text-gray-400 border-transparent hover:text-white"
+            onClick={() => setMainTab("cli")}
+            className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
+              mainTab === "cli"
+                ? "bg-violet-600/20 text-violet-300 border-violet-500/50 shadow-lg shadow-violet-500/10"
+                : "bg-gray-800/30 text-gray-400 border-gray-700/50 hover:bg-gray-800/50 hover:text-gray-300 hover:border-gray-600"
             }`}
           >
-            个人统计
+            <Server size={18} />
+            CLI
           </button>
           <button
-            onClick={() => {
-              setActiveTab("credentials");
-              fetchMyCredentials();
-            }}
-            className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-              activeTab === "credentials"
-                ? "text-white border-purple-500"
-                : "text-gray-400 border-transparent hover:text-white"
+            onClick={() => setMainTab("antigravity")}
+            className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
+              mainTab === "antigravity"
+                ? "bg-amber-600/20 text-amber-300 border-amber-500/50 shadow-lg shadow-amber-500/10"
+                : "bg-gray-800/30 text-gray-400 border-gray-700/50 hover:bg-gray-800/50 hover:text-gray-300 hover:border-gray-600"
             }`}
           >
-            凭证管理
+            <Rocket size={18} />
+            反重力
           </button>
           <button
-            onClick={() => setActiveTab("apikey")}
-            className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-              activeTab === "apikey"
-                ? "text-red-400 border-red-500"
-                : "text-gray-400 border-transparent hover:text-white"
+            onClick={() => setMainTab("apikey")}
+            className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
+              mainTab === "apikey"
+                ? "bg-rose-600/20 text-rose-300 border-rose-500/50 shadow-lg shadow-rose-500/10"
+                : "bg-gray-800/30 text-gray-400 border-gray-700/50 hover:bg-gray-800/50 hover:text-gray-300 hover:border-gray-600"
             }`}
           >
-            API密钥
+            <Key size={18} />
+            密钥
           </button>
         </div>
 
-        {/* Tab: 个人统计 */}
-        {activeTab === "stats" && (
-          <>
-            <h2 className="text-xl font-semibold mb-4">个人使用统计</h2>
-
-            {/* 按模型分类统计卡片 */}
-            <div className="grid md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-gradient-to-br from-cyan-900/30 to-cyan-800/10 border border-cyan-700/30 rounded-xl p-5">
-                <div className="text-center">
-                  <div className="text-sm text-cyan-400 mb-2 font-medium">
-                    CLI Flash
-                  </div>
-                  <div className="text-3xl font-bold mb-1">
-                    <span className="text-cyan-300">
-                      {userInfo?.usage_by_model?.flash?.used || 0}
-                    </span>
-                    <span className="text-gray-500 text-xl">
-                      {" "}
-                      / {userInfo?.usage_by_model?.flash?.quota || 0}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-orange-900/30 to-orange-800/10 border border-orange-700/30 rounded-xl p-5">
-                <div className="text-center">
-                  <div className="text-sm text-orange-400 mb-2 font-medium">
-                    CLI 2.5 Pro
-                  </div>
-                  <div className="text-3xl font-bold mb-1">
-                    <span className="text-orange-300">
-                      {userInfo?.usage_by_model?.pro25?.used || 0}
-                    </span>
-                    <span className="text-gray-500 text-xl">
-                      {" "}
-                      / {userInfo?.usage_by_model?.pro25?.quota || 0}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-pink-900/30 to-pink-800/10 border border-pink-700/30 rounded-xl p-5">
-                <div className="text-center">
-                  <div className="text-sm text-pink-400 mb-2 font-medium">
-                    CLI 3.0
-                  </div>
-                  <div className="text-3xl font-bold mb-1">
-                    <span className="text-pink-300">
-                      {userInfo?.usage_by_model?.pro30?.used || 0}
-                    </span>
-                    <span className="text-gray-500 text-xl">
-                      {" "}
-                      / {userInfo?.usage_by_model?.pro30?.quota || 0}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 按 Provider 分类统计 */}
-            <div className="grid md:grid-cols-3 gap-4 mb-6">
-              {/* Claude */}
-              <div className="bg-gradient-to-br from-amber-900/30 to-amber-800/10 border border-amber-700/30 rounded-xl p-4">
-                <div className="text-center">
-                  <div className="text-sm text-amber-400 mb-1 font-medium">
-                    AGY Claude
-                  </div>
-                  <div className="text-2xl font-bold text-amber-300">
-                    {userInfo?.usage_by_provider?.claude || 0}
-                    <span className="text-sm text-gray-500 ml-1">次</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Gemini */}
-              <div className="bg-gradient-to-br from-blue-900/30 to-blue-800/10 border border-blue-700/30 rounded-xl p-4">
-                <div className="text-center">
-                  <div className="text-sm text-blue-400 mb-1 font-medium">
-                    AGY Gemini
-                  </div>
-                  <div className="text-2xl font-bold text-blue-300">
-                    {userInfo?.usage_by_provider?.gemini || 0}
-                    <span className="text-sm text-gray-500 ml-1">次</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* 其他 */}
-              <div className="bg-gradient-to-br from-gray-800/50 to-gray-700/30 border border-gray-600/30 rounded-xl p-4">
-                <div className="text-center">
-                  <div className="text-sm text-gray-400 mb-1 font-medium">
-                    AGY 其他
-                  </div>
-                  <div className="text-2xl font-bold text-gray-300">
-                    {userInfo?.usage_by_provider?.other || 0}
-                    <span className="text-sm text-gray-500 ml-1">次</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* CLI vs AGY 调用 */}
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className="bg-blue-900/20 border border-blue-700/30 rounded-xl p-4 text-center">
-                <div className="text-2xl font-bold text-blue-400">
-                  {userInfo?.usage_by_api_type?.cli || 0}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">🖥️ CLI 调用</div>
-              </div>
-              <div className="bg-orange-900/20 border border-orange-700/30 rounded-xl p-4 text-center">
-                <div className="text-2xl font-bold text-orange-400">
-                  {userInfo?.usage_by_api_type?.antigravity || 0}
-                </div>
-                <div className="text-xs text-gray-400 mt-1">🚀 AGY 调用</div>
-              </div>
-            </div>
-
-            {/* 总配额和凭证统计 */}
-            <div className="grid md:grid-cols-2 gap-4 mb-6">
-              <div className="bg-dark-800 border border-dark-600 rounded-xl p-6">
-                <div className="text-center">
-                  <div className="text-4xl font-bold mb-2">
-                    <span className="text-blue-400">
-                      {userInfo?.today_usage || 0}
-                    </span>
-                    <span className="text-gray-500">
-                      {" "}
-                      / {userInfo?.daily_quota ?? 100}
-                    </span>
-                  </div>
-                  <div className="text-gray-400">总已使用 / 总配额上限</div>
-                </div>
-              </div>
-              <div className="bg-dark-800 border border-dark-600 rounded-xl p-6">
-                <div className="text-center">
-                  <div className="text-4xl font-bold text-green-400 mb-2">
-                    {userInfo?.credential_count || 0}
-                  </div>
-                  <div className="text-gray-400">有效 Google 账号数</div>
-                </div>
-              </div>
-            </div>
-
-            {/* 贡献提示 */}
-            <div className="bg-gradient-to-r from-purple-600/20 via-pink-600/20 to-purple-600/20 border border-purple-500/30 rounded-xl p-6 mb-6">
-              <div className="flex items-center gap-4">
-                <div className="flex-shrink-0">
-                  <Gift className="w-12 h-12 text-purple-400" />
+        {/* ========== CLI 标签页 ========== */}
+        {mainTab === "cli" && (
+          <div className="space-y-5">
+            {/* 使用提示卡片 */}
+            <div className="rounded-lg border p-4" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-violet-500/10">
+                  <Info size={20} className="text-violet-400" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold mb-1">
-                    获取凭证，上传使用
-                  </h3>
-                  <p className="text-gray-400 text-sm">
-                    通过 Google OAuth 授权，将您的 Gemini API 凭证上传平台使用。
-                  </p>
+                  <h3 className="text-sm font-medium text-gray-200 mb-2">CLI 使用说明</h3>
+                  <ul className="text-xs text-gray-400 space-y-1.5">
+                    <li className="flex items-start gap-2">
+                      <span className="text-violet-400 mt-0.5">1.</span>
+                      <span>CLI 凭证用于调用 Gemini 模型（Flash / 2.5 Pro / 3.0）</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-violet-400 mt-0.5">2.</span>
+                      <span>上传凭证后可获得更高的调用配额</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-violet-400 mt-0.5">3.</span>
+                      <span>API 端点：<code className="px-1.5 py-0.5 rounded bg-gray-800 text-violet-300">{apiEndpoint}</code></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-violet-400 mt-0.5">4.</span>
+                      <span>支持上传 JSON 凭证文件（格式：access_token, refresh_token, client_id, client_secret, project_id）</span>
+                    </li>
+                  </ul>
                 </div>
-                <Link
-                  to="/oauth"
-                  className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium flex items-center gap-2"
-                >
-                  <ExternalLink size={18} />
-                  立即上传
-                </Link>
               </div>
             </div>
 
-            {/* 全站统计 - 仅管理员可见 */}
-            {user?.is_admin && (
-              <>
-                <h3 className="text-lg font-semibold mb-3">全站统计</h3>
-                {statsLoading ? (
-                  <div className="text-center py-4 text-gray-400">
-                    <div className="animate-spin w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full mx-auto mb-2"></div>
-                    加载中...
-                  </div>
-                ) : (
-                  <div className="grid md:grid-cols-3 gap-4">
-                    <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
-                      <Users className="w-6 h-6 text-blue-400 mx-auto mb-2" />
-                      <div className="text-xl font-bold">
-                        {stats?.user_count || "-"}
-                      </div>
-                      <div className="text-gray-400 text-sm">注册用户</div>
-                    </div>
-                    <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
-                      <Zap className="w-6 h-6 text-yellow-400 mx-auto mb-2" />
-                      <div className="text-xl font-bold">
-                        <span className="text-blue-400">
-                          {stats?.credentials?.cli || 0}
-                        </span>
-                        <span className="text-gray-500 mx-1">/</span>
-                        <span className="text-orange-400">
-                          {stats?.credentials?.agy || 0}
-                        </span>
-                      </div>
-                      <div className="text-gray-400 text-sm">
-                        CLI / AGY 凭证
-                      </div>
-                    </div>
-                    <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
-                      <Activity className="w-6 h-6 text-green-400 mx-auto mb-2" />
-                      <div className="text-xl font-bold">
-                        <span className="text-green-400">
-                          {stats?.today_success || 0}
-                        </span>
-                        <span className="text-gray-500 mx-1">/</span>
-                        <span className="text-red-400">
-                          {stats?.today_failed || 0}
-                        </span>
-                      </div>
-                      <div className="text-gray-400 text-sm">成功/失败</div>
-                    </div>
-                  </div>
-                )}
+            {/* 统计卡片 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-cyan-400">{userInfo?.usage_by_model?.flash?.used || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">Flash 用量</div>
+                <div className="text-xs text-gray-600">/ {userInfo?.usage_by_model?.flash?.quota || 0}</div>
+              </div>
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-amber-400">{userInfo?.usage_by_model?.pro25?.used || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">2.5 Pro 用量</div>
+                <div className="text-xs text-gray-600">/ {userInfo?.usage_by_model?.pro25?.quota || 0}</div>
+              </div>
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-pink-400">{userInfo?.usage_by_model?.pro30?.used || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">3.0 用量</div>
+                <div className="text-xs text-gray-600">/ {userInfo?.usage_by_model?.pro30?.quota || 0}</div>
+              </div>
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-emerald-400">{userInfo?.credential_count || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">有效凭证</div>
+              </div>
+            </div>
 
-                {/* 报错统计 */}
-                {stats?.errors &&
-                  Object.keys(stats.errors.by_code || {}).length > 0 && (
-                    <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 mt-4">
-                      <h3 className="text-sm font-medium text-gray-300 mb-3">
-                        📊 今日报错统计
-                      </h3>
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {Object.entries(stats.errors.by_code).map(
-                          ([code, count]) => (
-                            <span
-                              key={code}
-                              className={`px-2 py-1 rounded text-sm ${
-                                code === "429"
-                                  ? "bg-orange-500/20 text-orange-400"
-                                  : code === "401" || code === "403"
-                                    ? "bg-red-500/20 text-red-400"
-                                    : "bg-gray-500/20 text-gray-400"
-                              }`}
-                            >
-                              {code}: {count}次
-                            </span>
-                          ),
-                        )}
-                      </div>
-                      {stats.errors.recent?.length > 0 && (
-                        <>
-                          <h4 className="text-xs text-gray-500 mb-2">
-                            最近报错
-                          </h4>
-                          <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
-                            {stats.errors.recent.slice(0, 5).map((err) => (
-                              <div
-                                key={err.id}
-                                className="flex justify-between text-gray-400"
-                              >
-                                <span>
-                                  <span
-                                    className={
-                                      err.status_code === 429
-                                        ? "text-orange-400"
-                                        : "text-red-400"
-                                    }
-                                  >
-                                    {err.status_code}
-                                  </span>
-                                  {err.cd_seconds && (
-                                    <span className="ml-1 text-orange-400">
-                                      CD:{err.cd_seconds}s
-                                    </span>
-                                  )}
-                                  <span className="ml-2">{err.model}</span>
-                                </span>
-                                <span>
-                                  {new Date(
-                                    err.created_at,
-                                  ).toLocaleTimeString()}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
+            {/* 凭证列表 */}
+            <div className="rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="p-4 border-b flex items-center justify-between flex-wrap gap-2" style={{ borderColor: '#2a2a3a' }}>
+                <h3 className="text-sm font-medium text-gray-200 flex items-center gap-2">
+                  <Shield size={16} className="text-violet-400" />
+                  CLI 凭证 ({myCredentials.length})
+                </h3>
+                <div className="flex gap-2 flex-wrap">
+                  {myCredentials.some((c) => !c.is_active) && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm("确定删除所有失效凭证？")) return;
+                        try {
+                          const res = await api.delete("/api/auth/credentials/inactive/batch");
+                          alert(res.data.message);
+                          fetchMyCredentials();
+                        } catch (err) {
+                          alert(err.response?.data?.detail || "删除失败");
+                        }
+                      }}
+                      className="text-xs px-3 py-1.5 text-red-400 bg-red-500/10 border border-red-500/30 rounded-md hover:bg-red-500/20 transition-all"
+                    >
+                      清理失效
+                    </button>
+                  )}
+                  <Link
+                    to="/oauth"
+                    className="text-xs px-3 py-1.5 text-violet-300 bg-violet-500/20 border border-violet-500/30 rounded-md hover:bg-violet-500/30 transition-all"
+                  >
+                    获取凭证
+                  </Link>
+                  <button
+                    onClick={() => cliFileInputRef.current?.click()}
+                    disabled={cliUploading}
+                    className="text-xs px-3 py-1.5 text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 rounded-md hover:bg-emerald-500/30 transition-all flex items-center gap-1"
+                  >
+                    <Upload size={12} />
+                    {cliUploading ? "上传中..." : "上传"}
+                  </button>
+                  {myCredentials.length > 0 && allowExportCredentials && (
+                    <button
+                      onClick={exportAllCliCredentials}
+                      className="text-xs px-3 py-1.5 text-cyan-300 bg-cyan-500/20 border border-cyan-500/30 rounded-md hover:bg-cyan-500/30 transition-all flex items-center gap-1"
+                    >
+                      <Download size={12} />
+                      导出全部
+                    </button>
+                  )}
+                  <input
+                    ref={cliFileInputRef}
+                    type="file"
+                    accept=".json,.zip"
+                    multiple
+                    onChange={handleCliFileUpload}
+                    className="hidden"
+                  />
+                </div>
+              </div>
+
+              {/* CLI 上传结果提示 */}
+              {cliUploadResult && (
+                <div className={`mx-3 mt-3 p-3 rounded-lg border text-sm ${
+                  cliUploadResult.type === "success"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-red-500/10 border-red-500/30 text-red-400"
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span>{cliUploadResult.message}</span>
+                    <button onClick={() => setCliUploadResult(null)} className="text-gray-400 hover:text-white">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {cliUploadResult.results && (
+                    <div className="text-xs space-y-1 max-h-32 overflow-y-auto">
+                      {cliUploadResult.results.map((r, i) => (
+                        <div key={i} className={`${r.status === 'success' ? 'text-emerald-400' : r.status === 'error' ? 'text-red-400' : r.status === 'skip' ? 'text-yellow-400' : 'text-gray-400'}`}>
+                          {r.filename}: {r.message}
+                        </div>
+                      ))}
                     </div>
                   )}
-              </>
-            )}
-          </>
-        )}
-
-        {/* Tab: 凭证管理 */}
-        {activeTab === "credentials" && (
-          <>
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <div className="flex items-center gap-3">
-                <h2 className="text-xl font-semibold">
-                  我的凭证 ({myCredentials.length})
-                </h2>
-                {/* 文件夹筛选 */}
-                {allFolders.length > 0 && (
-                  <select
-                    value={credFolderFilter}
-                    onChange={(e) => setCredFolderFilter(e.target.value)}
-                    className="px-2 py-1 text-sm bg-dark-700 border border-dark-600 rounded text-gray-300"
-                  >
-                    <option value="all">📁 全部</option>
-                    <option value="_none">未分类</option>
-                    {allFolders.map((folder) => (
-                      <option key={folder} value={folder}>
-                        {folder}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {myCredentials.some((c) => !c.is_active) && (
-                  <button
-                    onClick={async () => {
-                      if (!confirm("确定要删除所有失效凭证吗？")) return;
-                      try {
-                        const res = await api.delete(
-                          "/api/auth/credentials/inactive/batch",
-                        );
-                        alert(
-                          "我是奶龙，我把你的凭证吃掉了哦 🐉\n" +
-                            res.data.message,
-                        );
-                        fetchMyCredentials();
-                      } catch (err) {
-                        alert(err.response?.data?.detail || "删除失败");
-                      }
-                    }}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center gap-2"
-                  >
-                    <Trash2 size={16} />
-                    删除失效
-                  </button>
-                )}
-                <Link
-                  to="/credentials"
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2"
-                >
-                  <Upload size={16} />
-                  上传凭证
-                </Link>
-                <Link
-                  to="/oauth"
-                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg flex items-center gap-2"
-                >
-                  <ExternalLink size={16} />
-                  获取新凭证
-                </Link>
-              </div>
-            </div>
-
-            {credLoading ? (
-              <div className="text-center py-8 text-gray-400">加载中...</div>
-            ) : myCredentials.length === 0 ? (
-              <div className="bg-dark-800 border border-dark-600 rounded-xl p-8 text-center">
-                <Shield className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-                <p className="text-gray-400 mb-4">
-                  暂无凭证，去 OAuth 页面获取或上传 JSON
-                </p>
-                <Link
-                  to="/oauth"
-                  className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg"
-                >
-                  <ExternalLink size={18} />
-                  前往获取
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {myCredentials
-                  .filter((cred) => {
-                    if (credFolderFilter === "all") return true;
-                    if (credFolderFilter === "_none")
-                      return !credFolders[cred.id];
-                    return credFolders[cred.id] === credFolderFilter;
-                  })
-                  .map((cred) => (
-                    <div
-                      key={cred.id}
-                      className="p-4 bg-dark-800 border border-dark-600 rounded-xl"
-                    >
-                      <div className="flex flex-col gap-3">
+                </div>
+              )}
+              
+              <div className="p-3 max-h-[350px] overflow-y-auto">
+                {credLoading ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                    加载中...
+                  </div>
+                ) : myCredentials.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    暂无凭证，点击上方按钮获取或上传
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {myCredentials.map((cred) => (
+                      <div
+                        key={cred.id}
+                        className="p-3 rounded-lg border flex items-center justify-between"
+                        style={{ background: '#16161e', borderColor: '#252530' }}
+                      >
                         <div className="flex-1 min-w-0">
-                          {/* 凭证名称 - 斜体灰色 */}
-                          <div className="text-gray-400 italic mb-1 truncate">
-                            {cred.email || cred.name}
-                          </div>
-                          {/* 备注 - 点击编辑 */}
-                          <button
-                            onClick={() => updateCredNote(cred.id, cred.note)}
-                            className="text-left text-xs text-gray-500 hover:text-gray-300 mb-2 flex items-center gap-1"
-                          >
-                            {cred.note ? (
-                              <span className="truncate max-w-[200px]">
-                                📝 {cred.note}
-                              </span>
-                            ) : (
-                              <span className="text-gray-600 hover:text-gray-400">
-                                + 添加备注
-                              </span>
+                          <div className="text-sm text-gray-300 truncate">{cred.email || cred.name}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${cred.is_active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {cred.is_active ? '启用' : '禁用'}
+                            </span>
+                            {cred.model_tier === "3" && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400">3.0</span>
                             )}
-                          </button>
-                          {/* 文件夹标签 - 点击编辑 */}
-                          <button
-                            onClick={() => updateCredFolder(cred.id)}
-                            className="text-left text-xs text-gray-500 hover:text-gray-300 mb-2 flex items-center gap-1"
-                          >
-                            {credFolders[cred.id] ? (
-                              <span className="px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded">
-                                📁 {credFolders[cred.id]}
-                              </span>
-                            ) : (
-                              <span className="text-gray-600 hover:text-gray-400">
-                                + 设置分类
-                              </span>
-                            )}
-                          </button>
-
-                          {/* 状态标签行 */}
-                          <div className="flex items-center gap-2 mb-2 flex-wrap">
-                            {/* 启用状态 - 绿色实心 */}
-                            {cred.is_active !== false ? (
-                              <span className="text-xs px-2.5 py-1 bg-green-600 text-white rounded font-medium">
-                                已启用
-                              </span>
-                            ) : (
-                              <span className="text-xs px-2.5 py-1 bg-red-600 text-white rounded font-medium">
-                                已禁用
-                              </span>
-                            )}
-
-                            {/* 模型等级 - 蓝色边框空心 */}
-                            {cred.model_tier === "agy" ? (
-                              <span className="text-xs px-2.5 py-1 border border-orange-500 text-orange-400 rounded font-medium">
-                                AGY
-                              </span>
-                            ) : cred.model_tier === "3" ? (
-                              <span className="text-xs px-2.5 py-1 border border-blue-500 text-blue-400 rounded font-medium">
-                                3.0可用
-                              </span>
-                            ) : (
-                              <span className="text-xs px-2.5 py-1 border border-gray-500 text-gray-400 rounded font-medium">
-                                2.5
-                              </span>
-                            )}
-
-                            {/* 捐赠状态 - 强制捐赠时隐藏 */}
-                            {!forceDonate && cred.is_public && (
-                              <span className="text-xs px-2.5 py-1 border border-purple-500 text-purple-400 rounded font-medium">
-                                已公开
-                              </span>
-                            )}
-                            {!forceDonate && !cred.is_public && (
-                              <span className="text-xs px-2.5 py-1 border border-gray-600 text-gray-500 rounded font-medium">
-                                私有
-                              </span>
-                            )}
-                          </div>
-
-                          {/* 信息行 */}
-                          <div className="text-xs text-gray-500">
-                            最后成功:{" "}
-                            {cred.last_used_at
-                              ? new Date(cred.last_used_at).toLocaleString()
-                              : "从未使用"}
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {/* 配额按钮 */}
-                          <button
-                            onClick={() => fetchQuota(cred.id)}
-                            disabled={loadingQuota}
-                            className="px-3 py-1.5 rounded text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 flex items-center gap-1"
-                            title="查看配额"
-                          >
-                            <BarChart2 size={12} />
-                            配额
-                          </button>
-                          {/* 检测按钮 */}
+                        <div className="flex items-center gap-1">
                           <button
                             onClick={() => verifyCred(cred.id, cred.email)}
                             disabled={verifyingCred === cred.id}
-                            className="px-3 py-1.5 rounded text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white disabled:opacity-50 flex items-center gap-1"
+                            className="p-2 text-cyan-400 hover:bg-cyan-400/10 rounded-md transition-all"
+                            title="检测"
                           >
-                            {verifyingCred === cred.id ? (
-                              <RefreshCw size={12} className="animate-spin" />
-                            ) : (
-                              <CheckCircle size={12} />
-                            )}
-                            检测
+                            {verifyingCred === cred.id ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                           </button>
-                          {/* 导出按钮 */}
-                          <button
-                            onClick={() => exportCred(cred.id, cred.email)}
-                            className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1"
-                            title="导出凭证"
-                          >
-                            <Download size={12} />
-                            导出
-                          </button>
-                          {/* 启用/禁用开关 */}
-                          <button
-                            onClick={() =>
-                              toggleCredActive(cred.id, cred.is_active)
-                            }
-                            className={`px-3 py-1.5 rounded text-xs font-medium ${cred.is_active !== false ? "bg-green-600 hover:bg-green-500" : "bg-gray-600 hover:bg-gray-500"} text-white`}
-                          >
-                            {cred.is_active !== false ? "禁用" : "启用"}
-                          </button>
-                          {/* 捐赠/取消捐赠 - 强制捐赠时隐藏 */}
-                          {!forceDonate && (
+                          {allowExportCredentials && (
                             <button
-                              onClick={() =>
-                                toggleCredPublic(cred.id, cred.is_public)
-                              }
-                              className={`px-3 py-1.5 rounded text-xs font-medium ${cred.is_public ? "bg-gray-600 hover:bg-gray-500" : "bg-green-600 hover:bg-green-500"} text-white`}
+                              onClick={() => exportCred(cred.id, cred.email)}
+                              className="p-2 text-violet-400 hover:bg-violet-400/10 rounded-md transition-all"
+                              title="导出"
                             >
-                              {cred.is_public ? "取消公开" : "设为公开"}
+                              <Download size={14} />
                             </button>
                           )}
-                          {/* 删除 */}
                           <button
                             onClick={() => deleteCred(cred.id)}
-                            className="px-3 py-1.5 rounded text-xs font-medium bg-red-600 hover:bg-red-500 text-white"
+                            className="p-2 text-red-400 hover:bg-red-400/10 rounded-md transition-all"
+                            title="删除"
                           >
-                            删除
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-
-            {/* 大锅饭规则提示 - 强制捐赠时隐藏 */}
-            {!forceDonate && (
-              <div className="mt-6 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                <div className="text-amber-400 font-medium mb-1">
-                  💡 大锅饭规则
-                </div>
-                <div className="text-amber-300/70 text-sm">
-                  上传凭证后，您可以使用所有公共池凭证。不上传则只能用自己的凭证。
-                </div>
-              </div>
-            )}
-          </>
+            </div>
+          </div>
         )}
 
-        {/* Tab: API密钥 */}
-        {activeTab === "apikey" && (
-          <>
-            <h2 className="text-xl font-semibold mb-4">API密钥</h2>
+        {/* ========== 反重力标签页 ========== */}
+        {mainTab === "antigravity" && (
+          <div className="space-y-5">
+            {/* 使用提示卡片 */}
+            <div className="rounded-lg border p-4" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-amber-500/10">
+                  <Rocket size={20} className="text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-gray-200 mb-2">反重力 使用说明</h3>
+                  <ul className="text-xs text-gray-400 space-y-1.5">
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-0.5">1.</span>
+                      <span>反重力凭证用于调用 Claude、Gemini 等多种模型</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-0.5">2.</span>
+                      <span>与 CLI 凭证<strong className="text-amber-400">独立</strong>，需单独获取</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-0.5">3.</span>
+                      <span>API 端点：<code className="px-1.5 py-0.5 rounded bg-gray-800 text-amber-300">{window.location.origin}/agy/v1</code></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-amber-400 mt-0.5">4.</span>
+                      <span>支持上传 JSON 凭证文件（格式：access_token, refresh_token, client_id, client_secret, project_id）</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
 
-            {keyLoading ? (
-              <div className="text-center py-8 text-gray-400">加载中...</div>
-            ) : myKey ? (
-              <>
-                <div className="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-4">
-                  <div className="flex flex-col gap-3">
-                    <code className="bg-dark-900 px-4 py-3 rounded-lg text-gray-300 font-mono text-sm overflow-x-auto break-all">
-                      {myKey.key}
-                    </code>
+            {/* 统计卡片 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-amber-400">{userInfo?.usage_by_provider?.claude || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">Claude 调用</div>
+              </div>
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-blue-400">{userInfo?.usage_by_provider?.gemini || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">Gemini 调用</div>
+              </div>
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-orange-400">{userInfo?.usage_by_api_type?.antigravity || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">AGY 总调用</div>
+              </div>
+              <div className="p-4 rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+                <div className="text-2xl font-bold text-emerald-400">{agyStats?.user_active || 0}</div>
+                <div className="text-xs text-gray-500 mt-1">有效凭证</div>
+              </div>
+            </div>
+
+            {/* 消息提示 */}
+            {agyMessage.text && (
+              <div className={`p-3 rounded-lg border text-sm ${
+                agyMessage.type === "success"
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                  : "bg-red-500/10 border-red-500/30 text-red-400"
+              }`}>
+                {agyMessage.text}
+              </div>
+            )}
+
+            {/* 凭证列表 */}
+            <div className="rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="p-4 border-b flex items-center justify-between flex-wrap gap-2" style={{ borderColor: '#2a2a3a' }}>
+                <h3 className="text-sm font-medium text-gray-200 flex items-center gap-2">
+                  <Rocket size={16} className="text-amber-400" />
+                  反重力凭证 ({agyCredentials.length})
+                </h3>
+                <div className="flex gap-2 flex-wrap">
+                  {agyCredentials.some((c) => !c.is_active) && (
+                    <button
+                      onClick={deleteAllAgyInactive}
+                      className="text-xs px-3 py-1.5 text-red-400 bg-red-500/10 border border-red-500/30 rounded-md hover:bg-red-500/20 transition-all"
+                    >
+                      清理失效
+                    </button>
+                  )}
+                  <Link
+                    to="/antigravity-oauth"
+                    className="text-xs px-3 py-1.5 text-amber-300 bg-amber-500/20 border border-amber-500/30 rounded-md hover:bg-amber-500/30 transition-all"
+                  >
+                    获取凭证
+                  </Link>
+                  <button
+                    onClick={() => agyFileInputRef.current?.click()}
+                    disabled={agyUploading}
+                    className="text-xs px-3 py-1.5 text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 rounded-md hover:bg-emerald-500/30 transition-all flex items-center gap-1"
+                  >
+                    <Upload size={12} />
+                    {agyUploading ? "上传中..." : "上传"}
+                  </button>
+                  {agyCredentials.length > 0 && allowExportCredentials && (
+                    <button
+                      onClick={exportAllAgyCredentials}
+                      className="text-xs px-3 py-1.5 text-cyan-300 bg-cyan-500/20 border border-cyan-500/30 rounded-md hover:bg-cyan-500/30 transition-all flex items-center gap-1"
+                    >
+                      <Download size={12} />
+                      导出全部
+                    </button>
+                  )}
+                  <input
+                    ref={agyFileInputRef}
+                    type="file"
+                    accept=".json,.zip"
+                    multiple
+                    onChange={handleAgyFileUpload}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => { fetchAgyCredentials(); fetchAgyStats(); }}
+                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-md transition-all"
+                    title="刷新"
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* AGY 上传结果提示 */}
+              {agyUploadResult && (
+                <div className={`mx-3 mt-3 p-3 rounded-lg border text-sm ${
+                  agyUploadResult.type === "success"
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+                    : "bg-red-500/10 border-red-500/30 text-red-400"
+                }`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span>{agyUploadResult.message}</span>
+                    <button onClick={() => setAgyUploadResult(null)} className="text-gray-400 hover:text-white">
+                      <X size={14} />
+                    </button>
+                  </div>
+                  {agyUploadResult.results && (
+                    <div className="text-xs space-y-1 max-h-32 overflow-y-auto">
+                      {agyUploadResult.results.map((r, i) => (
+                        <div key={i} className={`${r.status === 'success' ? 'text-emerald-400' : r.status === 'error' ? 'text-red-400' : r.status === 'skip' ? 'text-yellow-400' : 'text-gray-400'}`}>
+                          {r.filename}: {r.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              <div className="p-3 max-h-[350px] overflow-y-auto">
+                {agyCredLoading ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                    加载中...
+                  </div>
+                ) : agyCredentials.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    暂无凭证，点击上方按钮获取或上传
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {agyCredentials.map((cred, index) => (
+                      <div
+                        key={cred.id}
+                        className="p-3 rounded-lg border"
+                        style={{ background: '#16161e', borderColor: '#252530' }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${cred.is_active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                                {cred.is_active ? '启用' : '禁用'}
+                              </span>
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">AGY</span>
+                              <span className="text-xs text-gray-600">#{index + 1}</span>
+                            </div>
+                            {cred.project_id && (
+                              <div className="text-xs text-emerald-400/80 font-mono truncate">{cred.project_id}</div>
+                            )}
+                            <div className="text-sm text-gray-400 truncate">{cred.email || cred.name}</div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => fetchAgyQuota(cred.id, cred.email || cred.name)}
+                              disabled={agyLoadingQuota === cred.id || !cred.is_active}
+                              className="p-2 text-cyan-400 hover:bg-cyan-400/10 rounded-md disabled:opacity-50 transition-all"
+                              title="详情"
+                            >
+                              {agyLoadingQuota === cred.id ? <RefreshCw size={14} className="animate-spin" /> : <BarChart2 size={14} />}
+                            </button>
+                            <button
+                              onClick={() => toggleAgyActive(cred.id, cred.is_active)}
+                              className={`p-2 rounded-md transition-all ${cred.is_active ? 'text-amber-400 hover:bg-amber-400/10' : 'text-emerald-400 hover:bg-emerald-400/10'}`}
+                              title={cred.is_active ? "禁用" : "启用"}
+                            >
+                              {cred.is_active ? <X size={14} /> : <Check size={14} />}
+                            </button>
+                            <button
+                              onClick={() => deleteAgyCred(cred.id)}
+                              className="p-2 text-red-400 hover:bg-red-400/10 rounded-md transition-all"
+                              title="删除"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========== API密钥标签页 ========== */}
+        {mainTab === "apikey" && (
+          <div className="space-y-5">
+            {/* 使用提示卡片 */}
+            <div className="rounded-lg border p-4" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-rose-500/10">
+                  <Key size={20} className="text-rose-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-gray-200 mb-2">API 密钥说明</h3>
+                  <ul className="text-xs text-gray-400 space-y-1.5">
+                    <li className="flex items-start gap-2">
+                      <span className="text-rose-400 mt-0.5">1.</span>
+                      <span>此密钥用于调用 CLI 和反重力 API</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-rose-400 mt-0.5">2.</span>
+                      <span>请妥善保管，不要泄露给他人</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-rose-400 mt-0.5">3.</span>
+                      <span>如需更换可点击「更换」按钮重新生成</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* API 密钥卡片 */}
+            <div className="rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="p-4 border-b" style={{ borderColor: '#2a2a3a' }}>
+                <h3 className="text-sm font-medium text-gray-200 flex items-center gap-2">
+                  <Key size={16} className="text-rose-400" />
+                  API 密钥
+                </h3>
+              </div>
+              
+              <div className="p-4">
+                {keyLoading ? (
+                  <div className="text-center py-8 text-gray-500 text-sm">
+                    <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                    加载中...
+                  </div>
+                ) : myKey ? (
+                  <div className="space-y-4">
+                    <div className="p-3 rounded-lg border" style={{ background: '#16161e', borderColor: '#252530' }}>
+                      <code className="block text-violet-300 text-sm font-mono break-all">{myKey.key}</code>
+                    </div>
                     <div className="flex gap-2">
                       <button
                         onClick={copyKey}
-                        className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-2"
+                        className="flex-1 px-4 py-2.5 bg-violet-600/20 text-violet-300 border border-violet-500/30 rounded-lg hover:bg-violet-600/30 flex items-center justify-center gap-2 text-sm transition-all"
                       >
                         {keyCopied ? <Check size={16} /> : <Copy size={16} />}
                         {keyCopied ? "已复制" : "复制"}
@@ -1140,244 +1132,153 @@ export default function Dashboard() {
                       <button
                         onClick={regenerateKey}
                         disabled={regenerating}
-                        className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-lg flex items-center justify-center gap-2"
+                        className="flex-1 px-4 py-2.5 bg-amber-600/20 text-amber-300 border border-amber-500/30 rounded-lg hover:bg-amber-600/30 disabled:opacity-50 flex items-center justify-center gap-2 text-sm transition-all"
                       >
-                        <RefreshCcw
-                          size={16}
-                          className={regenerating ? "animate-spin" : ""}
-                        />
-                        更改
+                        <RefreshCcw size={16} className={regenerating ? "animate-spin" : ""} />
+                        更换
                       </button>
                     </div>
                   </div>
-                </div>
-
-                {/* 使用提示 */}
-                {!userInfo?.has_public_credentials && (
-                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                      <span className="text-amber-400 text-lg">⚠️</span>
-                      <div>
-                        <div className="text-amber-400 font-medium">
-                          尚未上传有效凭证，Pro 模型调用频率限制为{" "}
-                          {rpmConfig.base} 次/分钟。
-                        </div>
-                        <div className="text-amber-300/70 text-sm mt-1">
-                          上传至少一个有效凭证即可提升到 {rpmConfig.contributor}{" "}
-                          次/分钟，并获得更高每日调用上限。
-                        </div>
-                      </div>
-                    </div>
+                ) : (
+                  <div className="text-center py-8 text-red-400 text-sm">
+                    获取失败，请刷新重试
                   </div>
                 )}
+              </div>
+            </div>
 
-                {/* 使用说明 */}
-                <div className="bg-dark-800 border border-dark-600 rounded-xl p-4">
-                  <h3 className="font-semibold mb-3">使用方法</h3>
-                  <div className="space-y-3 text-sm">
-                    <div>
-                      <div className="text-gray-400 mb-1">API 端点</div>
-                      <code className="block bg-dark-900 px-3 py-2 rounded text-purple-400 font-mono">
-                        {apiEndpoint}
-                      </code>
-                    </div>
-                    <div>
-                      <div className="text-gray-400 mb-1">
-                        在 SillyTavern / 酒馆 中使用
-                      </div>
-                      <ol className="text-gray-300 space-y-1 list-decimal list-inside">
-                        <li>打开连接设置 → Chat Completion</li>
-                        <li>
-                          选择{" "}
-                          <span className="text-purple-400">兼容OpenAI</span> 或{" "}
-                          <span className="text-purple-400">Gemini反代</span>
-                        </li>
-                        <li>API 端点填写上方地址</li>
-                        <li>API Key 填写您的密钥</li>
-                        <li>
-                          模型:{" "}
-                          <span className="text-purple-400">
-                            gemini-3.0-flash
-                          </span>{" "}
-                          或{" "}
-                          <span className="text-purple-400">
-                            gemini-3.0-pro
-                          </span>
-                        </li>
-                      </ol>
-                    </div>
+            {/* 端点信息 */}
+            <div className="rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="p-4 border-b" style={{ borderColor: '#2a2a3a' }}>
+                <h3 className="text-sm font-medium text-gray-200">API 端点</h3>
+              </div>
+              <div className="p-4 space-y-3">
+                <div>
+                  <div className="text-xs text-gray-500 mb-1.5">CLI 端点</div>
+                  <code className="block p-2.5 rounded-lg text-sm text-violet-300 font-mono" style={{ background: '#16161e' }}>
+                    {apiEndpoint}
+                  </code>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 mb-1.5">反重力端点</div>
+                  <code className="block p-2.5 rounded-lg text-sm text-amber-300 font-mono" style={{ background: '#16161e' }}>
+                    {window.location.origin}/agy/v1
+                  </code>
+                </div>
+              </div>
+            </div>
+
+            {/* 使用说明 */}
+            <div className="rounded-lg border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+              <div className="p-4 border-b" style={{ borderColor: '#2a2a3a' }}>
+                <h3 className="text-sm font-medium text-gray-200">在 SillyTavern 中使用</h3>
+              </div>
+              <div className="p-4 text-sm text-gray-400">
+                <ol className="space-y-2 list-decimal list-inside">
+                  <li>打开 SillyTavern 连接设置</li>
+                  <li>选择 <span className="text-violet-300">兼容OpenAI</span> 或 <span className="text-violet-300">Gemini反代</span></li>
+                  <li>填入上方 API 端点和密钥</li>
+                  <li>选择模型：gemini-3.0-flash / gemini-3.0-pro</li>
+                </ol>
+              </div>
+            </div>
+
+            {/* 提示 */}
+            {!userInfo?.has_public_credentials && (
+              <div className="p-4 rounded-lg border flex items-start gap-3" style={{ background: 'rgba(245,158,11,0.05)', borderColor: 'rgba(245,158,11,0.2)' }}>
+                <AlertCircle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-sm text-amber-400">
+                    未上传凭证，调用频率限制为 {rpmConfig.base} 次/分钟
                   </div>
-
-                  {/* Antigravity 说明 */}
-                  <div className="mt-4 p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
-                    <div className="text-orange-400 font-medium mb-2 flex items-center gap-2">
-                      <Rocket size={16} />
-                      关于 Antigravity (反重力)
-                    </div>
-                    <ul className="text-orange-300/80 text-sm space-y-1">
-                      <li>
-                        • Antigravity 凭证与 GeminiCLI 凭证是
-                        <span className="text-orange-400">独立的</span>
-                        ，需要单独获取
-                      </li>
-                      <li>
-                        • Antigravity 只支持{" "}
-                        <span className="text-orange-400">OpenAI 兼容接口</span>{" "}
-                        调用
-                      </li>
-                      <li>
-                        • Antigravity 端点:{" "}
-                        <code className="bg-dark-900 px-1 rounded text-orange-400">
-                          /agy/v1
-                        </code>
-                      </li>
-                      <li>• 没有 Antigravity 凭证无法拉取反重力模型</li>
-                    </ul>
+                  <div className="text-xs text-amber-400/70 mt-1">
+                    上传凭证可提升至 {rpmConfig.contributor} 次/分钟
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="text-center py-8 text-red-400">
-                获取失败，请刷新重试
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
 
-      {/* 配额弹窗 */}
-      {quotaModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-800 rounded-2xl w-full max-w-lg max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-dark-600">
-              <div>
-                <h3 className="text-lg font-semibold flex items-center gap-2">
-                  <BarChart2 className="text-indigo-400" />
-                  模型配额信息
-                </h3>
-                <p className="text-sm text-gray-400 mt-1">
-                  {quotaModal.email || quotaModal.credential_name}
-                </p>
-              </div>
+      {/* 底部 */}
+      <footer className="border-t py-4 mt-8" style={{ borderColor: '#2a2a3a', background: '#18181f' }}>
+        <div className="max-w-5xl mx-auto px-4 text-center">
+          <a
+            href="https://github.com/mzrodyu/CatieCli"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-gray-500 hover:text-violet-400 flex items-center justify-center gap-2 transition-colors"
+          >
+            <Github size={14} />
+            改自：https://github.com/mzrodyu/CatieCli
+          </a>
+        </div>
+      </footer>
+
+      {/* ========== 弹窗 ========== */}
+
+      {/* 导出格式选择 */}
+      {exportModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="rounded-lg p-5 max-w-sm w-full mx-4 border" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+            <h3 className="text-base font-medium mb-3 text-gray-200">导出格式</h3>
+            <p className="text-xs text-gray-500 mb-4">{exportModal.email}</p>
+            <div className="space-y-2">
               <button
-                onClick={() => setQuotaModal(null)}
-                className="p-2 hover:bg-dark-600 rounded-lg"
+                onClick={() => exportAgyCred("full")}
+                className="w-full p-3 rounded-lg text-left bg-violet-500/10 text-violet-300 border border-violet-500/30 hover:bg-violet-500/20 transition-all"
               >
-                <X size={20} />
+                <div className="text-sm font-medium">完整格式</div>
+                <div className="text-xs text-violet-300/60 mt-1">包含全部字段</div>
+              </button>
+              <button
+                onClick={() => exportAgyCred("simple")}
+                className="w-full p-3 rounded-lg text-left bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-all"
+              >
+                <div className="text-sm font-medium">简化格式</div>
+                <div className="text-xs text-amber-300/60 mt-1">仅 email + refresh_token</div>
               </button>
             </div>
+            <button
+              onClick={() => setExportModal(null)}
+              className="w-full mt-3 p-2.5 rounded-lg text-sm text-gray-400 hover:text-white bg-gray-800/50 border border-gray-700 hover:border-gray-600 transition-all"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
-            <div className="px-4 pt-3">
-              <span
-                className={`text-xs px-2 py-1 rounded ${quotaModal.account_type === "pro" ? "bg-yellow-500/20 text-yellow-400" : "bg-gray-600/50 text-gray-400"}`}
-              >
-                {quotaModal.account_type === "pro" ? "⭐ Pro 账号" : "普通账号"}
-              </span>
+      {/* CLI 检测结果 */}
+      {verifyResult && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="rounded-lg w-full max-w-md mx-4 border overflow-hidden" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: '#2a2a3a' }}>
+              <h3 className="text-base font-medium flex items-center gap-2 text-gray-200">
+                <CheckCircle className={verifyResult.is_valid ? "text-emerald-400" : "text-red-400"} size={18} />
+                检测结果
+              </h3>
+              <button onClick={() => setVerifyResult(null)} className="text-gray-400 hover:text-white">
+                <X size={16} />
+              </button>
             </div>
-
-            {quotaModal.flash && (
-              <div className="p-4 border-b border-dark-600">
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="font-semibold text-cyan-400">
-                    2.5-flash 配额
-                  </span>
-                  <span
-                    className={`font-bold ${quotaModal.flash.percentage > 50 ? "text-green-400" : quotaModal.flash.percentage > 20 ? "text-yellow-400" : "text-red-400"}`}
-                  >
-                    {quotaModal.flash.percentage}%
-                  </span>
-                </div>
-                <div className="h-3 bg-dark-600 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${quotaModal.flash.percentage > 50 ? "bg-cyan-500" : quotaModal.flash.percentage > 20 ? "bg-yellow-500" : "bg-red-500"}`}
-                    style={{ width: `${quotaModal.flash.percentage}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
-                  <span>
-                    已用 {quotaModal.flash.used} / {quotaModal.flash.limit}
-                  </span>
-                  <span>剩余 {quotaModal.flash.remaining}</span>
-                </div>
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-gray-400">{verifyResult.email}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">状态</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${verifyResult.is_valid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                  {verifyResult.is_valid ? "有效" : "无效"}
+                </span>
               </div>
-            )}
-
-            {quotaModal.premium && (
-              <div className="p-4 border-b border-dark-600">
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <span className="font-semibold text-purple-400">
-                    2.5-pro / 3.0 配额
-                  </span>
-                  <span
-                    className={`font-bold ${quotaModal.premium.percentage > 50 ? "text-green-400" : quotaModal.premium.percentage > 20 ? "text-yellow-400" : "text-red-400"}`}
-                  >
-                    {quotaModal.premium.percentage}%
-                  </span>
+              {verifyResult.error && (
+                <div className="p-3 rounded-lg border text-xs text-red-400" style={{ background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }}>
+                  {verifyResult.error}
                 </div>
-                <div className="h-3 bg-dark-600 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${quotaModal.premium.percentage > 50 ? "bg-purple-500" : quotaModal.premium.percentage > 20 ? "bg-yellow-500" : "bg-red-500"}`}
-                    style={{ width: `${quotaModal.premium.percentage}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
-                  <span>
-                    已用 {quotaModal.premium.used} / {quotaModal.premium.limit}
-                  </span>
-                  <span>剩余 {quotaModal.premium.remaining}</span>
-                </div>
-                <div className="text-xs text-purple-400/60 mt-1">
-                  {quotaModal.premium.note}
-                </div>
-              </div>
-            )}
-
-            <div className="p-4 overflow-y-auto max-h-[40vh]">
-              <div className="text-xs text-gray-500 mb-2">各模型使用情况</div>
-              {quotaModal.models?.filter((m) => m.used > 0).length === 0 ? (
-                <div className="text-center text-gray-500 py-4">
-                  今日暂无使用记录
-                </div>
-              ) : (
-                quotaModal.models
-                  ?.filter((m) => m.used > 0)
-                  .map((item) => (
-                    <div
-                      key={item.model}
-                      className="flex items-center justify-between py-2 border-b border-dark-700 last:border-0"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">
-                          {item.model}
-                        </span>
-                        {item.is_premium && (
-                          <span className="text-xs px-1.5 py-0.5 bg-purple-500/20 text-purple-400 rounded">
-                            高级
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-gray-400 text-sm">
-                        {item.used} 次
-                      </span>
-                    </div>
-                  ))
               )}
             </div>
-
-            <div className="px-4 py-2 bg-amber-500/10 border-t border-amber-500/30">
-              <div className="text-xs text-amber-400/80">
-                ⚠️ 此为本平台调用统计，不包含其他平台（如 AI
-                Studio、CLI）的使用量
-              </div>
-            </div>
-            <div className="p-4 border-t border-dark-600 flex items-center justify-between">
-              <div className="text-xs text-gray-500">
-                重置: {new Date(quotaModal.reset_time).toLocaleString()}
-              </div>
-              <button
-                onClick={() => setQuotaModal(null)}
-                className="px-4 py-2 bg-dark-600 hover:bg-dark-500 text-white rounded-lg text-sm"
-              >
+            <div className="p-4 border-t flex justify-end" style={{ borderColor: '#2a2a3a' }}>
+              <button onClick={() => setVerifyResult(null)} className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 border border-gray-600 rounded-lg transition-all">
                 关闭
               </button>
             </div>
@@ -1385,92 +1286,75 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 检测结果弹窗 */}
-      {verifyResult && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-800 rounded-2xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-dark-600">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <CheckCircle
-                  className={
-                    verifyResult.is_valid ? "text-green-400" : "text-red-400"
-                  }
-                />
-                凭证检测结果
+      {/* AGY 检测结果 */}
+      {agyVerifyResult && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="rounded-lg w-full max-w-md mx-4 border overflow-hidden" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: '#2a2a3a' }}>
+              <h3 className="text-base font-medium flex items-center gap-2 text-gray-200">
+                <CheckCircle className={agyVerifyResult.is_valid ? "text-emerald-400" : "text-red-400"} size={18} />
+                检测结果
               </h3>
-              <button
-                onClick={() => setVerifyResult(null)}
-                className="p-2 hover:bg-dark-600 rounded-lg"
-              >
-                <X size={20} />
+              <button onClick={() => setAgyVerifyResult(null)} className="text-gray-400 hover:text-white">
+                <X size={16} />
               </button>
             </div>
-
-            <div className="p-6 space-y-4">
-              {/* 邮箱 */}
-              <div className="text-gray-400 text-sm">{verifyResult.email}</div>
-
-              {/* 状态 */}
-              <div className="flex items-center gap-3">
-                <span className="text-gray-400">状态</span>
-                <span
-                  className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    verifyResult.is_valid
-                      ? "bg-green-500/20 text-green-400"
-                      : "bg-red-500/20 text-red-400"
-                  }`}
-                >
-                  {verifyResult.is_valid ? "✅ 有效" : "❌ 无效"}
+            <div className="p-4 space-y-3">
+              <div className="text-sm text-gray-400">{agyVerifyResult.email}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">状态</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${agyVerifyResult.is_valid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                  {agyVerifyResult.is_valid ? "有效" : "无效"}
                 </span>
               </div>
-
-              {/* 模型等级 */}
-              {verifyResult.model_tier && (
-                <div className="flex items-center gap-3">
-                  <span className="text-gray-400">模型等级</span>
-                  <span
-                    className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      verifyResult.model_tier === "3"
-                        ? "bg-purple-500/20 text-purple-400"
-                        : "bg-gray-600/50 text-gray-300"
-                    }`}
-                  >
-                    {verifyResult.model_tier === "3" ? "🚀 3.0 可用" : "2.5"}
+              {agyVerifyResult.project_id && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Project ID</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 truncate max-w-[180px]">
+                    {agyVerifyResult.project_id}
                   </span>
                 </div>
               )}
-
-              {/* 账号类型 */}
-              {verifyResult.account_type && (
-                <div className="flex items-center gap-3">
-                  <span className="text-gray-400">账号类型</span>
-                  <span
-                    className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      verifyResult.account_type === "pro"
-                        ? "bg-yellow-500/20 text-yellow-400"
-                        : "bg-gray-600/50 text-gray-300"
-                    }`}
-                  >
-                    {verifyResult.account_type === "pro"
-                      ? "⭐ Pro (2TB存储)"
-                      : "普通账号"}
-                  </span>
-                </div>
-              )}
-
-              {/* 错误信息 */}
-              {verifyResult.error && (
-                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                  {verifyResult.error}
+              {agyVerifyResult.error && (
+                <div className="p-3 rounded-lg border text-xs text-red-400" style={{ background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }}>
+                  {agyVerifyResult.error}
                 </div>
               )}
             </div>
+            <div className="p-4 border-t flex justify-end" style={{ borderColor: '#2a2a3a' }}>
+              <button onClick={() => setAgyVerifyResult(null)} className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 border border-gray-600 rounded-lg transition-all">
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <div className="p-4 border-t border-dark-600 flex justify-end">
-              <button
-                onClick={() => setVerifyResult(null)}
-                className="px-6 py-2 bg-dark-600 hover:bg-dark-500 text-white rounded-lg"
-              >
+      {/* AGY 额度弹窗 */}
+      {agyQuotaResult && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="rounded-lg w-full max-w-lg mx-4 border overflow-hidden" style={{ background: '#1e1e28', borderColor: '#2a2a3a' }}>
+            <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: '#2a2a3a' }}>
+              <h3 className="text-base font-medium flex items-center gap-2 text-amber-400">
+                <BarChart2 size={18} />
+                额度详情
+              </h3>
+              <button onClick={() => setAgyQuotaResult(null)} className="text-gray-400 hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="text-xs text-gray-500 mb-3">{agyQuotaResult.filename || agyQuotaResult.email}</div>
+              {agyQuotaResult.success ? (
+                <div className="text-sm text-gray-300">额度信息加载成功</div>
+              ) : (
+                <div className="p-3 rounded-lg border text-sm text-red-400" style={{ background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }}>
+                  {agyQuotaResult.error || "获取失败"}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t flex justify-end" style={{ borderColor: '#2a2a3a' }}>
+              <button onClick={() => setAgyQuotaResult(null)} className="px-4 py-2 text-sm text-gray-300 hover:text-white bg-gray-700/50 border border-gray-600 rounded-lg transition-all">
                 关闭
               </button>
             </div>

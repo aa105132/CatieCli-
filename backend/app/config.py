@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     # 锁定捐赠：不允许取消捐赠（除非凭证失效）
     lock_donate: bool = False
     
+    # 允许用户导出凭证：开启后用户可以下载自己的凭证文件
+    allow_export_credentials: bool = True
+    
     # 日志保留
     log_retention_days: int = 7  # 日志保留天数（0=永久保留）
     
@@ -145,6 +148,10 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     # Antigravity 速率限制 (RPM)
     antigravity_base_rpm: int = 5                  # 未上传凭证的用户 RPM
     antigravity_contributor_rpm: int = 10          # 上传凭证的用户 RPM
+    # Antigravity 凭证池模式:
+    # "private" - 只能用自己的凭证
+    # "full_shared" - 大锅饭模式（捐赠凭证即可用所有公共池）
+    antigravity_pool_mode: str = "full_shared"
     
     # Anthropic API 反代配置
     anthropic_enabled: bool = False                # 是否启用 Anthropic API 反代
@@ -191,6 +198,7 @@ PERSISTENT_CONFIG_KEYS = [
     "credential_pool_mode",
     "force_donate",
     "lock_donate",
+    "allow_export_credentials",
     "error_retry_count",
     "cd_flash",
     "cd_pro",
@@ -207,6 +215,7 @@ PERSISTENT_CONFIG_KEYS = [
     "antigravity_quota_contributor",
     "antigravity_base_rpm",
     "antigravity_contributor_rpm",
+    "antigravity_pool_mode",
     "oauth_guide_enabled",
     "oauth_guide_seconds",
     "help_link_enabled",

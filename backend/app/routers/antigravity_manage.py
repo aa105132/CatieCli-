@@ -586,6 +586,10 @@ async def export_my_antigravity_credential(
     - full: 完整格式，包含所有字段
     - simple: 简化格式，只包含 email 和 refresh_token
     """
+    # 检查是否允许导出凭证（管理员不受限制）
+    if not settings.allow_export_credentials and not user.is_admin:
+        raise HTTPException(status_code=403, detail="管理员已禁用凭证导出功能")
+    
     result = await db.execute(
         select(Credential)
         .where(Credential.id == cred_id)
@@ -617,6 +621,41 @@ async def export_my_antigravity_credential(
         }
     
     return cred_data
+
+
+@router.get("/credentials/export-all")
+async def export_all_my_antigravity_credentials(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """导出用户的所有 Antigravity 凭证为 JSON 数组格式"""
+    # 检查是否允许导出凭证（管理员不受限制）
+    if not settings.allow_export_credentials and not user.is_admin:
+        raise HTTPException(status_code=403, detail="管理员已禁用凭证导出功能")
+    
+    # 查询用户的所有 Antigravity 凭证
+    result = await db.execute(
+        select(Credential)
+        .where(Credential.user_id == user.id)
+        .where(Credential.api_type == MODE)
+    )
+    credentials = result.scalars().all()
+    
+    cred_list = []
+    for cred in credentials:
+        refresh_token = decrypt_credential(cred.refresh_token) if cred.refresh_token else ""
+        cred_data = {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "refresh_token": refresh_token,
+            "token": decrypt_credential(cred.api_key) if cred.api_key else "",
+            "project_id": cred.project_id or "",
+            "email": cred.email or "",
+            "type": "authorized_user"
+        }
+        cred_list.append(cred_data)
+    
+    return cred_list
 
 
 @router.get("/credentials/{cred_id}/quota")
