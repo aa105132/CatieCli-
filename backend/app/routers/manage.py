@@ -1054,6 +1054,7 @@ async def get_config(user: User = Depends(get_current_admin)):
         "antigravity_quota_contributor": settings.antigravity_quota_contributor,
         "antigravity_base_rpm": settings.antigravity_base_rpm,
         "antigravity_contributor_rpm": settings.antigravity_contributor_rpm,
+        "antigravity_pool_mode": settings.antigravity_pool_mode,
         "oauth_guide_enabled": settings.oauth_guide_enabled,
         "oauth_guide_seconds": settings.oauth_guide_seconds,
         "help_link_enabled": settings.help_link_enabled,
@@ -1166,6 +1167,7 @@ async def update_config(
     antigravity_quota_contributor: Optional[int] = Form(None),
     antigravity_base_rpm: Optional[int] = Form(None),
     antigravity_contributor_rpm: Optional[int] = Form(None),
+    antigravity_pool_mode: Optional[str] = Form(None),
     oauth_guide_enabled: Optional[bool] = Form(None),
     oauth_guide_seconds: Optional[int] = Form(None),
     help_link_enabled: Optional[bool] = Form(None),
@@ -1354,6 +1356,10 @@ async def update_config(
         settings.antigravity_contributor_rpm = antigravity_contributor_rpm
         await save_config_to_db("antigravity_contributor_rpm", antigravity_contributor_rpm)
         updated["antigravity_contributor_rpm"] = antigravity_contributor_rpm
+    if antigravity_pool_mode is not None:
+        settings.antigravity_pool_mode = antigravity_pool_mode
+        await save_config_to_db("antigravity_pool_mode", antigravity_pool_mode)
+        updated["antigravity_pool_mode"] = antigravity_pool_mode
     
     # OAuth 操作指引弹窗配置
     if oauth_guide_enabled is not None:
