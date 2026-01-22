@@ -1184,51 +1184,96 @@ async def get_antigravity_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """获取 Antigravity 凭证统计信息"""
-    # 总凭证数
-    total_result = await db.execute(
-        select(func.count(Credential.id)).where(Credential.api_type == MODE)
-    )
-    total = total_result.scalar() or 0
+    """获取 Antigravity 凭证统计信息
     
-    # 活跃凭证数
-    active_result = await db.execute(
-        select(func.count(Credential.id))
-        .where(Credential.api_type == MODE)
-        .where(Credential.is_active == True)
-    )
-    active = active_result.scalar() or 0
+    管理员：显示所有凭证统计
+    普通用户：只显示自己的凭证统计
+    """
+    is_admin = user.is_admin
     
-    # 公开凭证数
-    public_result = await db.execute(
-        select(func.count(Credential.id))
-        .where(Credential.api_type == MODE)
-        .where(Credential.is_public == True)
-        .where(Credential.is_active == True)
-    )
-    public = public_result.scalar() or 0
-    
-    # 用户凭证数
-    user_creds_result = await db.execute(
-        select(func.count(Credential.id))
-        .where(Credential.api_type == MODE)
-        .where(Credential.user_id == user.id)
-    )
-    user_creds = user_creds_result.scalar() or 0
-    
-    user_active_result = await db.execute(
-        select(func.count(Credential.id))
-        .where(Credential.api_type == MODE)
-        .where(Credential.user_id == user.id)
-        .where(Credential.is_active == True)
-    )
-    user_active = user_active_result.scalar() or 0
-    
-    return {
-        "total": total,
-        "active": active,
-        "public": public,
-        "user_credentials": user_creds,
-        "user_active": user_active,
-        "enabled": settings.antigravity_enabled
-    }
+    if is_admin:
+        # 管理员：显示所有凭证统计
+        # 总凭证数
+        total_result = await db.execute(
+            select(func.count(Credential.id)).where(Credential.api_type == MODE)
+        )
+        total = total_result.scalar() or 0
+        
+        # 活跃凭证数
+        active_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.is_active == True)
+        )
+        active = active_result.scalar() or 0
+        
+        # 公开凭证数
+        public_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.is_public == True)
+            .where(Credential.is_active == True)
+        )
+        public = public_result.scalar() or 0
+        
+        # 用户凭证数（管理员自己的）
+        user_creds_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.user_id == user.id)
+        )
+        user_creds = user_creds_result.scalar() or 0
+        
+        user_active_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.user_id == user.id)
+            .where(Credential.is_active == True)
+        )
+        user_active = user_active_result.scalar() or 0
+        
+        return {
+            "total": total,
+            "active": active,
+            "public": public,
+            "user_credentials": user_creds,
+            "user_active": user_active,
+            "enabled": settings.antigravity_enabled
+        }
+    else:
+        # 普通用户：只显示自己的凭证统计
+        # 用户总凭证数
+        user_total_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.user_id == user.id)
+        )
+        user_total = user_total_result.scalar() or 0
+        
+        # 用户活跃凭证数
+        user_active_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.user_id == user.id)
+            .where(Credential.is_active == True)
+        )
+        user_active = user_active_result.scalar() or 0
+        
+        # 用户公开凭证数
+        user_public_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.user_id == user.id)
+            .where(Credential.is_public == True)
+            .where(Credential.is_active == True)
+        )
+        user_public = user_public_result.scalar() or 0
+        
+        return {
+            "total": user_total,
+            "active": user_active,
+            "public": user_public,
+            "user_credentials": user_total,
+            "user_active": user_active,
+            "enabled": settings.antigravity_enabled
+        }
