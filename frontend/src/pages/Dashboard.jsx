@@ -1344,9 +1344,66 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="p-4">
-              <div className="text-xs text-gray-500 mb-3">{agyQuotaResult.filename || agyQuotaResult.email}</div>
+              <div className="text-xs text-gray-500 mb-4">{agyQuotaResult.filename || agyQuotaResult.email}</div>
               {agyQuotaResult.success ? (
-                <div className="text-sm text-gray-300">额度信息加载成功</div>
+                <div className="space-y-4">
+                  {/* 模型配额列表 */}
+                  {Object.entries(agyQuotaResult.models || {}).length > 0 ? (
+                    <div className="grid grid-cols-1 gap-3">
+                      {Object.entries(agyQuotaResult.models).map(([modelId, quota]) => {
+                        // 解析模型名称
+                        const modelNames = {
+                          'gemini-2.5-flash-thinking': 'Flash Thinking',
+                          'gemini-2.5-pro': '2.5 Pro',
+                          'gemini-3.0-pro': '3.0 Pro',
+                          'chat_23310': 'Claude',
+                        };
+                        const displayName = modelNames[modelId] || modelId.replace(/-/g, ' ').replace('gemini ', '').trim();
+                        const remaining = quota.remaining || 0;
+                        const used = Math.round(100 - remaining);
+                        const resetTime = quota.resetTime;
+                        
+                        // 根据剩余量确定颜色
+                        const getColor = (rem) => {
+                          if (rem >= 70) return 'text-emerald-400';
+                          if (rem >= 30) return 'text-amber-400';
+                          return 'text-red-400';
+                        };
+                        
+                        return (
+                          <div key={modelId} className="p-3 rounded-lg border" style={{ background: '#16161e', borderColor: '#252530' }}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm text-gray-300 font-medium">{displayName}</span>
+                              {resetTime && resetTime !== 'N/A' && (
+                                <span className="text-xs text-gray-500">重置: {resetTime}</span>
+                              )}
+                            </div>
+                            <div className="flex items-baseline gap-2">
+                              <span className={`text-2xl font-bold ${getColor(remaining)}`}>
+                                {used}%
+                              </span>
+                              <span className="text-gray-500 text-sm">/ 100%</span>
+                              <span className={`text-xs ml-auto ${getColor(remaining)}`}>
+                                剩余 {remaining}%
+                              </span>
+                            </div>
+                            {/* 进度条 */}
+                            <div className="mt-2 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full transition-all ${remaining >= 70 ? 'bg-emerald-500' : remaining >= 30 ? 'bg-amber-500' : 'bg-red-500'}`}
+                                style={{ width: `${remaining}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-gray-500 text-sm">
+                      暂无配额数据
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="p-3 rounded-lg border text-sm text-red-400" style={{ background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }}>
                   {agyQuotaResult.error || "获取失败"}

@@ -369,14 +369,36 @@ async def chat_completions(
     
     # Antigravity 配额检查
     if settings.antigravity_quota_enabled and not user.is_admin:
-        # 获取用户配额（先检查用户自定义配额，否则用系统默认）
-        user_quota = user.quota_antigravity if user.quota_antigravity > 0 else settings.antigravity_quota_default
+        # 获取用户的公开 Antigravity 凭证数量
+        public_cred_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.user_id == user.id)
+            .where(Credential.api_type == "antigravity")
+            .where(Credential.is_public == True)
+            .where(Credential.is_active == True)
+        )
+        public_cred_count = public_cred_result.scalar() or 0
+        
+        # 计算用户配额：
+        # - 如果用户有自定义配额，使用自定义配额
+        # - 否则：基础配额 + (公开凭证数 * 每凭证奖励)
+        if user.quota_antigravity and user.quota_antigravity > 0:
+            user_quota = user.quota_antigravity
+        elif settings.antigravity_pool_mode == "full_shared" and public_cred_count > 0:
+            # 大锅饭模式：基础配额 + 凭证奖励
+            user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+        elif user_has_public:
+            # 有公开凭证但没有按数量计算，使用贡献者配额
+            user_quota = settings.antigravity_quota_contributor
+        else:
+            user_quota = settings.antigravity_quota_default
+        
         user_used = user.used_antigravity or 0
         
         if user_used >= user_quota:
             raise HTTPException(
                 status_code=429,
-                detail=f"Antigravity 配额已用尽: {user_used}/{user_quota}"
+                detail=f"Antigravity 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）"
             )
         
         # 扣减配额（先扣减，如果请求失败会在日志中记录）

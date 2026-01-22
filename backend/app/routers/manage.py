@@ -1052,6 +1052,7 @@ async def get_config(user: User = Depends(get_current_admin)):
         "antigravity_quota_enabled": settings.antigravity_quota_enabled,
         "antigravity_quota_default": settings.antigravity_quota_default,
         "antigravity_quota_contributor": settings.antigravity_quota_contributor,
+        "antigravity_quota_per_cred": settings.antigravity_quota_per_cred,
         "antigravity_base_rpm": settings.antigravity_base_rpm,
         "antigravity_contributor_rpm": settings.antigravity_contributor_rpm,
         "antigravity_pool_mode": settings.antigravity_pool_mode,
@@ -1166,6 +1167,7 @@ async def update_config(
     antigravity_quota_enabled: Optional[bool] = Form(None),
     antigravity_quota_default: Optional[int] = Form(None),
     antigravity_quota_contributor: Optional[int] = Form(None),
+    antigravity_quota_per_cred: Optional[int] = Form(None),
     antigravity_base_rpm: Optional[int] = Form(None),
     antigravity_contributor_rpm: Optional[int] = Form(None),
     antigravity_pool_mode: Optional[str] = Form(None),
@@ -1349,6 +1351,10 @@ async def update_config(
         settings.antigravity_quota_contributor = antigravity_quota_contributor
         await save_config_to_db("antigravity_quota_contributor", antigravity_quota_contributor)
         updated["antigravity_quota_contributor"] = antigravity_quota_contributor
+    if antigravity_quota_per_cred is not None:
+        settings.antigravity_quota_per_cred = antigravity_quota_per_cred
+        await save_config_to_db("antigravity_quota_per_cred", antigravity_quota_per_cred)
+        updated["antigravity_quota_per_cred"] = antigravity_quota_per_cred
     if antigravity_base_rpm is not None:
         settings.antigravity_base_rpm = antigravity_base_rpm
         await save_config_to_db("antigravity_base_rpm", antigravity_base_rpm)

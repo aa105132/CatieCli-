@@ -88,6 +88,10 @@ export default function Settings() {
         "antigravity_quota_contributor",
         config.antigravity_quota_contributor ?? 500,
       );
+      formData.append(
+        "antigravity_quota_per_cred",
+        config.antigravity_quota_per_cred ?? 100,
+      );
       formData.append("antigravity_base_rpm", config.antigravity_base_rpm ?? 5);
       formData.append(
         "antigravity_contributor_rpm",
@@ -122,6 +126,7 @@ export default function Settings() {
       );
       formData.append("anthropic_base_rpm", config.anthropic_base_rpm ?? 10);
       formData.append("stats_timezone", config.stats_timezone ?? "server");
+      formData.append("allow_export_credentials", config.allow_export_credentials ?? true);
 
       await api.post("/api/manage/config", formData);
       setMessage({ type: "success", text: "配置已保存！" });
@@ -538,6 +543,27 @@ export default function Settings() {
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+            </label>
+          </div>
+
+          {/* 允许导出凭证 */}
+          <div className="flex items-center justify-between bg-gray-700/50 rounded-lg px-4 py-3">
+            <div>
+              <h3 className="font-semibold">允许导出凭证</h3>
+              <p className="text-gray-400 text-sm">
+                允许用户下载自己上传的凭证文件（管理员不受限）
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config?.allow_export_credentials ?? true}
+                onChange={(e) =>
+                  setConfig({ ...config, allow_export_credentials: e.target.checked })
+                }
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
             </label>
           </div>
 
@@ -1118,9 +1144,46 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
                         className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                       <p className="text-gray-500 text-xs mt-1">
-                        贡献凭证用户每日可调用次数
+                        贡献凭证用户每日可调用次数（旧模式）
                       </p>
                     </div>
+                  </div>
+                )}
+                
+                {/* 大锅饭模式凭证奖励 */}
+                {config?.antigravity_quota_enabled && config?.antigravity_pool_mode === "full_shared" && (
+                  <div className="mt-4 p-3 border border-orange-500/30 rounded-lg bg-orange-500/5">
+                    <label className="text-sm text-orange-400 mb-2 block font-medium">
+                      大锅饭模式凭证奖励
+                    </label>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">
+                          每凭证奖励配额
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={config?.antigravity_quota_per_cred ?? 100}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              antigravity_quota_per_cred:
+                                parseInt(e.target.value) || 0,
+                            })
+                          }
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
+                      <div className="flex items-end pb-2">
+                        <p className="text-gray-400 text-xs">
+                          公式：基础配额 + (公开凭证数 × 此值)
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-green-400 text-xs mt-2">
+                      示例：基础 {config?.antigravity_quota_default || 100} + 3凭证 × {config?.antigravity_quota_per_cred || 100} = {(config?.antigravity_quota_default || 100) + 3 * (config?.antigravity_quota_per_cred || 100)} 次/日
+                    </p>
                   </div>
                 )}
               </div>
