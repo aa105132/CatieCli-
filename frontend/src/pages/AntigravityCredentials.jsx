@@ -28,7 +28,7 @@ export default function AntigravityCredentials() {
   const [stats, setStats] = useState(null);
   
   // 额度预览相关状态
-  const [expandedQuota, setExpandedQuota] = useState(null); // 当前展开的凭证ID
+  const [expandedQuotas, setExpandedQuotas] = useState(new Set()); // 改为Set存储多个展开的凭证ID
   const [quotaCache, setQuotaCache] = useState({}); // 缓存额度数据 { credId: { claude, gemini, banana } }
   const [loadingQuotaPreview, setLoadingQuotaPreview] = useState(null);
 
@@ -42,6 +42,16 @@ export default function AntigravityCredentials() {
     try {
       const res = await api.get("/api/antigravity/credentials");
       setCredentials(res.data);
+      
+      // 默认展开所有活跃凭证的额度信息并获取额度数据
+      const activeCredIds = res.data.filter(c => c.is_active).map(c => c.id);
+      if (activeCredIds.length > 0) {
+        setExpandedQuotas(new Set(activeCredIds));
+        // 为所有活跃凭证获取额度信息
+        activeCredIds.forEach(credId => {
+          fetchQuotaPreviewSilent(credId);
+        });
+      }
     } catch (err) {
       setMessage({ type: "error", text: "获取凭证失败" });
     } finally {
@@ -215,20 +225,22 @@ export default function AntigravityCredentials() {
 
   // 切换额度预览展开/收起
   const toggleQuotaPreview = async (credId) => {
-    if (expandedQuota === credId) {
-      setExpandedQuota(null);
-      return;
-    }
-    
-    setExpandedQuota(credId);
-    
-    // 如果没有缓存，则加载额度
-    if (!quotaCache[credId]) {
-      await fetchQuotaPreview(credId);
-    }
+    setExpandedQuotas(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(credId)) {
+        newSet.delete(credId);
+      } else {
+        newSet.add(credId);
+        // 如果没有缓存，则加载额度
+        if (!quotaCache[credId]) {
+          fetchQuotaPreview(credId);
+        }
+      }
+      return newSet;
+    });
   };
 
-  // 获取额度预览（简化版本）
+  // 获取额度预览（显示加载状态）
   const fetchQuotaPreview = async (credId) => {
     setLoadingQuotaPreview(credId);
     try {
@@ -245,6 +257,22 @@ export default function AntigravityCredentials() {
       setQuotaCache(prev => ({ ...prev, [credId]: { error: "获取额度失败" } }));
     } finally {
       setLoadingQuotaPreview(null);
+    }
+  };
+
+  // 静默获取额度预览（不显示加载状态，用于初始化批量加载）
+  const fetchQuotaPreviewSilent = async (credId) => {
+    try {
+      const res = await api.get(`/api/antigravity/credentials/${credId}/quota`);
+      if (res.data.success) {
+        const models = res.data.models || {};
+        const aggregated = aggregateQuota(models);
+        setQuotaCache(prev => ({ ...prev, [credId]: aggregated }));
+      } else {
+        setQuotaCache(prev => ({ ...prev, [credId]: { error: res.data.error || "获取失败" } }));
+      }
+    } catch (err) {
+      setQuotaCache(prev => ({ ...prev, [credId]: { error: "获取额度失败" } }));
     }
   };
 
@@ -545,14 +573,14 @@ export default function AntigravityCredentials() {
                         </span>
                       </div>
                       {cred.is_active && (
-                        expandedQuota === cred.id
+                        expandedQuotas.has(cred.id)
                           ? <ChevronUp size={16} className="text-gray-500" />
                           : <ChevronDown size={16} className="text-gray-500" />
                       )}
                     </button>
 
                     {/* 展开的额度详情 */}
-                    {expandedQuota === cred.id && cred.is_active && (
+                    {expandedQuotas.has(cred.id) && cred.is_active && (
                       <div className="mt-2 space-y-2 px-1">
                         {loadingQuotaPreview === cred.id ? (
                           <div className="flex items-center justify-center py-4 text-gray-500">
