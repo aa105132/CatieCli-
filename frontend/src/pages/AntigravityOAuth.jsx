@@ -14,6 +14,16 @@ import { Link } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../App";
 
+// 太极图标组件
+const TaijiIcon = ({ className = "w-8 h-8" }) => (
+  <svg viewBox="0 0 1024 1024" className={className} fill="currentColor">
+    <path d="M803.4816 515.84c-1.9968 159.2576-131.712 287.744-291.456 287.744S222.5664 675.0976 220.5696 515.84c-0.0256-1.2544-0.0512-2.5088-0.0512-3.7632 0-80.4864 65.2544-145.7664 145.7408-145.7664s145.7664 65.28 145.7664 145.7664 65.2544 145.7664 145.7664 145.7664 143.6928-63.2576 145.6896-142.0032z" />
+    <path d="M366.2592 512.1024m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" fill="#1e1e2e" />
+    <path d="M220.5184 508.16c1.9968-159.2576 131.712-287.744 291.456-287.744s289.4592 128.4864 291.456 287.744c0.0256 1.2544 0.0512 2.5088 0.0512 3.7632 0 80.4864-65.2544 145.7664-145.7408 145.7664s-145.7664-65.28-145.7664-145.7664-65.2544-145.7664-145.7664-145.7664-143.6928 63.2576-145.6896 142.0032z" fill="#1e1e2e" />
+    <path d="M657.7408 511.8976m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" />
+  </svg>
+);
+
 export default function AntigravityOAuth() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -183,7 +193,7 @@ export default function AntigravityOAuth() {
       {/* 操作指引弹窗 */}
       {showGuide && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-800 rounded-2xl max-w-md w-full p-6 border border-orange-500/50">
+          <div className="bg-night-100 rounded-2xl max-w-md w-full p-6 border border-goldenrod-500/50">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-orange-400">
                 🚀 Antigravity 操作指引
@@ -245,7 +255,7 @@ export default function AntigravityOAuth() {
       {/* 快速问答弹窗 */}
       {showQuiz && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-800 rounded-2xl max-w-md w-full p-6 border border-orange-500/50">
+          <div className="bg-night-100 rounded-2xl max-w-md w-full p-6 border border-goldenrod-500/50">
             <h3 className="text-xl font-bold text-orange-400 mb-4">
               📝 快速问答
             </h3>
@@ -289,14 +299,14 @@ export default function AntigravityOAuth() {
       <nav className="bg-dark-900 border-b border-dark-700">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Rocket className="w-8 h-8 text-orange-400" />
-            <span className="text-xl font-bold">Catiecli</span>
+            <TaijiIcon className="w-8 h-8 text-orange-400" />
+            <span className="text-xl font-bold">同尘</span>
             <span className="text-sm text-orange-400 bg-orange-500/20 px-2 py-0.5 rounded">
               Antigravity OAuth
             </span>
           </div>
           <Link
-            to="/antigravity-credentials"
+            to="/dashboard"
             className="text-gray-400 hover:text-white flex items-center gap-2"
           >
             <ArrowLeft size={20} />

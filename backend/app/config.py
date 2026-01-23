@@ -169,6 +169,10 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     discord_client_id: str = ""
     discord_client_secret: str = ""
     discord_redirect_uri: str = ""  # 例如: https://你的域名/api/auth/discord/callback
+    # Discord 注册限制（可选）
+    discord_required_guild_id: str = ""  # 必须加入的服务器ID，留空则不限制
+    discord_required_role_ids: str = ""  # 必须拥有的身份组ID（多个用逗号分隔），留空则不限制
+    discord_bot_token: str = ""  # 用于验证服务器成员和身份组的机器人Token
     
     class Config:
         env_file = ".env"

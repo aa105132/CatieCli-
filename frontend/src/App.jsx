@@ -19,8 +19,15 @@ import Tutorial from "./pages/Tutorial";
 // 认证上下文
 export const AuthContext = createContext(null);
 
+// 主题上下文
+export const ThemeContext = createContext(null);
+
 export function useAuth() {
   return useContext(AuthContext);
+}
+
+export function useTheme() {
+  return useContext(ThemeContext);
 }
 
 function ProtectedRoute({ children, adminOnly = false }) {
@@ -29,7 +36,7 @@ function ProtectedRoute({ children, adminOnly = false }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
       </div>
     );
   }
@@ -48,6 +55,30 @@ function ProtectedRoute({ children, adminOnly = false }) {
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // 主题状态 - 默认为夜间模式
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem("theme");
+    return saved || "dark"; // 默认夜间模式
+  });
+
+  // 初始化主题
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+      document.body.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+      document.body.classList.remove("dark");
+    }
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  // 切换主题
+  const toggleTheme = () => {
+    setTheme(prev => prev === "dark" ? "light" : "dark");
+  };
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -73,104 +104,106 @@ function App() {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
-      <BrowserRouter>
-        <Announcement />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <ProtectedRoute adminOnly>
-                <Admin />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/oauth"
-            element={
-              <ProtectedRoute>
-                <OAuth />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/credentials"
-            element={
-              <ProtectedRoute>
-                <Credentials />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/antigravity-credentials"
-            element={
-              <ProtectedRoute>
-                <AntigravityCredentials />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/antigravity-oauth"
-            element={
-              <ProtectedRoute>
-                <AntigravityOAuth />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/stats"
-            element={
-              <ProtectedRoute adminOnly>
-                <Stats />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute adminOnly>
-                <Settings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/error-messages"
-            element={
-              <ProtectedRoute adminOnly>
-                <ErrorMessages />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/tutorial"
-            element={
-              <ProtectedRoute>
-                <Tutorial />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/anthropic-credentials"
-            element={
-              <ProtectedRoute>
-                <AnthropicCredentials />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/dashboard" />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthContext.Provider>
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      <AuthContext.Provider value={{ user, login, logout, loading }}>
+        <BrowserRouter>
+          <Announcement />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route
+              path="/dashboard"
+              element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute adminOnly>
+                  <Admin />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/oauth"
+              element={
+                <ProtectedRoute>
+                  <OAuth />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/credentials"
+              element={
+                <ProtectedRoute>
+                  <Credentials />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/antigravity-credentials"
+              element={
+                <ProtectedRoute>
+                  <AntigravityCredentials />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/antigravity-oauth"
+              element={
+                <ProtectedRoute>
+                  <AntigravityOAuth />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/stats"
+              element={
+                <ProtectedRoute adminOnly>
+                  <Stats />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute adminOnly>
+                  <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/error-messages"
+              element={
+                <ProtectedRoute adminOnly>
+                  <ErrorMessages />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/tutorial"
+              element={
+                <ProtectedRoute>
+                  <Tutorial />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/anthropic-credentials"
+              element={
+                <ProtectedRoute>
+                  <AnthropicCredentials />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/" element={<Navigate to="/dashboard" />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthContext.Provider>
+    </ThemeContext.Provider>
   );
 }
 

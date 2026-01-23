@@ -1107,6 +1107,11 @@ async def get_public_config():
         "tutorial_enabled": settings.tutorial_enabled,
         "tutorial_force_first_visit": settings.tutorial_force_first_visit,
         "anthropic_enabled": settings.anthropic_enabled,
+        # Antigravity 配置
+        "antigravity_pool_mode": settings.antigravity_pool_mode,
+        "antigravity_quota_enabled": settings.antigravity_quota_enabled,
+        "antigravity_quota_default": settings.antigravity_quota_default,
+        "antigravity_quota_per_cred": settings.antigravity_quota_per_cred,
     }
 
 

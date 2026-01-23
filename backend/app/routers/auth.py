@@ -237,29 +237,32 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     # CLI 使用量 = 总使用量 - Antigravity 使用量
     cli_usage = max(0, today_usage - antigravity_usage)
     
-    # 获取用户凭证数量
+    # 获取用户 CLI 凭证数量（排除 antigravity 类型）
     cred_result = await db.execute(
         select(func.count(Credential.id))
         .where(Credential.user_id == user.id)
         .where(Credential.is_active == True)
+        .where(or_(Credential.api_type == "geminicli", Credential.api_type == None))
     )
     credential_count = cred_result.scalar() or 0
     
-    # 统计公开凭证数量
+    # 统计公开 CLI 凭证数量（排除 antigravity 类型）
     public_result = await db.execute(
         select(func.count(Credential.id))
         .where(Credential.user_id == user.id)
         .where(Credential.is_public == True)
         .where(Credential.is_active == True)
+        .where(or_(Credential.api_type == "geminicli", Credential.api_type == None))
     )
     public_credential_count = public_result.scalar() or 0
     
-    # 统计用户的 2.5 和 3.0 凭证数量
+    # 统计用户的 2.5 和 3.0 CLI 凭证数量（排除 antigravity 类型）
     cred_25_result = await db.execute(
         select(func.count(Credential.id))
         .where(Credential.user_id == user.id)
         .where(Credential.is_active == True)
         .where(Credential.model_tier != "3")
+        .where(or_(Credential.api_type == "geminicli", Credential.api_type == None))
     )
     cred_25_count = cred_25_result.scalar() or 0
     
@@ -268,14 +271,23 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
         .where(Credential.user_id == user.id)
         .where(Credential.is_active == True)
         .where(Credential.model_tier == "3")
+        .where(or_(Credential.api_type == "geminicli", Credential.api_type == None))
     )
     cred_30_count = cred_30_result.scalar() or 0
     
     # 计算用户各类模型的配额上限
     # 优先使用用户设置的按模型配额，0表示使用系统默认
     from app.config import settings
+    
+    # CLI 大锅饭模式：公开凭证可以增加配额
+    # 在大锅饭模式下，每个公开凭证给予额外配额奖励
+    cli_pool_mode = settings.credential_pool_mode
+    
     if user.quota_flash and user.quota_flash > 0:
         quota_flash = user.quota_flash
+    elif cli_pool_mode == "full_shared":
+        # 大锅饭模式：基础配额 + 公开凭证奖励
+        quota_flash = settings.no_cred_quota_flash + (public_credential_count * settings.quota_flash)
     elif credential_count > 0:
         quota_flash = credential_count * settings.quota_flash
     else:
@@ -283,6 +295,9 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     
     if user.quota_25pro and user.quota_25pro > 0:
         quota_25pro = user.quota_25pro
+    elif cli_pool_mode == "full_shared":
+        # 大锅饭模式：基础配额 + 公开凭证奖励
+        quota_25pro = settings.no_cred_quota_25pro + (public_credential_count * settings.quota_25pro)
     elif credential_count > 0:
         quota_25pro = credential_count * settings.quota_25pro
     else:
@@ -290,6 +305,19 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     
     if user.quota_30pro and user.quota_30pro > 0:
         quota_30pro = user.quota_30pro
+    elif cli_pool_mode == "full_shared":
+        # 大锅饭模式：基础配额 + 公开3.0凭证奖励
+        # 统计公开的 3.0 凭证数量
+        public_30_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.user_id == user.id)
+            .where(Credential.is_public == True)
+            .where(Credential.is_active == True)
+            .where(Credential.model_tier == "3")
+            .where(or_(Credential.api_type == "geminicli", Credential.api_type == None))
+        )
+        public_30_count = public_30_result.scalar() or 0
+        quota_30pro = settings.no_cred_quota_30pro + (public_30_count * settings.quota_30pro)
     elif cred_30_count > 0:
         quota_30pro = cred_30_count * settings.quota_30pro
     elif credential_count > 0:
@@ -299,6 +327,49 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     
     # 总配额 = 三个模型配额之和
     total_quota = quota_flash + quota_25pro + quota_30pro
+    
+    # ===== Antigravity 凭证统计 =====
+    # 统计用户的 Antigravity 凭证数量
+    agy_cred_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.user_id == user.id)
+        .where(Credential.is_active == True)
+        .where(Credential.api_type == "antigravity")
+    )
+    agy_credential_count = agy_cred_result.scalar() or 0
+    
+    # 统计用户的公开 Antigravity 凭证数量
+    agy_public_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.user_id == user.id)
+        .where(Credential.is_public == True)
+        .where(Credential.is_active == True)
+        .where(Credential.api_type == "antigravity")
+    )
+    agy_public_credential_count = agy_public_result.scalar() or 0
+    
+    # 计算 Antigravity 配额（大锅饭模式）
+    # 配额计算逻辑：
+    # 1. 大锅饭模式 + 有公开凭证：基础配额 + (公开凭证数 * 每凭证奖励)
+    # 2. 有公开凭证但非大锅饭：使用贡献者配额
+    # 3. 无公开凭证：使用默认配额
+    # 4. 管理员单独设置的用户配额只在非大锅饭模式下生效（-1 表示无限制）
+    # 注意：这个配额同时奖励给 Claude 和 Gemini，两者各自独立计数
+    if settings.antigravity_pool_mode == "full_shared":
+        # 大锅饭模式：基础配额 + 公开凭证奖励
+        agy_quota = settings.antigravity_quota_default + (agy_public_credential_count * settings.antigravity_quota_per_cred)
+    elif user.quota_antigravity and user.quota_antigravity != 0:
+        # 管理员设置了用户配额（非 0 值）
+        if user.quota_antigravity == -1:
+            agy_quota = None  # 无限制
+        else:
+            agy_quota = user.quota_antigravity
+    elif agy_public_credential_count > 0:
+        # 有公开凭证使用贡献者配额
+        agy_quota = settings.antigravity_quota_contributor
+    else:
+        # 无公开凭证使用默认配额
+        agy_quota = settings.antigravity_quota_default
     
     return {
         "id": user.id,
@@ -326,8 +397,18 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
             "cli": cli_usage,
             "antigravity": antigravity_usage
         },
+        "quota_by_api_type": {
+            "antigravity": agy_quota if settings.antigravity_quota_enabled else None
+        },
+        # Claude 和 Gemini 各自独立配额（大锅饭模式下奖励同时增加两者）
+        "quota_by_provider": {
+            "claude": agy_quota if settings.antigravity_quota_enabled else None,
+            "gemini": agy_quota if settings.antigravity_quota_enabled else None
+        },
         "cred_25_count": cred_25_count,
-        "cred_30_count": cred_30_count
+        "cred_30_count": cred_30_count,
+        "agy_credential_count": agy_credential_count,
+        "agy_public_credential_count": agy_public_credential_count
     }
 
 
@@ -1462,11 +1543,17 @@ async def discord_login_url():
     # 生成 state 参数防止 CSRF
     state = secrets.token_urlsafe(16)
     
+    # 根据是否配置了服务器限制来决定 scope
+    # guilds 用于获取用户的服务器列表，guilds.members.read 用于获取身份组（需要机器人）
+    scopes = ["identify"]
+    if settings.discord_required_guild_id:
+        scopes.append("guilds")  # 获取用户加入的服务器列表
+    
     params = {
         "client_id": settings.discord_client_id,
         "redirect_uri": settings.discord_redirect_uri,
         "response_type": "code",
-        "scope": "identify",
+        "scope": " ".join(scopes),
         "state": state
     }
     url = f"https://discord.com/oauth2/authorize?{urllib.parse.urlencode(params)}"
@@ -1558,6 +1645,107 @@ async def discord_callback(code: str, state: str = None, db: AsyncSession = Depe
     
     discord_id = discord_user["id"]
     discord_name = f"{discord_user['username']}"
+    
+    # 2.5. 验证服务器成员（如果配置了）
+    if settings.discord_required_guild_id:
+        # 支持多个服务器ID，用逗号分隔，用户必须同时加入所有服务器
+        required_guild_ids = [g.strip() for g in settings.discord_required_guild_id.split(",") if g.strip()]
+        
+        async with httpx.AsyncClient() as client:
+            # 方式1: 使用用户 access_token 获取用户的服务器列表（不需要机器人）
+            if not settings.discord_bot_token:
+                guilds_resp = await client.get(
+                    "https://discord.com/api/users/@me/guilds",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                )
+                
+                if guilds_resp.status_code != 200:
+                    print(f"[Discord OAuth] 获取用户服务器列表失败: {guilds_resp.status_code} - {guilds_resp.text[:200]}", flush=True)
+                    raise HTTPException(status_code=500, detail="获取服务器列表失败")
+                
+                user_guilds = guilds_resp.json()
+                user_guild_ids = {g["id"] for g in user_guilds}
+                
+                # 检查用户是否加入了所有要求的服务器
+                missing_guilds = [gid for gid in required_guild_ids if gid not in user_guild_ids]
+                
+                if missing_guilds:
+                    missing_count = len(missing_guilds)
+                    total_count = len(required_guild_ids)
+                    html = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>注册限制</title></head>
+                    <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #1a1a2e; color: #fff;">
+                    <h2>⚠️ 注册限制</h2>
+                    <p>您需要加入所有指定的 Discord 服务器才能注册</p>
+                    <p style="color: #888; margin-top: 10px;">需要加入 {total_count} 个服务器，您还缺少 {missing_count} 个</p>
+                    <p style="color: #888; margin-top: 20px;">请加入所有服务器后重试</p>
+                    <script>setTimeout(() => window.close(), 5000);</script>
+                    </body>
+                    </html>
+                    """
+                    return HTMLResponse(content=html)
+            
+            # 方式2: 使用机器人 Token 验证（可同时验证身份组）
+            else:
+                missing_guilds = []
+                all_user_roles = []
+                
+                for guild_id in required_guild_ids:
+                    member_url = f"https://discord.com/api/guilds/{guild_id}/members/{discord_id}"
+                    member_resp = await client.get(
+                        member_url,
+                        headers={"Authorization": f"Bot {settings.discord_bot_token}"}
+                    )
+                    
+                    if member_resp.status_code == 404:
+                        missing_guilds.append(guild_id)
+                    elif member_resp.status_code == 200:
+                        member_data = member_resp.json()
+                        all_user_roles.extend(member_data.get("roles", []))
+                    else:
+                        print(f"[Discord OAuth] 获取成员信息失败: {member_resp.status_code} - {member_resp.text[:200]}", flush=True)
+                        raise HTTPException(status_code=500, detail="验证服务器成员失败")
+                
+                if missing_guilds:
+                    missing_count = len(missing_guilds)
+                    total_count = len(required_guild_ids)
+                    html = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head><title>注册限制</title></head>
+                    <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #1a1a2e; color: #fff;">
+                    <h2>⚠️ 注册限制</h2>
+                    <p>您需要加入所有指定的 Discord 服务器才能注册</p>
+                    <p style="color: #888; margin-top: 10px;">需要加入 {total_count} 个服务器，您还缺少 {missing_count} 个</p>
+                    <p style="color: #888; margin-top: 20px;">请加入所有服务器后重试</p>
+                    <script>setTimeout(() => window.close(), 5000);</script>
+                    </body>
+                    </html>
+                    """
+                    return HTMLResponse(content=html)
+                
+                # 如果配置了身份组要求，检查用户是否拥有指定身份组（任意服务器中的均可）
+                if settings.discord_required_role_ids:
+                    required_roles = [r.strip() for r in settings.discord_required_role_ids.split(",") if r.strip()]
+                    
+                    has_required_role = any(role_id in all_user_roles for role_id in required_roles)
+                    
+                    if not has_required_role:
+                        html = f"""
+                        <!DOCTYPE html>
+                        <html>
+                        <head><title>注册限制</title></head>
+                        <body style="font-family: sans-serif; text-align: center; padding: 50px; background: #1a1a2e; color: #fff;">
+                        <h2>⚠️ 注册限制</h2>
+                        <p>您需要在 Discord 服务器中拥有指定的身份组才能注册</p>
+                        <p style="color: #888; margin-top: 20px;">请联系服务器管理员获取相应身份组</p>
+                        <script>setTimeout(() => window.close(), 5000);</script>
+                        </body>
+                        </html>
+                        """
+                        return HTMLResponse(content=html)
     
     # 3. 查找或创建用户
     result = await db.execute(select(User).where(User.discord_id == discord_id))

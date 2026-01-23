@@ -1,6 +1,5 @@
 import {
     ArrowLeft,
-    Cat,
     Check,
     ExternalLink,
     Key,
@@ -11,6 +10,16 @@ import {
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
+
+// 太极图标组件
+const TaijiIcon = ({ className = "w-8 h-8" }) => (
+  <svg viewBox="0 0 1024 1024" className={className} fill="currentColor">
+    <path d="M803.4816 515.84c-1.9968 159.2576-131.712 287.744-291.456 287.744S222.5664 675.0976 220.5696 515.84c-0.0256-1.2544-0.0512-2.5088-0.0512-3.7632 0-80.4864 65.2544-145.7664 145.7408-145.7664s145.7664 65.28 145.7664 145.7664 65.2544 145.7664 145.7664 145.7664 143.6928-63.2576 145.6896-142.0032z" />
+    <path d="M366.2592 512.1024m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" fill="#1e1e2e" />
+    <path d="M220.5184 508.16c1.9968-159.2576 131.712-287.744 291.456-287.744s289.4592 128.4864 291.456 287.744c0.0256 1.2544 0.0512 2.5088 0.0512 3.7632 0 80.4864-65.2544 145.7664-145.7408 145.7664s-145.7664-65.28-145.7664-145.7664-65.2544-145.7664-145.7664-145.7664-143.6928 63.2576-145.6896 142.0032z" fill="#1e1e2e" />
+    <path d="M657.7408 511.8976m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" />
+  </svg>
+);
 
 export default function AnthropicCredentials() {
   const [credentials, setCredentials] = useState([]);
@@ -118,8 +127,8 @@ export default function AnthropicCredentials() {
       <nav className="bg-dark-800 border-b border-dark-600 p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Cat className="w-8 h-8 text-purple-400" />
-            <span className="text-xl font-bold">Catiecli</span>
+            <TaijiIcon className="w-8 h-8 text-purple-400" />
+            <span className="text-xl font-bold">同尘</span>
             <span className="text-sm text-gray-500 bg-dark-700 px-2 py-0.5 rounded">
               Anthropic 凭证
             </span>

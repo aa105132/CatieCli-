@@ -463,13 +463,10 @@ class CredentialPool:
                 query = query.where(Credential.user_id == user.id)
         
         else:  # full_shared (大锅饭模式)
-            user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id, mode)
-            if user_has_public:
-                query = query.where(
-                    or_(Credential.is_public == True, Credential.user_id == user.id)
-                )
-            else:
-                query = query.where(Credential.user_id == user.id)
+            # 大锅饭模式：所有用户都可以使用公共凭证池
+            query = query.where(
+                or_(Credential.is_public == True, Credential.user_id == user.id)
+            )
         
         result = await db.execute(query)
         return result.scalar_one_or_none() is not None
@@ -535,17 +532,14 @@ class CredentialPool:
                 # 私有模式：只能用自己的凭证
                 query = query.where(Credential.user_id == user_id)
             else:  # full_shared (大锅饭模式)
-                if user_has_public_creds:
-                    # 用户有贡献，可以用所有公共凭证 + 自己的私有凭证
-                    query = query.where(
-                        or_(
-                            Credential.is_public == True,
-                            Credential.user_id == user_id
-                        )
+                # 大锅饭模式：所有用户都可以使用公共凭证池
+                # 用户有贡献（公开凭证）可获得更高配额奖励，但无论是否贡献都可使用公共池
+                query = query.where(
+                    or_(
+                        Credential.is_public == True,
+                        Credential.user_id == user_id
                     )
-                else:
-                    # 用户没有贡献，只能用自己的凭证
-                    query = query.where(Credential.user_id == user_id)
+                )
         elif pool_mode == "private":
             # 私有模式：只能用自己的凭证
             query = query.where(Credential.user_id == user_id)
@@ -579,17 +573,15 @@ class CredentialPool:
                 )
         
         else:  # full_shared (大锅饭模式)
-            if user_has_public_creds:
-                # 用户有贡献，可以用所有公共凭证 + 自己的私有凭证
-                query = query.where(
-                    or_(
-                        Credential.is_public == True,
-                        Credential.user_id == user_id
-                    )
+            # 大锅饭模式：所有用户都可以使用公共凭证池
+            # 用户有贡献（公开凭证）可获得更高配额奖励，但无论是否贡献都可使用公共池
+            # 这样无凭证用户也能在基础配额内使用公共凭证
+            query = query.where(
+                or_(
+                    Credential.is_public == True,
+                    Credential.user_id == user_id
                 )
-            else:
-                # 用户没有贡献，只能用自己的凭证
-                query = query.where(Credential.user_id == user_id)
+            )
         
         # 确定模型组（用于 CD 筛选）
         model_group = CredentialPool.get_model_group(model) if model else "flash"

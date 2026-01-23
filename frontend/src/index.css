@@ -2,34 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========== 日间模式（羊皮卷风格）========== */
 body {
-  @apply bg-dark-950 text-gray-100;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  @apply bg-parchment-200 text-inkbrown-400;
+  font-family: "Georgia", "华文楷体", "楷体", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, serif;
 }
 
-/* 自定义滚动条 */
+::selection {
+  @apply bg-cinnabar-300/40 text-inkbrown-600;
+}
+
+/* ========== 夜间模式 ========== */
+.dark body,
+body.dark {
+  @apply bg-night-200 text-sand-300;
+}
+
+.dark ::selection {
+  @apply bg-cinnabar-500/40 text-sand-100;
+}
+
+/* 自定义滚动条 - 日间 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-dark-900;
+  @apply bg-parchment-300;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-dark-600 rounded-full;
+  @apply bg-parchment-500 rounded-full;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-dark-500;
+  @apply bg-inkbrown-200;
+}
+
+/* 自定义滚动条 - 夜间 */
+.dark ::-webkit-scrollbar-track {
+  @apply bg-night-100;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-night-50 rounded-full;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  @apply bg-sand-600;
 }
 
 /* 输入框聚焦样式 */
 input:focus,
 textarea:focus,
 select:focus {
-  @apply outline-none ring-2 ring-purple-500/50;
+  @apply outline-none ring-2 ring-goldenrod-300/60;
+}
+
+.dark input:focus,
+.dark textarea:focus,
+.dark select:focus {
+  @apply ring-goldenrod-500/50;
 }
 
 /* 按钮基础样式 */
@@ -38,25 +74,44 @@ select:focus {
 }
 
 .btn-primary {
-  @apply bg-purple-600 hover:bg-purple-700 text-white;
+  @apply bg-inkbrown-500 hover:bg-inkbrown-600 text-parchment-50 shadow-sm;
+}
+
+.dark .btn-primary {
+  @apply bg-sand-500 hover:bg-sand-400 text-night-200;
 }
 
 .btn-secondary {
-  @apply bg-dark-700 hover:bg-dark-600 text-gray-200;
+  @apply bg-parchment-300 hover:bg-parchment-400 text-inkbrown-500 border border-parchment-500;
+}
+
+.dark .btn-secondary {
+  @apply bg-night-100 hover:bg-night-50 text-sand-300 border-night-50;
 }
 
 .btn-danger {
-  @apply bg-red-600 hover:bg-red-700 text-white;
+  @apply bg-cinnabar-500 hover:bg-cinnabar-600 text-white;
 }
 
-/* 卡片样式 */
+/* 卡片样式 - 日间 */
 .card {
-  @apply bg-dark-900 border border-dark-700 rounded-xl p-6;
+  @apply bg-parchment-100 border border-parchment-400 rounded-xl p-6;
+  box-shadow: 0 2px 12px rgba(120, 100, 60, 0.08), 0 1px 4px rgba(120, 100, 60, 0.05);
+}
+
+/* 卡片样式 - 夜间 */
+.dark .card {
+  @apply bg-night-100 border-night-50;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
 /* 表格样式 */
 .table-container {
-  @apply overflow-x-auto rounded-lg border border-dark-700;
+  @apply overflow-x-auto rounded-lg border border-parchment-400;
+}
+
+.dark .table-container {
+  @apply border-night-50;
 }
 
 table {
@@ -64,13 +119,113 @@ table {
 }
 
 th {
-  @apply bg-dark-800 px-4 py-3 text-left text-sm font-medium text-gray-400;
+  @apply bg-parchment-300 px-4 py-3 text-left text-sm font-medium text-inkbrown-500;
+  border-bottom: 1px solid;
+  @apply border-parchment-400;
+}
+
+.dark th {
+  @apply bg-night-50 text-sand-200 border-night-50;
 }
 
 td {
-  @apply px-4 py-3 text-sm border-t border-dark-700;
+  @apply px-4 py-3 text-sm border-t border-parchment-300 text-inkbrown-400;
+}
+
+.dark td {
+  @apply border-night-100 text-sand-300;
 }
 
 tr:hover td {
-  @apply bg-dark-800/50;
+  @apply bg-parchment-200/50;
 }
+
+.dark tr:hover td {
+  @apply bg-night-50/50;
+}
+
+/* 装饰效果 - 日间 */
+.parchment-glow {
+  box-shadow: 0 0 20px rgba(180, 160, 120, 0.15), 0 0 40px rgba(180, 160, 120, 0.08);
+}
+
+.parchment-border {
+  border: 1px solid;
+  @apply border-parchment-400;
+  position: relative;
+}
+
+.parchment-border::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  right: -1px;
+  bottom: -1px;
+  border: 1px solid rgba(180, 160, 120, 0.1);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* 装饰效果 - 夜间 */
+.dark .parchment-glow {
+  box-shadow: 0 0 20px rgba(200, 180, 140, 0.08), 0 0 40px rgba(200, 180, 140, 0.04);
+}
+
+.dark .parchment-border {
+  @apply border-night-50;
+}
+
+.dark .parchment-border::before {
+  border-color: rgba(200, 180, 140, 0.05);
+}
+
+/* 渐变背景 - 日间 */
+.parchment-wash {
+  background: linear-gradient(135deg,
+    rgba(250, 246, 237, 0.95) 0%,
+    rgba(245, 239, 224, 0.98) 50%,
+    rgba(237, 228, 208, 0.95) 100%);
+}
+
+/* 渐变背景 - 夜间 */
+.dark .parchment-wash,
+.night-wash {
+  background: linear-gradient(135deg,
+    rgba(30, 30, 33, 0.98) 0%,
+    rgba(37, 37, 40, 0.95) 50%,
+    rgba(30, 30, 33, 0.98) 100%);
+}
+
+/* 柔和阴影 */
+.soft-shadow {
+  box-shadow: 0 4px 16px rgba(100, 80, 50, 0.1);
+}
+
+.dark .soft-shadow {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* 主题切换过渡 */
+* {
+  transition-property: background-color, border-color, color;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+
+/* 禁用某些元素的过渡 */
+button, a, input, textarea, select {
+  transition-property: background-color, border-color, color, box-shadow, transform, opacity;
+}
+
+/* ========== 兼容旧的 dark- 类名（映射到 night- 色系）========== */
+/* 这些样式确保使用 bg-dark-xxx 的元素在深色模式下有正确的背景色 */
+.bg-dark-600 { background-color: #2d2d30; }
+.bg-dark-700 { background-color: #252528; }
+.bg-dark-800 { background-color: #1e1e21; }
+.bg-dark-900 { background-color: #18181b; }
+.border-dark-500 { border-color: #3f3f46; }
+.border-dark-600 { border-color: #2d2d30; }
+.border-dark-700 { border-color: #252528; }
+.hover\:bg-dark-600:hover { background-color: #2d2d30; }
+.hover\:bg-dark-700:hover { background-color: #252528; }

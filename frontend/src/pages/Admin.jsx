@@ -1,7 +1,6 @@
 import {
     AlertTriangle,
     ArrowLeft,
-    Cat,
     Check,
     ChevronDown,
     ChevronUp,
@@ -21,6 +20,16 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../api";
 import { useAuth } from "../App";
+
+// 太极图标组件
+const TaijiIcon = ({ className = "w-8 h-8" }) => (
+  <svg viewBox="0 0 1024 1024" className={className} fill="currentColor">
+    <path d="M803.4816 515.84c-1.9968 159.2576-131.712 287.744-291.456 287.744S222.5664 675.0976 220.5696 515.84c-0.0256-1.2544-0.0512-2.5088-0.0512-3.7632 0-80.4864 65.2544-145.7664 145.7408-145.7664s145.7664 65.28 145.7664 145.7664 65.2544 145.7664 145.7664 145.7664 143.6928-63.2576 145.6896-142.0032z" />
+    <path d="M366.2592 512.1024m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" fill="#1e1e2e" />
+    <path d="M220.5184 508.16c1.9968-159.2576 131.712-287.744 291.456-287.744s289.4592 128.4864 291.456 287.744c0.0256 1.2544 0.0512 2.5088 0.0512 3.7632 0 80.4864-65.2544 145.7664-145.7408 145.7664s-145.7664-65.28-145.7664-145.7664-65.2544-145.7664-145.7664-145.7664-143.6928 63.2576-145.6896 142.0032z" fill="#1e1e2e" />
+    <path d="M657.7408 511.8976m-43.8016 0a43.8016 43.8016 0 1 0 87.6032 0 43.8016 43.8016 0 1 0-87.6032 0Z" />
+  </svg>
+);
 import {
     AlertModal,
     ConfirmModal,
@@ -746,8 +755,8 @@ export default function Admin() {
       <nav className="bg-dark-900 border-b border-dark-700">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Cat className="w-8 h-8 text-purple-400" />
-            <span className="text-xl font-bold">Catiecli</span>
+            <TaijiIcon className="w-8 h-8 text-purple-400" />
+            <span className="text-xl font-bold">同尘</span>
             <span className="text-sm text-gray-500 bg-dark-700 px-2 py-0.5 rounded">
               管理后台
             </span>
@@ -2150,9 +2159,9 @@ export default function Admin() {
       {/* 凭证详情模态框 */}
       {credDetailModal.open && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-dark-800 rounded-xl border border-dark-600 w-full max-w-2xl max-h-[80vh] overflow-auto">
-            <div className="flex items-center justify-between p-4 border-b border-dark-600">
-              <h3 className="text-lg font-medium">凭证详情</h3>
+          <div className="bg-night-100 rounded-xl border border-night-50 w-full max-w-2xl max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between p-4 border-b border-night-50">
+              <h3 className="text-lg font-medium text-sand-100">凭证详情</h3>
               <button
                 onClick={() =>
                   setCredDetailModal({
@@ -2161,111 +2170,111 @@ export default function Admin() {
                     loading: false,
                   })
                 }
-                className="p-1.5 rounded hover:bg-dark-700 text-gray-400"
+                className="p-1.5 rounded hover:bg-night-50 text-sand-400"
               >
                 <X size={20} />
               </button>
             </div>
             <div className="p-4">
               {credDetailModal.loading ? (
-                <div className="text-center py-8 text-gray-400">加载中...</div>
+                <div className="text-center py-8 text-sand-400">加载中...</div>
               ) : credDetailModal.data ? (
-                <div className="space-y-3 text-sm">
+                <div className="space-y-3 text-sm text-sand-200">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <span className="text-gray-500">ID:</span>{" "}
+                      <span className="text-sand-500">ID:</span>{" "}
                       {credDetailModal.data.id}
                     </div>
                     <div>
-                      <span className="text-gray-500">上传者:</span>{" "}
+                      <span className="text-sand-500">上传者:</span>{" "}
                       {credDetailModal.data.username || "系统"}
                     </div>
                     <div>
-                      <span className="text-gray-500">邮箱:</span>{" "}
+                      <span className="text-sand-500">邮箱:</span>{" "}
                       {credDetailModal.data.email || "-"}
                     </div>
                     <div>
-                      <span className="text-gray-500">类型:</span>{" "}
+                      <span className="text-sand-500">类型:</span>{" "}
                       {credDetailModal.data.credential_type}
                     </div>
                     <div>
-                      <span className="text-gray-500">等级:</span>{" "}
+                      <span className="text-sand-500">等级:</span>{" "}
                       {credDetailModal.data.model_tier === "agy" ? (
-                        <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                        <span className="px-2 py-0.5 bg-goldenrod-500/20 text-goldenrod-400 rounded text-xs font-medium">
                           AGY
                         </span>
                       ) : credDetailModal.data.model_tier === "3" ? (
-                        <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs font-medium">
+                        <span className="px-2 py-0.5 bg-wisteria-500/20 text-wisteria-400 rounded text-xs font-medium">
                           3.0
                         </span>
                       ) : (
-                        <span className="px-2 py-0.5 bg-gray-600/50 text-gray-400 rounded text-xs">
+                        <span className="px-2 py-0.5 bg-night-50 text-sand-400 rounded text-xs">
                           2.5
                         </span>
                       )}
                     </div>
                     <div>
-                      <span className="text-gray-500">账号:</span>{" "}
+                      <span className="text-sand-500">账号:</span>{" "}
                       {credDetailModal.data.account_type === "pro" ? (
-                        <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">
+                        <span className="px-2 py-0.5 bg-goldenrod-500/20 text-goldenrod-400 rounded text-xs">
                           ⭐ Pro
                         </span>
                       ) : (
-                        <span className="text-gray-400">
+                        <span className="text-sand-400">
                           {credDetailModal.data.account_type || "free"}
                         </span>
                       )}
                     </div>
                     <div>
-                      <span className="text-gray-500">状态:</span>{" "}
+                      <span className="text-sand-500">状态:</span>{" "}
                       {credDetailModal.data.is_active ? (
-                        <span className="text-green-400">活跃</span>
+                        <span className="text-jade-400">活跃</span>
                       ) : (
-                        <span className="text-red-400">禁用</span>
+                        <span className="text-cinnabar-400">禁用</span>
                       )}
                     </div>
                     <div>
-                      <span className="text-gray-500">公共:</span>{" "}
+                      <span className="text-sand-500">公共:</span>{" "}
                       {credDetailModal.data.is_public ? "是" : "否"}
                     </div>
                     <div>
-                      <span className="text-gray-500">请求:</span>{" "}
+                      <span className="text-sand-500">请求:</span>{" "}
                       {credDetailModal.data.total_requests}
                     </div>
                     <div>
-                      <span className="text-gray-500">失败:</span>{" "}
+                      <span className="text-sand-500">失败:</span>{" "}
                       {credDetailModal.data.failed_requests}
                     </div>
                   </div>
                   <div>
-                    <span className="text-gray-500">Project ID:</span>
-                    <div className="mt-1 p-2 bg-dark-900 rounded font-mono text-xs break-all">
+                    <span className="text-sand-500">Project ID:</span>
+                    <div className="mt-1 p-2 bg-night-200 rounded font-mono text-xs break-all text-sand-300">
                       {credDetailModal.data.project_id || "-"}
                     </div>
                   </div>
                   <div>
-                    <span className="text-gray-500">Refresh Token:</span>
-                    <div className="mt-1 p-2 bg-dark-900 rounded font-mono text-xs break-all max-h-24 overflow-auto">
+                    <span className="text-sand-500">Refresh Token:</span>
+                    <div className="mt-1 p-2 bg-night-200 rounded font-mono text-xs break-all max-h-24 overflow-auto text-sand-300">
                       {credDetailModal.data.refresh_token || "-"}
                     </div>
                   </div>
                   <div>
-                    <span className="text-gray-500">Access Token:</span>
-                    <div className="mt-1 p-2 bg-dark-900 rounded font-mono text-xs break-all max-h-24 overflow-auto">
+                    <span className="text-sand-500">Access Token:</span>
+                    <div className="mt-1 p-2 bg-night-200 rounded font-mono text-xs break-all max-h-24 overflow-auto text-sand-300">
                       {credDetailModal.data.access_token || "-"}
                     </div>
                   </div>
                   {credDetailModal.data.client_id && (
                     <div>
-                      <span className="text-gray-500">Client ID:</span>
-                      <div className="mt-1 p-2 bg-dark-900 rounded font-mono text-xs break-all">
+                      <span className="text-sand-500">Client ID:</span>
+                      <div className="mt-1 p-2 bg-night-200 rounded font-mono text-xs break-all text-sand-300">
                         {credDetailModal.data.client_id}
                       </div>
                     </div>
                   )}
                   <div>
-                    <span className="text-gray-500">最后错误:</span>
-                    <div className="mt-1 p-2 bg-red-900/20 border border-red-500/30 rounded text-xs text-red-300 break-all max-h-32 overflow-auto">
+                    <span className="text-sand-500">最后错误:</span>
+                    <div className="mt-1 p-2 bg-cinnabar-500/10 border border-cinnabar-500/30 rounded text-xs text-cinnabar-400 break-all max-h-32 overflow-auto">
                       {credDetailModal.data.last_error || "无"}
                     </div>
                   </div>

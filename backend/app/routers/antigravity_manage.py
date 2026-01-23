@@ -497,14 +497,14 @@ async def verify_my_antigravity_credential(
         cred.is_active = is_valid
         cred.last_error = error_msg if error_msg else None
         
-        # 保存账号类型到 remark (在原有 remark 前加 [PRO] 或 [Normal] 标记)
+        # 保存账号类型到 note (在原有 note 前加 [PRO] 或 [Normal] 标记)
         if account_tier and is_valid:
             tier_tag = f"[{account_tier.upper()}]"
-            current_remark = cred.remark or ""
+            current_note = cred.note or ""
             # 移除旧的类型标记
             import re
-            current_remark = re.sub(r'\[(PRO|NORMAL)\]\s*', '', current_remark).strip()
-            cred.remark = f"{tier_tag} {current_remark}".strip() if current_remark else tier_tag
+            current_note = re.sub(r'\[(PRO|NORMAL)\]\s*', '', current_note).strip()
+            cred.note = f"{tier_tag} {current_note}".strip() if current_note else tier_tag
         
         await db.commit()
         
