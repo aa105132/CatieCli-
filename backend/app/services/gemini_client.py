@@ -143,8 +143,6 @@ class GeminiClient:
         
         print(f"[GeminiClient] 流式请求: model={model}, project={self.project_id}", flush=True)
         
-        import asyncio
-        
         async with httpx.AsyncClient(timeout=120.0) as client:
             async with client.stream(
                 "POST", url, headers=headers, json=payload
@@ -153,39 +151,9 @@ class GeminiClient:
                     error_text = await response.aread()
                     print(f"[GeminiClient] ❌ 流式错误 {response.status_code}: {error_text.decode()[:500]}", flush=True)
                     raise Exception(f"API Error {response.status_code}: {error_text.decode()}")
-                
-                # 使用心跳机制：如果超过 10 秒没有收到数据，发送空心跳
-                heartbeat_interval = 10  # 秒
-                heartbeat_count = 0
-                
-                async def line_iterator():
-                    async for line in response.aiter_lines():
-                        yield line
-                
-                line_iter = line_iterator()
-                
-                while True:
-                    try:
-                        # 尝试在超时时间内获取下一行
-                        line = await asyncio.wait_for(
-                            line_iter.__anext__(),
-                            timeout=heartbeat_interval
-                        )
-                        
-                        if line.startswith("data: "):
-                            yield line[6:]
-                    
-                    except asyncio.TimeoutError:
-                        # 超时，发送空的心跳 JSON（空 candidates）
-                        heartbeat_count += 1
-                        import json
-                        heartbeat_chunk = {"candidates": [{"content": {"parts": [{"text": ""}], "role": "model"}}]}
-                        yield json.dumps(heartbeat_chunk)
-                        print(f"[GeminiClient] 💓 流式心跳 #{heartbeat_count} (等待思考中...)", flush=True)
-                    
-                    except StopAsyncIteration:
-                        # 迭代器结束
-                        break
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        yield line[6:]
     
     async def fetch_quota_info(self) -> Dict[str, Any]:
         """获取配额信息 - 从 Google API 获取实时配额

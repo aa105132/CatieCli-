@@ -5,7 +5,6 @@ from sqlalchemy import select, func, or_, and_
 from datetime import datetime, timedelta
 import json
 import time
-import asyncio
 
 from app.database import get_db, async_session
 from app.models.user import User, UsageLog
@@ -2078,51 +2077,23 @@ async def gemini_stream_generate_content(
                             return
                         
                         # 响应成功，开始输出数据（此后无法重试）
-                        # 使用心跳机制：如果超过 10 秒没有收到数据，发送空心跳
-                        heartbeat_interval = 10  # 秒
-                        heartbeat_count = 0
-                        
-                        async def line_iterator():
-                            async for line in response.aiter_lines():
-                                yield line
-                        
-                        line_iter = line_iterator()
-                        
-                        while True:
-                            try:
-                                # 尝试在超时时间内获取下一行
-                                line = await asyncio.wait_for(
-                                    line_iter.__anext__(),
-                                    timeout=heartbeat_interval
-                                )
-                                
-                                if line:
-                                    # 转换 SSE 数据格式
-                                    if line.startswith("data: "):
-                                        try:
-                                            data = json.loads(line[6:])
-                                            if "response" in data:
-                                                standard_data = data.get("response", {})
-                                                if "modelVersion" in data:
-                                                    standard_data["modelVersion"] = data["modelVersion"]
-                                                yield f"data: {json.dumps(standard_data)}\n\n"
-                                            else:
-                                                yield f"{line}\n"
-                                        except:
+                        async for line in response.aiter_lines():
+                            if line:
+                                # 转换 SSE 数据格式
+                                if line.startswith("data: "):
+                                    try:
+                                        data = json.loads(line[6:])
+                                        if "response" in data:
+                                            standard_data = data.get("response", {})
+                                            if "modelVersion" in data:
+                                                standard_data["modelVersion"] = data["modelVersion"]
+                                            yield f"data: {json.dumps(standard_data)}\n\n"
+                                        else:
                                             yield f"{line}\n"
-                                    else:
+                                    except:
                                         yield f"{line}\n"
-                            
-                            except asyncio.TimeoutError:
-                                # 超时，发送心跳保持连接
-                                heartbeat_count += 1
-                                heartbeat_chunk = {"candidates": [{"content": {"parts": [{"text": ""}], "role": "model"}}]}
-                                yield f"data: {json.dumps(heartbeat_chunk)}\n\n"
-                                print(f"[Gemini Stream] 💓 流式心跳 #{heartbeat_count} (等待思考中...)", flush=True)
-                            
-                            except StopAsyncIteration:
-                                # 迭代器结束
-                                break
+                                else:
+                                    yield f"{line}\n"
                 
                 # 成功：后台记录日志
                 latency = (time.time() - start_time) * 1000
