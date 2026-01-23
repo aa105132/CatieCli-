@@ -1111,7 +1111,7 @@ export default function Dashboard() {
                 </div>
               )}
               
-              <div className="p-3 max-h-[350px] overflow-y-auto">
+              <div className="p-3">
                 {credLoading ? (
                   <div className="text-center py-8 text-inkbrown-300 dark:text-sand-500 text-sm">
                     <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
@@ -1378,7 +1378,7 @@ export default function Dashboard() {
                 </div>
               )}
               
-              <div className="p-3 max-h-[350px] overflow-y-auto">
+              <div className="p-3">
                 {agyCredLoading ? (
                   <div className="text-center py-8 text-inkbrown-300 dark:text-sand-500 text-sm">
                     <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
