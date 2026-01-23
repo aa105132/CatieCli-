@@ -623,7 +623,7 @@ async def gemini_stream_generate_content(
     async def fake_stream_generator():
         nonlocal credential, access_token, project_id, client
         
-        # 发送心跳
+        # 发送初始心跳
         heartbeat = create_gemini_heartbeat_chunk()
         yield f"data: {json.dumps(heartbeat)}\n\n".encode()
         
@@ -640,12 +640,30 @@ async def gemini_stream_generate_content(
                         "request": normalized_request
                     }
                     
-                    response = await http_client.post(
-                        url,
-                        headers=headers,
-                        json=payload,
-                        timeout=300.0
-                    )
+                    # 使用异步任务 + 心跳机制，防止 Cloudflare/Zeabur 超时
+                    import asyncio
+                    
+                    async def make_request():
+                        return await http_client.post(
+                            url,
+                            headers=headers,
+                            json=payload,
+                            timeout=300.0
+                        )
+                    
+                    request_task = asyncio.create_task(make_request())
+                    heartbeat_count = 0
+                    
+                    # 每 5 秒发送心跳，直到请求完成
+                    while not request_task.done():
+                        await asyncio.sleep(5)
+                        if not request_task.done():
+                            heartbeat_count += 1
+                            heartbeat_chunk = create_gemini_heartbeat_chunk()
+                            yield f"data: {json.dumps(heartbeat_chunk)}\n\n".encode()
+                            print(f"[AntigravityGemini] 💓 假流式心跳 #{heartbeat_count} (retry={retry_attempt})", flush=True)
+                    
+                    response = await request_task
                     
                     if response.status_code != 200:
                         error_text = response.text
@@ -750,9 +768,11 @@ async def gemini_stream_generate_content(
                 yield b"data: [DONE]\n\n"
                 return
     
-    # 普通流式生成器
+    # 普通流式生成器（带心跳机制，防止思考模型长时间无输出导致超时）
     async def normal_stream_generator():
         nonlocal credential, access_token, project_id, client
+        
+        import asyncio
         
         for retry_attempt in range(max_retries + 1):
             try:
@@ -780,38 +800,68 @@ async def gemini_stream_generate_content(
                             error_text = await response.aread()
                             raise Exception(f"API Error {response.status_code}: {error_text.decode()}")
                         
-                        async for line in response.aiter_lines():
-                            if line.startswith("data: "):
-                                json_str = line[6:].strip()
-                                if json_str == "[DONE]":
-                                    yield b"data: [DONE]\n\n"
-                                    continue
+                        # 使用心跳机制：如果超过 10 秒没有收到数据，发送空心跳
+                        heartbeat_interval = 10  # 秒
+                        heartbeat_count = 0
+                        last_data_time = time.time()
+                        
+                        async def line_iterator():
+                            async for line in response.aiter_lines():
+                                yield line
+                        
+                        line_iter = line_iterator()
+                        
+                        while True:
+                            try:
+                                # 尝试在超时时间内获取下一行
+                                line = await asyncio.wait_for(
+                                    line_iter.__anext__(),
+                                    timeout=heartbeat_interval
+                                )
+                                last_data_time = time.time()
                                 
-                                try:
-                                    data = json.loads(json_str)
-                                    # 解包装 response 字段
-                                    if "response" in data and "candidates" not in data:
-                                        data = data["response"]
+                                if line.startswith("data: "):
+                                    json_str = line[6:].strip()
+                                    if json_str == "[DONE]":
+                                        yield b"data: [DONE]\n\n"
+                                        continue
                                     
-                                    # 过滤掉 Gemini API 的特殊标记（如 <-PAGEABLE_STATUSBAR->）
-                                    if "candidates" in data:
-                                        for candidate in data["candidates"]:
-                                            if "content" in candidate and "parts" in candidate["content"]:
-                                                filtered_parts = []
-                                                for part in candidate["content"]["parts"]:
-                                                    if "text" in part:
-                                                        text = part["text"]
-                                                        # 精确匹配 <-XXX-> 格式的特殊标记
-                                                        if text and not re.fullmatch(r'^<-[A-Z_]+->$', text.strip()):
+                                    try:
+                                        data = json.loads(json_str)
+                                        # 解包装 response 字段
+                                        if "response" in data and "candidates" not in data:
+                                            data = data["response"]
+                                        
+                                        # 过滤掉 Gemini API 的特殊标记（如 <-PAGEABLE_STATUSBAR->）
+                                        if "candidates" in data:
+                                            for candidate in data["candidates"]:
+                                                if "content" in candidate and "parts" in candidate["content"]:
+                                                    filtered_parts = []
+                                                    for part in candidate["content"]["parts"]:
+                                                        if "text" in part:
+                                                            text = part["text"]
+                                                            # 精确匹配 <-XXX-> 格式的特殊标记
+                                                            if text and not re.fullmatch(r'^<-[A-Z_]+->$', text.strip()):
+                                                                filtered_parts.append(part)
+                                                        else:
+                                                            # 非文本类型（如图片）直接保留
                                                             filtered_parts.append(part)
-                                                    else:
-                                                        # 非文本类型（如图片）直接保留
-                                                        filtered_parts.append(part)
-                                                candidate["content"]["parts"] = filtered_parts
-                                    
-                                    yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
-                                except:
-                                    yield f"data: {json_str}\n\n".encode()
+                                                    candidate["content"]["parts"] = filtered_parts
+                                        
+                                        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
+                                    except:
+                                        yield f"data: {json_str}\n\n".encode()
+                            
+                            except asyncio.TimeoutError:
+                                # 超时，发送心跳保持连接
+                                heartbeat_count += 1
+                                heartbeat_chunk = create_gemini_heartbeat_chunk()
+                                yield f"data: {json.dumps(heartbeat_chunk)}\n\n".encode()
+                                print(f"[AntigravityGemini] 💓 流式心跳 #{heartbeat_count} (等待思考中...)", flush=True)
+                            
+                            except StopAsyncIteration:
+                                # 迭代器结束
+                                break
                 
                 latency = (time.time() - start_time) * 1000
                 try:

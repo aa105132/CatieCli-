@@ -276,7 +276,7 @@ async def anthropic_messages(
                 await db.commit()
                 raise HTTPException(status_code=status_code, detail=f"Anthropic API 调用失败: {error_str}")
     
-    # 流式处理
+    # 流式处理（带心跳机制，防止思考模型长时间无输出导致超时）
     async def stream_generator():
         nonlocal credential, access_token, project_id, client
         
@@ -302,9 +302,36 @@ async def anthropic_messages(
                                 error_text = await response.aread()
                                 raise Exception(f"API Error {response.status_code}: {error_text.decode()}")
                             
-                            async for line in response.aiter_lines():
-                                if line.startswith("data: "):
-                                    yield line.encode() + b"\n\n"
+                            # 使用心跳机制：如果超过 10 秒没有收到数据，发送空心跳
+                            heartbeat_interval = 10  # 秒
+                            heartbeat_count = 0
+                            
+                            async def line_iterator():
+                                async for line in response.aiter_lines():
+                                    yield line
+                            
+                            line_iter = line_iterator()
+                            
+                            while True:
+                                try:
+                                    # 尝试在超时时间内获取下一行
+                                    line = await asyncio.wait_for(
+                                        line_iter.__anext__(),
+                                        timeout=heartbeat_interval
+                                    )
+                                    
+                                    if line.startswith("data: "):
+                                        yield line.encode() + b"\n\n"
+                                
+                                except asyncio.TimeoutError:
+                                    # 超时，发送 Anthropic 格式的心跳（ping 事件）
+                                    heartbeat_count += 1
+                                    yield b"event: ping\ndata: {}\n\n"
+                                    print(f"[AntigravityAnthropic] 💓 流式心跳 #{heartbeat_count} (等待思考中...)", flush=True)
+                                
+                                except StopAsyncIteration:
+                                    # 迭代器结束
+                                    break
                 
                 async for chunk in gemini_stream_to_anthropic_stream(gemini_stream(), real_model, 200):
                     yield chunk

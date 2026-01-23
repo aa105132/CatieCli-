@@ -365,6 +365,8 @@ class AntigravityClient:
         
         print(f"[AntigravityClient] 流式请求: model={final_model}, project={self.project_id}", flush=True)
         
+        import asyncio
+        
         timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
@@ -372,9 +374,38 @@ class AntigravityClient:
                     error_text = await response.aread()
                     print(f"[AntigravityClient] ❌ 流式错误 {response.status_code}: {error_text.decode()[:500]}", flush=True)
                     raise Exception(f"API Error {response.status_code}: {error_text.decode()}")
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        yield line[6:]
+                
+                # 使用心跳机制：如果超过 10 秒没有收到数据，发送空心跳
+                heartbeat_interval = 10  # 秒
+                heartbeat_count = 0
+                
+                async def line_iterator():
+                    async for line in response.aiter_lines():
+                        yield line
+                
+                line_iter = line_iterator()
+                
+                while True:
+                    try:
+                        # 尝试在超时时间内获取下一行
+                        line = await asyncio.wait_for(
+                            line_iter.__anext__(),
+                            timeout=heartbeat_interval
+                        )
+                        
+                        if line.startswith("data: "):
+                            yield line[6:]
+                    
+                    except asyncio.TimeoutError:
+                        # 超时，发送空的心跳 JSON（空 candidates）
+                        heartbeat_count += 1
+                        heartbeat_chunk = {"candidates": [{"content": {"parts": [{"text": ""}], "role": "model"}}]}
+                        yield json.dumps(heartbeat_chunk)
+                        print(f"[AntigravityClient] 💓 流式心跳 #{heartbeat_count} (等待思考中...)", flush=True)
+                    
+                    except StopAsyncIteration:
+                        # 迭代器结束
+                        break
     
     async def stream_generate_content(
         self,
