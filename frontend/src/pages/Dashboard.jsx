@@ -324,6 +324,72 @@ export default function Dashboard() {
     }
   };
 
+  // CLI 凭证切换启用状态
+  const toggleCliActive = async (id, currentActive) => {
+    try {
+      await api.patch(`/api/auth/credentials/${id}`, null, {
+        params: { is_active: !currentActive },
+      });
+      fetchMyCredentials();
+    } catch (err) {
+      alert(err.response?.data?.detail || "操作失败");
+    }
+  };
+
+  // CLI 凭证批量检测
+  const [verifyingAllCli, setVerifyingAllCli] = useState(false);
+  const verifyAllCliCredentials = async () => {
+    if (myCredentials.length === 0) return;
+    if (!confirm(`确定要检测全部 ${myCredentials.length} 个凭证？这可能需要一些时间。\n\n验证成功的凭证将自动启用。`)) return;
+    
+    setVerifyingAllCli(true);
+    let validCount = 0;
+    let invalidCount = 0;
+    
+    for (const cred of myCredentials) {
+      try {
+        const res = await api.post(`/api/auth/credentials/${cred.id}/verify`);
+        // 根据API返回的 is_valid 判断凭证是否有效
+        if (res.data?.is_valid) {
+          validCount++;
+        } else {
+          invalidCount++;
+        }
+      } catch {
+        invalidCount++;
+      }
+    }
+    
+    setVerifyingAllCli(false);
+    fetchMyCredentials();
+    alert(`检测完成：${validCount} 个有效（已启用），${invalidCount} 个无效`);
+  };
+
+  // CLI 凭证全部切换公开/私有
+  const toggleAllCliPublic = async (setPublic) => {
+    const targetCreds = myCredentials.filter(c => c.is_public !== setPublic && c.is_active);
+    if (targetCreds.length === 0) {
+      alert(setPublic ? "没有可以公开的凭证" : "没有可以私有化的凭证");
+      return;
+    }
+    
+    if (!confirm(`确定要将 ${targetCreds.length} 个凭证设为${setPublic ? "公开" : "私有"}？`)) return;
+    
+    for (const cred of targetCreds) {
+      try {
+        await api.patch(`/api/auth/credentials/${cred.id}`, null, {
+          params: { is_public: setPublic },
+        });
+      } catch (err) {
+        console.error("切换失败", err);
+      }
+    }
+    
+    fetchMyCredentials();
+    const meRes = await api.get("/api/auth/me");
+    if (meRes?.data) setUserInfo(meRes.data);
+  };
+
   // ========== Antigravity 相关函数 ==========
   const fetchAgyCredentials = async () => {
     setAgyCredLoading(true);
@@ -474,6 +540,60 @@ export default function Dashboard() {
         text: err.response?.data?.detail || "操作失败",
       });
     }
+  };
+
+  // Antigravity 凭证批量检测
+  const [verifyingAllAgy, setVerifyingAllAgy] = useState(false);
+  const verifyAllAgyCredentials = async () => {
+    if (agyCredentials.length === 0) return;
+    if (!confirm(`确定要检测全部 ${agyCredentials.length} 个凭证？这可能需要一些时间。\n\n验证成功的凭证将自动启用。`)) return;
+    
+    setVerifyingAllAgy(true);
+    let validCount = 0;
+    let invalidCount = 0;
+    
+    for (const cred of agyCredentials) {
+      try {
+        const res = await api.post(`/api/antigravity/credentials/${cred.id}/verify`);
+        // 根据API返回的 is_valid 判断凭证是否有效
+        if (res.data?.is_valid) {
+          validCount++;
+        } else {
+          invalidCount++;
+        }
+      } catch {
+        invalidCount++;
+      }
+    }
+    
+    setVerifyingAllAgy(false);
+    fetchAgyCredentials();
+    alert(`检测完成：${validCount} 个有效（已启用），${invalidCount} 个无效`);
+  };
+
+  // Antigravity 凭证全部切换公开/私有
+  const toggleAllAgyPublic = async (setPublic) => {
+    const targetCreds = agyCredentials.filter(c => c.is_public !== setPublic && c.is_active);
+    if (targetCreds.length === 0) {
+      alert(setPublic ? "没有可以公开的凭证" : "没有可以私有化的凭证");
+      return;
+    }
+    
+    if (!confirm(`确定要将 ${targetCreds.length} 个凭证设为${setPublic ? "公开" : "私有"}？`)) return;
+    
+    for (const cred of targetCreds) {
+      try {
+        await api.patch(`/api/antigravity/credentials/${cred.id}`, null, {
+          params: { is_public: setPublic },
+        });
+      } catch (err) {
+        console.error("切换失败", err);
+      }
+    }
+    
+    fetchAgyCredentials();
+    const meRes = await api.get("/api/auth/me");
+    if (meRes?.data) setUserInfo(meRes.data);
   };
 
   // ========== Antigravity 额度预览相关函数 ==========
@@ -929,6 +1049,32 @@ export default function Dashboard() {
                       导出全部
                     </button>
                   )}
+                  {myCredentials.length > 0 && (
+                    <>
+                      <button
+                        onClick={verifyAllCliCredentials}
+                        disabled={verifyingAllCli}
+                        className="text-xs px-3 py-1.5 text-cyan-600 dark:text-cyan-400 bg-cyan-100 dark:bg-cyan-600/20 border border-cyan-300 dark:border-cyan-500/50 rounded-md hover:bg-cyan-200 dark:hover:bg-cyan-600/30 transition-all flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <CheckCircle size={12} />
+                        {verifyingAllCli ? "检测中..." : "检测全部"}
+                      </button>
+                      <button
+                        onClick={() => toggleAllCliPublic(true)}
+                        className="text-xs px-3 py-1.5 text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-600/20 border border-purple-300 dark:border-purple-500/50 rounded-md hover:bg-purple-200 dark:hover:bg-purple-600/30 transition-all flex items-center gap-1"
+                      >
+                        <Globe size={12} />
+                        全部公开
+                      </button>
+                      <button
+                        onClick={() => toggleAllCliPublic(false)}
+                        className="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-600/20 border border-gray-300 dark:border-gray-500/50 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600/30 transition-all flex items-center gap-1"
+                      >
+                        <Lock size={12} />
+                        全部私有
+                      </button>
+                    </>
+                  )}
                   <input
                     ref={cliFileInputRef}
                     type="file"
@@ -1025,6 +1171,13 @@ export default function Dashboard() {
                             title={cred.is_public ? "取消公开" : "公开"}
                           >
                             {cred.is_public ? <Globe size={14} /> : <Lock size={14} />}
+                          </button>
+                          <button
+                            onClick={() => toggleCliActive(cred.id, cred.is_active)}
+                            className={`p-2 rounded-md transition-all ${cred.is_active ? 'text-goldenrod-500 dark:text-goldenrod-400 hover:bg-goldenrod-100 dark:hover:bg-goldenrod-600/20' : 'text-jade-500 dark:text-jade-400 hover:bg-jade-100 dark:hover:bg-jade-600/20'}`}
+                            title={cred.is_active ? "禁用" : "启用"}
+                          >
+                            {cred.is_active ? <X size={14} /> : <Check size={14} />}
                           </button>
                           <button
                             onClick={() => deleteCred(cred.id)}
@@ -1155,6 +1308,32 @@ export default function Dashboard() {
                       <Download size={12} />
                       导出全部
                     </button>
+                  )}
+                  {agyCredentials.length > 0 && (
+                    <>
+                      <button
+                        onClick={verifyAllAgyCredentials}
+                        disabled={verifyingAllAgy}
+                        className="text-xs px-3 py-1.5 text-cyan-600 dark:text-cyan-400 bg-cyan-100 dark:bg-cyan-600/20 border border-cyan-300 dark:border-cyan-500/50 rounded-md hover:bg-cyan-200 dark:hover:bg-cyan-600/30 transition-all flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <CheckCircle size={12} />
+                        {verifyingAllAgy ? "检测中..." : "检测全部"}
+                      </button>
+                      <button
+                        onClick={() => toggleAllAgyPublic(true)}
+                        className="text-xs px-3 py-1.5 text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-600/20 border border-purple-300 dark:border-purple-500/50 rounded-md hover:bg-purple-200 dark:hover:bg-purple-600/30 transition-all flex items-center gap-1"
+                      >
+                        <Globe size={12} />
+                        全部公开
+                      </button>
+                      <button
+                        onClick={() => toggleAllAgyPublic(false)}
+                        className="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-600/20 border border-gray-300 dark:border-gray-500/50 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600/30 transition-all flex items-center gap-1"
+                      >
+                        <Lock size={12} />
+                        全部私有
+                      </button>
+                    </>
                   )}
                   <input
                     ref={agyFileInputRef}

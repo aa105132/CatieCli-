@@ -498,15 +498,30 @@ export default function AntigravityCredentials() {
                 >
                   {/* 顶部：状态标签 + 序号 */}
                   <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {cred.is_active ? (
                         <span className="text-xs px-2 py-0.5 bg-green-600 text-white rounded font-medium">
                           ✓ 启用
                         </span>
                       ) : (
-                        <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded font-medium">
-                          ✕ 禁用
-                        </span>
+                        <>
+                          <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded font-medium">
+                            ✕ 禁用
+                          </span>
+                          {cred.last_error && (
+                            <span
+                              className="text-xs px-2 py-0.5 bg-red-900/50 text-red-300 rounded font-mono truncate max-w-[200px]"
+                              title={cred.last_error}
+                            >
+                              {cred.last_error.includes("401") ? "401 认证失败" :
+                               cred.last_error.includes("403") ? "403 权限拒绝" :
+                               cred.last_error.includes("PERMISSION_DENIED") ? "权限被拒绝" :
+                               cred.last_error.includes("ConnectError") ? "网络连接失败" :
+                               cred.last_error.includes("timeout") ? "请求超时" :
+                               cred.last_error.length > 30 ? cred.last_error.slice(0, 30) + "..." : cred.last_error}
+                            </span>
+                          )}
+                        </>
                       )}
                       <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded font-medium">
                         AGY
