@@ -26,6 +26,8 @@ class User(Base):
     # Antigravity 配额
     quota_antigravity = Column(Integer, default=100)  # Antigravity 每日配额
     used_antigravity = Column(Integer, default=0)     # 当天已使用次数
+    # 自定义速率限制 (RPM - requests per minute)
+    custom_rpm = Column(Integer, default=0)           # 自定义 RPM (0=使用系统默认)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # 关系

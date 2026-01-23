@@ -728,11 +728,15 @@ async def chat_completions(
             .where(UsageLog.created_at >= one_minute_ago)
         )
         current_rpm = rpm_result.scalar() or 0
-        max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
+        # 优先使用用户自定义 RPM，否则使用系统默认
+        if user.custom_rpm and user.custom_rpm > 0:
+            max_rpm = user.custom_rpm
+        else:
+            max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
         
         if current_rpm >= max_rpm:
             raise HTTPException(
-                status_code=429, 
+                status_code=429,
                 detail=f"速率限制: {max_rpm} 次/分钟。{'上传凭证可提升至 ' + str(settings.contributor_rpm) + ' 次/分钟' if not user_has_public else ''}"
             )
     
@@ -1352,7 +1356,11 @@ async def gemini_generate_content(
             .where(UsageLog.created_at >= one_minute_ago)
         )
         current_rpm = rpm_result.scalar() or 0
-        max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
+        # 优先使用用户自定义 RPM，否则使用系统默认
+        if user.custom_rpm and user.custom_rpm > 0:
+            max_rpm = user.custom_rpm
+        else:
+            max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
         
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")
@@ -1678,7 +1686,11 @@ async def gemini_stream_generate_content(
             .where(UsageLog.created_at >= one_minute_ago)
         )
         current_rpm = rpm_result.scalar() or 0
-        max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
+        # 优先使用用户自定义 RPM，否则使用系统默认
+        if user.custom_rpm and user.custom_rpm > 0:
+            max_rpm = user.custom_rpm
+        else:
+            max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
         
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")
@@ -2191,7 +2203,11 @@ async def openai_proxy(
             .where(UsageLog.created_at >= one_minute_ago)
         )
         current_rpm = rpm_result.scalar() or 0
-        max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
+        # 优先使用用户自定义 RPM，否则使用系统默认
+        if user.custom_rpm and user.custom_rpm > 0:
+            max_rpm = user.custom_rpm
+        else:
+            max_rpm = settings.contributor_rpm if user_has_public else settings.base_rpm
         
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")

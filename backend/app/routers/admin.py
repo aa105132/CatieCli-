@@ -23,6 +23,7 @@ class UserUpdate(BaseModel):
     quota_flash: Optional[int] = None
     quota_25pro: Optional[int] = None
     quota_30pro: Optional[int] = None
+    custom_rpm: Optional[int] = None  # 自定义 RPM (0=使用系统默认)
 
 
 class UserPasswordUpdate(BaseModel):
@@ -132,6 +133,7 @@ async def list_users(
             "credential_count": credential_count,
             "discord_id": u.discord_id,
             "discord_name": u.discord_name,
+            "custom_rpm": u.custom_rpm or 0,
             "created_at": u.created_at
         })
     
@@ -163,6 +165,8 @@ async def update_user(
         user.quota_25pro = data.quota_25pro
     if data.quota_30pro is not None:
         user.quota_30pro = data.quota_30pro
+    if data.custom_rpm is not None:
+        user.custom_rpm = data.custom_rpm
     
     await db.commit()
     await notify_user_update()

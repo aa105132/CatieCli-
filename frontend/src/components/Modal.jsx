@@ -166,7 +166,8 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
   const [values, setValues] = useState({
     quota_flash: defaultValues.quota_flash || 0,
     quota_25pro: defaultValues.quota_25pro || 0,
-    quota_30pro: defaultValues.quota_30pro || 0
+    quota_30pro: defaultValues.quota_30pro || 0,
+    custom_rpm: defaultValues.custom_rpm || 0
   })
 
   useEffect(() => {
@@ -174,7 +175,8 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
       setValues({
         quota_flash: defaultValues.quota_flash || 0,
         quota_25pro: defaultValues.quota_25pro || 0,
-        quota_30pro: defaultValues.quota_30pro || 0
+        quota_30pro: defaultValues.quota_30pro || 0,
+        custom_rpm: defaultValues.custom_rpm || 0
       })
     }
   }, [isOpen, defaultValues])
@@ -229,6 +231,20 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
             <div className="flex justify-between items-center">
               <span className="text-sand-400 text-sm">总配额（自动计算）</span>
               <span className="text-wisteria-400 font-semibold">{totalQuota.toLocaleString()}</span>
+            </div>
+          </div>
+          <div className="border-t border-night-50 pt-4">
+            <p className="text-sand-400 text-sm mb-3">速率限制（0=使用系统默认）</p>
+            <div>
+              <label className="block text-emerald-400 text-xs mb-1">自定义 RPM（次/分钟）</label>
+              <input
+                type="number"
+                value={values.custom_rpm}
+                onChange={(e) => setValues({ ...values, custom_rpm: parseInt(e.target.value) || 0 })}
+                className="w-full px-3 py-2 bg-night-200 border border-emerald-500/30 rounded-lg text-sand-100 text-sm focus:border-emerald-500 focus:outline-none"
+                placeholder="0 = 使用系统默认"
+              />
+              <p className="text-sand-500 text-xs mt-1">设置后将覆盖系统默认的速率限制</p>
             </div>
           </div>
         </div>

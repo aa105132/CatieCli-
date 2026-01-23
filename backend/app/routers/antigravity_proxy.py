@@ -21,6 +21,20 @@ import re
 router = APIRouter(prefix="/antigravity", tags=["Antigravity API代理"])
 
 
+def openai_error_response(status_code: int, message: str, error_type: str = "api_error", error_code: str = None) -> JSONResponse:
+    """返回 OpenAI 格式的错误响应"""
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "message": message,
+                "type": error_type,
+                "code": error_code or str(status_code)
+            }
+        }
+    )
+
+
 def extract_status_code(error_str: str, default: int = 500) -> int:
     """从错误信息中提取HTTP状态码"""
     patterns = [
@@ -333,7 +347,7 @@ async def chat_completions(
     try:
         body = await request.json()
     except:
-        raise HTTPException(status_code=400, detail="无效的JSON请求体")
+        return openai_error_response(400, "无效的JSON请求体", "invalid_request_error")
     
     request_body_str = json.dumps(body, ensure_ascii=False)[:2000] if body else None
     
@@ -345,7 +359,7 @@ async def chat_completions(
     stream = body.get("stream", False)
     
     if not messages:
-        raise HTTPException(status_code=400, detail="messages不能为空")
+        return openai_error_response(400, "messages不能为空", "invalid_request_error")
     
     # 检查用户是否有公开的 Antigravity 凭证
     user_has_public = await CredentialPool.check_user_has_public_creds(db, user.id, mode="antigravity")
@@ -359,12 +373,17 @@ async def chat_completions(
             .where(UsageLog.created_at >= one_minute_ago)
         )
         current_rpm = rpm_result.scalar() or 0
-        max_rpm = settings.antigravity_contributor_rpm if user_has_public else settings.antigravity_base_rpm
+        # 优先使用用户自定义 RPM，否则使用系统默认
+        if user.custom_rpm and user.custom_rpm > 0:
+            max_rpm = user.custom_rpm
+        else:
+            max_rpm = settings.antigravity_contributor_rpm if user_has_public else settings.antigravity_base_rpm
         
         if current_rpm >= max_rpm:
-            raise HTTPException(
-                status_code=429, 
-                detail=f"Antigravity 速率限制: {max_rpm} 次/分钟。{'上传 Antigravity 凭证可提升至 ' + str(settings.antigravity_contributor_rpm) + ' 次/分钟' if not user_has_public else ''}"
+            return openai_error_response(
+                429,
+                f"Antigravity 速率限制: {max_rpm} 次/分钟。{'上传 Antigravity 凭证可提升至 ' + str(settings.antigravity_contributor_rpm) + ' 次/分钟' if not user_has_public else ''}",
+                "rate_limit_error"
             )
     
     # Antigravity 配额检查
@@ -396,9 +415,10 @@ async def chat_completions(
         user_used = user.used_antigravity or 0
         
         if user_used >= user_quota:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Antigravity 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）"
+            return openai_error_response(
+                429,
+                f"Antigravity 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）",
+                "rate_limit_error"
             )
         
         # 扣减配额（先扣减，如果请求失败会在日志中记录）
@@ -442,20 +462,22 @@ async def chat_completions(
         if required_tier == "3":
             placeholder_log.error_message = "没有可用的 Gemini 3 等级凭证"
             await db.commit()
-            raise HTTPException(
-                status_code=503, 
-                detail="没有可用的 Gemini 3 等级凭证。该模型需要有 Gemini 3 资格的凭证。"
+            return openai_error_response(
+                503,
+                "没有可用的 Gemini 3 等级凭证。该模型需要有 Gemini 3 资格的凭证。",
+                "server_error"
             )
         if not user_has_public:
             placeholder_log.error_message = "用户没有可用的 Antigravity 凭证"
             await db.commit()
-            raise HTTPException(
-                status_code=503,
-                detail="您没有可用的 Antigravity 凭证。请在 Antigravity 凭证管理页面上传凭证，或捐赠凭证以使用公共池。"
+            return openai_error_response(
+                503,
+                "您没有可用的 Antigravity 凭证。请在 Antigravity 凭证管理页面上传凭证，或捐赠凭证以使用公共池。",
+                "server_error"
             )
         placeholder_log.error_message = "暂无可用凭证"
         await db.commit()
-        raise HTTPException(status_code=503, detail="暂无可用凭证，请稍后重试")
+        return openai_error_response(503, "暂无可用凭证，请稍后重试", "server_error")
     
     tried_credential_ids.add(credential.id)
     
@@ -471,7 +493,7 @@ async def chat_completions(
         placeholder_log.credential_id = credential.id
         placeholder_log.credential_email = credential.email
         await db.commit()
-        raise HTTPException(status_code=503, detail="Token 刷新失败")
+        return openai_error_response(503, "Token 刷新失败", "server_error")
     
     if not project_id:
         await CredentialPool.mark_credential_error(db, credential.id, "无法获取 Antigravity project_id")
@@ -483,7 +505,7 @@ async def chat_completions(
         placeholder_log.credential_id = credential.id
         placeholder_log.credential_email = credential.email
         await db.commit()
-        raise HTTPException(status_code=503, detail="凭证未激活 Antigravity，无法获取 project_id")
+        return openai_error_response(503, "凭证未激活 Antigravity，无法获取 project_id", "server_error")
     first_credential_id = credential.id
     first_credential_email = credential.email
     print(f"[Antigravity Proxy] ★★★ 凭证信息 ★★★", flush=True)
@@ -660,7 +682,7 @@ async def chat_completions(
                 placeholder_log.retry_count = retry_attempt
                 await db.commit()
                 
-                raise HTTPException(status_code=status_code, detail=f"Antigravity API调用失败 (已重试 {retry_attempt + 1} 次): {error_str}")
+                return openai_error_response(status_code, f"Antigravity API调用失败 (已重试 {retry_attempt + 1} 次): {error_str}", "api_error")
         
         # 所有重试都失败或没有更多凭证，记录最终错误日志
         status_code = extract_status_code(str(last_error)) if last_error else 503
@@ -684,7 +706,7 @@ async def chat_completions(
             "created_at": datetime.utcnow().isoformat()
         })
         
-        raise HTTPException(status_code=status_code, detail=f"所有凭证都失败了: {last_error}")
+        return openai_error_response(status_code, f"所有凭证都失败了: {last_error}", "api_error")
     
     # 假非流模式：以流式调用 API，发送心跳保持连接，最后返回普通 JSON
     # 适用于：前端强制非流式（stream=false），但需要防止 Cloudflare 504 超时
@@ -987,7 +1009,7 @@ async def chat_completions(
                     "created_at": datetime.utcnow().isoformat()
                 })
                 
-                yield json.dumps({"error": f"Antigravity 假非流调用失败: {error_str}"})
+                yield json.dumps({"error": {"message": f"Antigravity 假非流调用失败: {error_str}", "type": "api_error", "code": str(status_code)}})
                 return
         
         # 所有重试都失败了，记录最终错误
@@ -1012,7 +1034,7 @@ async def chat_completions(
         except Exception as log_err:
             print(f"[Antigravity Proxy] ⚠️ 假非流最终错误日志记录失败: {log_err}", flush=True)
         
-        yield json.dumps({"error": f"所有凭证都失败了: {last_error}"})
+        yield json.dumps({"error": {"message": f"所有凭证都失败了: {last_error}", "type": "api_error", "code": str(status_code)}})
     
     # 路由逻辑：
     # 1. 图片模型：使用假非流模式（非流式端点 + 心跳机制），防止生成时间长导致超时
@@ -1234,12 +1256,12 @@ async def chat_completions(
                     "created_at": datetime.utcnow().isoformat()
                 })
                 
-                yield json.dumps({"error": f"Antigravity 图片模型调用失败: {error_str}"})
+                yield json.dumps({"error": {"message": f"Antigravity 图片模型调用失败: {error_str}", "type": "api_error", "code": str(status_code)}})
                 return
         
         # 所有重试都失败
         status_code = extract_status_code(str(last_error)) if last_error else 503
-        yield json.dumps({"error": f"所有凭证都失败了: {last_error}"})
+        yield json.dumps({"error": {"message": f"所有凭证都失败了: {last_error}", "type": "api_error", "code": str(status_code)}})
     
     if is_image_model:
         # 图片模型：使用假非流模式（非流式端点 + 心跳机制）
@@ -1462,7 +1484,7 @@ async def chat_completions(
                     "latency_ms": latency,
                     "retry_count": stream_retry
                 })
-                yield f"data: {json.dumps({'error': f'Antigravity API Error (已重试 {stream_retry + 1} 次): {error_str}'})}\n\n"
+                yield f"data: {json.dumps({'error': {'message': f'Antigravity API Error (已重试 {stream_retry + 1} 次): {error_str}', 'type': 'api_error', 'code': str(status_code)}})}\n\n"
                 return
     
     return StreamingResponse(

@@ -126,7 +126,11 @@ async def anthropic_messages(
             .where(UsageLog.created_at >= one_minute_ago)
         )
         current_rpm = rpm_result.scalar() or 0
-        max_rpm = settings.antigravity_contributor_rpm if user_has_public else settings.antigravity_base_rpm
+        # 优先使用用户自定义 RPM，否则使用系统默认
+        if user.custom_rpm and user.custom_rpm > 0:
+            max_rpm = user.custom_rpm
+        else:
+            max_rpm = settings.antigravity_contributor_rpm if user_has_public else settings.antigravity_base_rpm
         
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")

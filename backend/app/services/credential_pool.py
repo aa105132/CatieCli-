@@ -673,7 +673,10 @@ class CredentialPool:
             client_secret = settings.google_client_secret
             print(f"[Token刷新] 使用 GeminiCLI 系统 client_id", flush=True)
         
-        print(f"[Token刷新] 开始刷新 token, refresh_token 前20字符: {refresh_token[:20]}...", flush=True)
+        print(f"[Token刷新] 开始刷新 token", flush=True)
+        print(f"[Token刷新] refresh_token 长度: {len(refresh_token)}, 前20字符: {refresh_token[:20]}...", flush=True)
+        print(f"[Token刷新] client_id 长度: {len(client_id) if client_id else 0}", flush=True)
+        print(f"[Token刷新] client_secret 长度: {len(client_secret) if client_secret else 0}", flush=True)
         
         try:
             async with httpx.AsyncClient(timeout=15) as client:
@@ -688,6 +691,7 @@ class CredentialPool:
                 )
                 data = response.json()
                 print(f"[Token刷新] 响应状态: {response.status_code}", flush=True)
+                print(f"[Token刷新] 响应内容: {data}", flush=True)
                 
                 if "access_token" in data:
                     print(f"[Token刷新] 刷新成功!", flush=True)
@@ -696,6 +700,8 @@ class CredentialPool:
                 return None
         except Exception as e:
             print(f"[Token刷新] 异常: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
             return None
     
     @staticmethod
