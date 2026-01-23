@@ -8,7 +8,7 @@ import time
 import asyncio
 
 from app.database import get_db, async_session
-from app.models.user import User, UsageLog
+from app.models.user import User, UsageLog, Credential
 from app.services.auth import get_user_by_api_key
 from app.services.credential_pool import CredentialPool
 from app.services.antigravity_client import AntigravityClient
