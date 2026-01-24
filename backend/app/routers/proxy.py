@@ -1435,7 +1435,9 @@ async def gemini_generate_content(
         payload = {"model": api_model, "project": project_id, "request": request_body}
         
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            # 使用更长的超时时间，thinking 模型需要更多处理时间
+            non_stream_timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+            async with httpx.AsyncClient(timeout=non_stream_timeout) as client:
                 response = await client.post(
                     url,
                     headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
@@ -2006,7 +2008,9 @@ async def gemini_stream_generate_content(
             payload = {"model": api_model, "project": project_id, "request": request_body}
             
             try:
-                async with httpx.AsyncClient(timeout=120.0) as client:
+                # 使用更长的超时时间，thinking 模型需要更多处理时间
+                stream_timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+                async with httpx.AsyncClient(timeout=stream_timeout) as client:
                     async with client.stream(
                         "POST", url,
                         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
@@ -2278,7 +2282,9 @@ async def openai_proxy(
             # 流式响应
             async def stream_generator():
                 try:
-                    async with httpx.AsyncClient(timeout=120.0) as client:
+                    # 使用更长的超时时间
+                    openai_timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+                    async with httpx.AsyncClient(timeout=openai_timeout) as client:
                         async with client.stream(
                             request.method, target_url,
                             headers=headers,
@@ -2308,7 +2314,9 @@ async def openai_proxy(
             )
         else:
             # 非流式响应
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            # 使用更长的超时时间
+            openai_timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+            async with httpx.AsyncClient(timeout=openai_timeout) as client:
                 response = await client.request(
                     request.method, target_url,
                     headers=headers,

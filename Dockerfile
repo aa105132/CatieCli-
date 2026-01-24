@@ -29,10 +29,14 @@ RUN mkdir -p /app/data
 ENV PYTHONIOENCODING=utf-8
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+# 禁用 Python 输出缓冲（重要：确保流式响应立即发送）
+ENV PYTHONUNBUFFERED=1
 
 # 默认端口（Zeabur 期望 8080）
 ENV PORT=8080
 EXPOSE 8080
 
 # 启动命令（使用 shell 形式以支持环境变量）
-CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT
+# --timeout-keep-alive: 延长保活超时，防止长请求被断开
+# --ws-ping-interval/--ws-ping-timeout: WebSocket 心跳配置
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 600 --ws-ping-interval 20 --ws-ping-timeout 20

@@ -200,7 +200,11 @@ async def anthropic_messages(
         for retry_attempt in range(max_retries + 1):
             try:
                 # 使用 Antigravity 客户端的底层方法
-                async with client._get_client() as http_client:
+                import httpx
+                # 使用与 antigravity_client.py 一致的超时配置
+                # thinking 模型需要更长的处理时间
+                non_stream_timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+                async with httpx.AsyncClient(timeout=non_stream_timeout) as http_client:
                     url = client.get_generate_url()  # v1internal:generateContent
                     headers = client.get_headers(real_model)
                     
@@ -210,8 +214,7 @@ async def anthropic_messages(
                     response = await http_client.post(
                         url,
                         headers=headers,
-                        json=api_request,
-                        timeout=300.0
+                        json=api_request
                     )
                     
                     if response.status_code != 200:
@@ -283,7 +286,11 @@ async def anthropic_messages(
         for retry_attempt in range(max_retries + 1):
             try:
                 async def gemini_stream():
-                    async with client._get_client() as http_client:
+                    import httpx
+                    # 使用与 antigravity_client.py 一致的超时配置
+                    # thinking 模型需要更长的处理时间
+                    stream_timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
+                    async with httpx.AsyncClient(timeout=stream_timeout) as http_client:
                         url = client.get_stream_url()  # v1internal:streamGenerateContent?alt=sse
                         headers = client.get_headers(real_model)
                         
@@ -295,8 +302,7 @@ async def anthropic_messages(
                             "POST",
                             url,
                             headers=headers,
-                            json=stream_request,
-                            timeout=300.0
+                            json=stream_request
                         ) as response:
                             if response.status_code != 200:
                                 error_text = await response.aread()
