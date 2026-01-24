@@ -386,7 +386,7 @@ export default function AntigravityCredentials() {
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* 统计信息 */}
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
             <div className="card p-4">
               <div className="text-2xl font-bold text-orange-400">
                 {stats.total}
@@ -411,6 +411,14 @@ export default function AntigravityCredentials() {
               </div>
               <div className="text-xs text-gray-400">我的活跃</div>
             </div>
+            {stats.banana_enabled && (
+              <div className="card p-4">
+                <div className="text-2xl font-bold text-yellow-400">
+                  {stats.banana_used}/{stats.banana_quota}
+                </div>
+                <div className="text-xs text-gray-400">Banana 额度</div>
+              </div>
+            )}
           </div>
         )}
 

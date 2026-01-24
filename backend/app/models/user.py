@@ -53,8 +53,8 @@ class APIKey(Base):
     
     @staticmethod
     def generate_key():
-        """生成API密钥: daoyou-xxxxxxxx"""
-        return f"daoyou-{secrets.token_hex(24)}"
+        """生成API密钥: tc-xxxxxxxx"""
+        return f"tc-{secrets.token_hex(24)}"
 
 
 class UsageLog(Base):

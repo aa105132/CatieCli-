@@ -1271,13 +1271,50 @@ async def get_antigravity_stats(
         )
         user_active = user_active_result.scalar() or 0
         
+        # 查询用户今天的 Banana 使用量（image 模型）
+        now = datetime.utcnow()
+        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now < reset_time_utc:
+            start_of_day = reset_time_utc - timedelta(days=1)
+        else:
+            start_of_day = reset_time_utc
+        
+        # 统计用户（管理员自己）公开凭证数
+        user_public_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == MODE)
+            .where(Credential.user_id == user.id)
+            .where(Credential.is_public == True)
+            .where(Credential.is_active == True)
+        )
+        user_public_creds = user_public_result.scalar() or 0
+        
+        # 计算 Banana 配额
+        if settings.banana_quota_enabled:
+            banana_quota = settings.banana_quota_default + user_public_creds * settings.banana_quota_per_cred
+            
+            # 查询今天的 Banana 使用量
+            banana_usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'))
+            )
+            banana_used = banana_usage_result.scalar() or 0
+        else:
+            banana_quota = None
+            banana_used = 0
+        
         return {
             "total": total,
             "active": active,
             "public": public,
             "user_credentials": user_creds,
             "user_active": user_active,
-            "enabled": settings.antigravity_enabled
+            "enabled": settings.antigravity_enabled,
+            "banana_quota": banana_quota,
+            "banana_used": banana_used,
+            "banana_enabled": settings.banana_quota_enabled
         }
     else:
         # 普通用户：只显示自己的凭证统计
@@ -1308,11 +1345,37 @@ async def get_antigravity_stats(
         )
         user_public = user_public_result.scalar() or 0
         
+        # 计算 Banana 配额信息
+        now = datetime.utcnow()
+        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now < reset_time_utc:
+            start_of_day = reset_time_utc - timedelta(days=1)
+        else:
+            start_of_day = reset_time_utc
+        
+        if settings.banana_quota_enabled:
+            banana_quota = settings.banana_quota_default + user_public * settings.banana_quota_per_cred
+            
+            # 查询今天的 Banana 使用量
+            banana_usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'))
+            )
+            banana_used = banana_usage_result.scalar() or 0
+        else:
+            banana_quota = None
+            banana_used = 0
+        
         return {
             "total": user_total,
             "active": user_active,
             "public": user_public,
             "user_credentials": user_total,
             "user_active": user_active,
-            "enabled": settings.antigravity_enabled
+            "enabled": settings.antigravity_enabled,
+            "banana_quota": banana_quota,
+            "banana_used": banana_used,
+            "banana_enabled": settings.banana_quota_enabled
         }

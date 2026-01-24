@@ -272,7 +272,7 @@ export default function Stats() {
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-4 gap-4 mb-4">
                 <div className="bg-purple-600/20 border border-purple-600/30 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-purple-400">
                     {globalStats.requests.by_category.flash}
@@ -284,6 +284,12 @@ export default function Stats() {
                     {globalStats.requests.by_category["pro_2.5"]}
                   </div>
                   <div className="text-sm text-blue-300">Gemini 请求</div>
+                </div>
+                <div className="bg-yellow-600/20 border border-yellow-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-400">
+                    {globalStats.requests.by_category.banana || 0}
+                  </div>
+                  <div className="text-sm text-yellow-300">Banana 请求</div>
                 </div>
                 <div className="bg-gray-600/20 border border-gray-600/30 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-gray-400">

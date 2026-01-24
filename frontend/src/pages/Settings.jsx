@@ -102,6 +102,18 @@ export default function Settings() {
         config.antigravity_pool_mode ?? "full_shared",
       );
       formData.append(
+        "banana_quota_enabled",
+        config.banana_quota_enabled ?? true,
+      );
+      formData.append(
+        "banana_quota_default",
+        config.banana_quota_default ?? 50,
+      );
+      formData.append(
+        "banana_quota_per_cred",
+        config.banana_quota_per_cred ?? 50,
+      );
+      formData.append(
         "oauth_guide_enabled",
         config.oauth_guide_enabled ?? true,
       );
@@ -1186,6 +1198,86 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
                     </p>
                   </div>
                 )}
+                
+                {/* Banana 额度配置 */}
+                <div className="mt-4 p-3 border border-yellow-500/30 rounded-lg bg-yellow-500/5">
+                  <div className="flex justify-between items-center mb-3">
+                    <div>
+                      <label className="text-sm text-yellow-400 block font-medium">
+                        Banana 额度限制
+                      </label>
+                      <p className="text-gray-400 text-xs mt-1">
+                        限制 image 模型每日调用次数（agy-gemini-3-pro-image 系列）
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config?.banana_quota_enabled ?? true}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            banana_quota_enabled: e.target.checked,
+                          })
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-600"></div>
+                    </label>
+                  </div>
+                  
+                  {config?.banana_quota_enabled && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">
+                          默认配额
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={config?.banana_quota_default ?? 50}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              banana_quota_default:
+                                parseInt(e.target.value) || 0,
+                            })
+                          }
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                        />
+                        <p className="text-gray-500 text-xs mt-1">
+                          普通用户每日可调用次数
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">
+                          每凭证奖励配额
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={config?.banana_quota_per_cred ?? 50}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              banana_quota_per_cred:
+                                parseInt(e.target.value) || 0,
+                            })
+                          }
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                        />
+                        <p className="text-gray-500 text-xs mt-1">
+                          每个公开凭证奖励额度
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {config?.banana_quota_enabled && (
+                    <p className="text-yellow-400 text-xs mt-3">
+                      示例：基础 {config?.banana_quota_default || 50} + 3凭证 × {config?.banana_quota_per_cred || 50} = {(config?.banana_quota_default || 50) + 3 * (config?.banana_quota_per_cred || 50)} 次/日
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

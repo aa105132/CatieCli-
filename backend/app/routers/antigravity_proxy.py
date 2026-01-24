@@ -386,18 +386,49 @@ async def chat_completions(
                 "rate_limit_error"
             )
     
+    # 检查是否是 Banana 模型（image 生成模型）
+    is_banana_model = model.startswith("gemini-3-pro-image") or "agy-gemini-3-pro-image" in body.get("model", "")
+    
+    # 获取用户的公开 Antigravity 凭证数量（用于计算配额）
+    public_cred_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.user_id == user.id)
+        .where(Credential.api_type == "antigravity")
+        .where(Credential.is_public == True)
+        .where(Credential.is_active == True)
+    )
+    public_cred_count = public_cred_result.scalar() or 0
+    
+    # Banana 额度检查（仅对 image 模型生效）
+    if is_banana_model and settings.banana_quota_enabled and not user.is_admin:
+        # 计算 Banana 配额
+        banana_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
+        
+        # 查询今天的 Banana 使用量
+        now = datetime.utcnow()
+        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now < reset_time_utc:
+            start_of_day = reset_time_utc - timedelta(days=1)
+        else:
+            start_of_day = reset_time_utc
+        
+        banana_usage_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(UsageLog.user_id == user.id)
+            .where(UsageLog.created_at >= start_of_day)
+            .where(UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'))
+        )
+        banana_used = banana_usage_result.scalar() or 0
+        
+        if banana_used >= banana_quota:
+            return openai_error_response(
+                429,
+                f"🍌 Banana 配额已用尽: {banana_used}/{banana_quota}（公开凭证: {public_cred_count}）",
+                "rate_limit_error"
+            )
+    
     # Antigravity 配额检查
     if settings.antigravity_quota_enabled and not user.is_admin:
-        # 获取用户的公开 Antigravity 凭证数量
-        public_cred_result = await db.execute(
-            select(func.count(Credential.id))
-            .where(Credential.user_id == user.id)
-            .where(Credential.api_type == "antigravity")
-            .where(Credential.is_public == True)
-            .where(Credential.is_active == True)
-        )
-        public_cred_count = public_cred_result.scalar() or 0
-        
         # 计算用户配额：
         # - 如果用户有自定义配额，使用自定义配额
         # - 否则：基础配额 + (公开凭证数 * 每凭证奖励)
@@ -426,9 +457,11 @@ async def chat_completions(
         await db.commit()
     
     # 插入占位记录
+    # 对于 image 模型，保留 "agy-" 前缀用于 Banana 配额统计
+    log_model = f"antigravity/agy-{model}" if is_banana_model else f"antigravity/{model}"
     placeholder_log = UsageLog(
         user_id=user.id,
-        model=f"antigravity/{model}",  # 标记为 Antigravity 请求
+        model=log_model,  # 标记为 Antigravity 请求
         endpoint="/antigravity/v1/chat/completions",
         status_code=0,
         latency_ms=0,

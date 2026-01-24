@@ -1230,7 +1230,7 @@ export default function Dashboard() {
             </div>
 
             {/* 统计卡片 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className={`grid gap-3 ${agyStats?.banana_enabled ? 'grid-cols-2 md:grid-cols-5' : 'grid-cols-2 md:grid-cols-4'}`}>
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
                 <div className="text-2xl font-bold text-goldenrod-500 dark:text-goldenrod-400">
                   {userInfo?.usage_by_provider?.claude || 0}
@@ -1249,6 +1249,15 @@ export default function Dashboard() {
                 </div>
                 <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">Gemini 调用</div>
               </div>
+              {agyStats?.banana_enabled && (
+                <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                  <div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
+                    {agyStats?.banana_used || 0}
+                    <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{agyStats?.banana_quota || 0}</span>
+                  </div>
+                  <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">Banana 额度</div>
+                </div>
+              )}
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
                 <div className="text-2xl font-bold text-jade-500 dark:text-jade-400">{agyStats?.user_active || 0}</div>
                 <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">有效凭证</div>

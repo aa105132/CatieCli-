@@ -895,11 +895,12 @@ class AntigravityClient:
                 
                 # 处理其他内容
                 for part in parts:
-                    # 处理思考内容
-                    if "text" in part and part.get("thought", False):
+                    # 处理思考内容 (thought: True 或 有 thoughtSignature)
+                    is_thinking = part.get("thought", False) or "thoughtSignature" in part
+                    if "text" in part and is_thinking:
                         reasoning_content += part.get("text", "")
                     # 处理普通文本 (非思考)
-                    elif "text" in part and not part.get("thought", False):
+                    elif "text" in part and not is_thinking:
                         text = part.get("text", "")
                         # 过滤掉 Gemini API 的特殊标记（精确匹配 <-XXX-> 格式）
                         import re
@@ -1010,11 +1011,12 @@ class AntigravityClient:
                     tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
                     
                     for part in parts:
-                        # 处理思考内容
-                        if "text" in part and part.get("thought", False):
+                        # 处理思考内容 (thought: True 或 有 thoughtSignature)
+                        is_thinking = part.get("thought", False) or "thoughtSignature" in part
+                        if "text" in part and is_thinking:
                             reasoning_content += part.get("text", "")
                         # 处理普通文本 (非思考，且未被 extract_tool_calls_from_parts 处理)
-                        elif "text" in part and not part.get("thought", False):
+                        elif "text" in part and not is_thinking:
                             text = part.get("text", "")
                             # 过滤掉 Gemini API 的特殊标记（精确匹配 <-XXX-> 格式）
                             import re

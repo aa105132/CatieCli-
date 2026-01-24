@@ -154,6 +154,11 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     # "full_shared" - 大锅饭模式（捐赠凭证即可用所有公共池）
     antigravity_pool_mode: str = "full_shared"
     
+    # Banana 额度配置（用于 image 模型：agy-gemini-3-pro-image, agy-gemini-3-pro-image-2k, agy-gemini-3-pro-image-4k）
+    banana_quota_enabled: bool = True              # 是否启用 Banana 额度限制
+    banana_quota_default: int = 50                 # 默认 Banana 每日配额
+    banana_quota_per_cred: int = 50                # 每个公开凭证奖励的 Banana 额度（大锅饭模式）
+    
     # Anthropic API 反代配置
     anthropic_enabled: bool = False                # 是否启用 Anthropic API 反代
     anthropic_quota_enabled: bool = False          # 是否启用配额限制
@@ -222,6 +227,9 @@ PERSISTENT_CONFIG_KEYS = [
     "antigravity_base_rpm",
     "antigravity_contributor_rpm",
     "antigravity_pool_mode",
+    "banana_quota_enabled",
+    "banana_quota_default",
+    "banana_quota_per_cred",
     "oauth_guide_enabled",
     "oauth_guide_seconds",
     "help_link_enabled",

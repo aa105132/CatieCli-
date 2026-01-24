@@ -1056,6 +1056,9 @@ async def get_config(user: User = Depends(get_current_admin)):
         "antigravity_base_rpm": settings.antigravity_base_rpm,
         "antigravity_contributor_rpm": settings.antigravity_contributor_rpm,
         "antigravity_pool_mode": settings.antigravity_pool_mode,
+        "banana_quota_enabled": settings.banana_quota_enabled,
+        "banana_quota_default": settings.banana_quota_default,
+        "banana_quota_per_cred": settings.banana_quota_per_cred,
         "oauth_guide_enabled": settings.oauth_guide_enabled,
         "oauth_guide_seconds": settings.oauth_guide_seconds,
         "help_link_enabled": settings.help_link_enabled,
@@ -1176,6 +1179,9 @@ async def update_config(
     antigravity_base_rpm: Optional[int] = Form(None),
     antigravity_contributor_rpm: Optional[int] = Form(None),
     antigravity_pool_mode: Optional[str] = Form(None),
+    banana_quota_enabled: Optional[bool] = Form(None),
+    banana_quota_default: Optional[int] = Form(None),
+    banana_quota_per_cred: Optional[int] = Form(None),
     oauth_guide_enabled: Optional[bool] = Form(None),
     oauth_guide_seconds: Optional[int] = Form(None),
     help_link_enabled: Optional[bool] = Form(None),
@@ -1373,6 +1379,20 @@ async def update_config(
         await save_config_to_db("antigravity_pool_mode", antigravity_pool_mode)
         updated["antigravity_pool_mode"] = antigravity_pool_mode
     
+    # Banana 额度配置
+    if banana_quota_enabled is not None:
+        settings.banana_quota_enabled = banana_quota_enabled
+        await save_config_to_db("banana_quota_enabled", banana_quota_enabled)
+        updated["banana_quota_enabled"] = banana_quota_enabled
+    if banana_quota_default is not None:
+        settings.banana_quota_default = banana_quota_default
+        await save_config_to_db("banana_quota_default", banana_quota_default)
+        updated["banana_quota_default"] = banana_quota_default
+    if banana_quota_per_cred is not None:
+        settings.banana_quota_per_cred = banana_quota_per_cred
+        await save_config_to_db("banana_quota_per_cred", banana_quota_per_cred)
+        updated["banana_quota_per_cred"] = banana_quota_per_cred
+    
     # OAuth 操作指引弹窗配置
     if oauth_guide_enabled is not None:
         settings.oauth_guide_enabled = oauth_guide_enabled
@@ -1500,21 +1520,28 @@ async def get_global_stats(
     
     # 分类汇总 - 根据 API 类型使用不同分类方式
     if api_type == "antigravity":
-        # Antigravity 分类：按模型品牌 (Claude/Gemini/其他)
+        # Antigravity 分类：按模型品牌 (Claude/Gemini/其他/Banana)
+        def is_banana(model: str) -> bool:
+            """检测是否为 Banana 模型（图片生成模型）"""
+            m = model.lower()
+            return "agy-gemini-3-pro-image" in m or "gemini-3-pro-image" in m
+        
         def is_claude(model: str) -> bool:
             m = model.lower()
             return "claude" in m
         
         def is_gemini(model: str) -> bool:
             m = model.lower()
-            return "gemini" in m
+            # Gemini 但不包括 Banana 模型
+            return "gemini" in m and not is_banana(model)
         
         def is_other(model: str) -> bool:
-            return not is_claude(model) and not is_gemini(model)
+            return not is_claude(model) and not is_gemini(model) and not is_banana(model)
         
         claude_count = sum(s["count"] for s in model_stats if is_claude(s["model"]))
         gemini_count = sum(s["count"] for s in model_stats if is_gemini(s["model"]))
         other_count = sum(s["count"] for s in model_stats if is_other(s["model"]))
+        banana_count = sum(s["count"] for s in model_stats if is_banana(s["model"]))
         # 使用相同的字段名以兼容前端
         flash_count = claude_count  # 对应前端 flash -> Claude
         pro_count = gemini_count    # 对应前端 pro -> Gemini
@@ -1539,6 +1566,7 @@ async def get_global_stats(
         tier3_count = sum(s["count"] for s in model_stats if is_tier3(s["model"]))
         pro_count = sum(s["count"] for s in model_stats if is_pro(s["model"]))
         flash_count = sum(s["count"] for s in model_stats if is_flash(s["model"]))
+        banana_count = 0  # CLI 模式下没有 banana
     
     # 最近1小时请求数
     hour_query = select(func.count(UsageLog.id)).where(UsageLog.created_at >= hour_ago)
@@ -1795,6 +1823,7 @@ async def get_global_stats(
                 "flash": flash_count,
                 "pro_2.5": pro_count,
                 "tier_3": tier3_count,
+                "banana": banana_count,
             },
         },
         "credentials": {
