@@ -13,7 +13,12 @@ class ConnectionManager:
         self.admin_connections: Set[WebSocket] = set()
     
     async def connect(self, websocket: WebSocket, user_id: int, is_admin: bool = False):
+        """连接并 accept WebSocket（旧接口，保持兼容）"""
         await websocket.accept()
+        await self.connect_after_accept(websocket, user_id, is_admin)
+    
+    async def connect_after_accept(self, websocket: WebSocket, user_id: int, is_admin: bool = False):
+        """在已经 accept 之后注册连接（新接口）"""
         if user_id not in self.active_connections:
             self.active_connections[user_id] = set()
         self.active_connections[user_id].add(websocket)

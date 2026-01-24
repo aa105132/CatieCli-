@@ -1,9 +1,9 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import Response
 from jose import JWTError, jwt
 import asyncio
 
-from app.database import get_db, async_session
+from app.database import async_session
 from app.config import settings
 from app.services.websocket import manager
 from app.services.auth import get_user_by_username
@@ -14,32 +14,54 @@ router = APIRouter(tags=["WebSocket"])
 @router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: str = Query(...)
+    token: str = Query(None)
 ):
     """WebSocket 连接端点"""
-    # 验证 token
+    
+    # 先验证 token（在 accept 之前）
+    if not token:
+        print(f"[WS] 拒绝连接: 缺少 token", flush=True)
+        await websocket.close(code=4001, reason="Missing token")
+        return
+    
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username = payload.get("sub")
         if not username:
-            await websocket.close(code=4001)
+            print(f"[WS] 拒绝连接: token 中无用户名", flush=True)
+            await websocket.close(code=4001, reason="Invalid token")
             return
-    except JWTError:
-        await websocket.close(code=4001)
+    except JWTError as e:
+        print(f"[WS] 拒绝连接: JWT 验证失败 - {e}", flush=True)
+        await websocket.close(code=4001, reason="Token verification failed")
         return
     
     # 获取用户信息
-    async with async_session() as db:
-        user = await get_user_by_username(db, username)
-        if not user:
-            await websocket.close(code=4001)
-            return
-        
-        user_id = user.id
-        is_admin = user.is_admin
+    try:
+        async with async_session() as db:
+            user = await get_user_by_username(db, username)
+            if not user:
+                print(f"[WS] 拒绝连接: 用户不存在 - {username}", flush=True)
+                await websocket.close(code=4001, reason="User not found")
+                return
+            
+            user_id = user.id
+            is_admin = user.is_admin
+    except Exception as e:
+        print(f"[WS] 数据库错误: {e}", flush=True)
+        await websocket.close(code=4002, reason="Database error")
+        return
     
-    # 连接
-    await manager.connect(websocket, user_id, is_admin)
+    # 验证通过，接受连接
+    try:
+        await websocket.accept()
+        print(f"[WS] ✅ 用户 {username}(id={user_id}) 已连接", flush=True)
+    except Exception as e:
+        print(f"[WS] accept 失败: {e}", flush=True)
+        return
+    
+    # 注册到连接管理器
+    await manager.connect_after_accept(websocket, user_id, is_admin)
     
     try:
         # 发送连接成功消息
@@ -66,6 +88,8 @@ async def websocket_endpoint(
                     break
                     
     except WebSocketDisconnect:
-        pass
+        print(f"[WS] 用户 {username}(id={user_id}) 断开连接", flush=True)
+    except Exception as e:
+        print(f"[WS] 连接异常: {e}", flush=True)
     finally:
         manager.disconnect(websocket, user_id)
