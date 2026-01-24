@@ -139,10 +139,10 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn btn-primary py-3 flex items-center justify-center"
+              className="w-full py-3 flex items-center justify-center rounded-lg font-medium transition-all bg-cinnabar-500 hover:bg-cinnabar-600 text-white dark:bg-goldenrod-500 dark:hover:bg-goldenrod-600 dark:text-night-200 disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-parchment-50"></span>
+                <span className="animate-spin rounded-full h-5 w-5 border-b-2 border-current"></span>
               ) : (
                 '登录'
               )}
