@@ -6,6 +6,7 @@ export function useWebSocket(onMessage) {
   const reconnectTimeout = useRef(null);
   const onMessageRef = useRef(onMessage);
   const isConnecting = useRef(false);
+  const authFailCount = useRef(0);  // 认证失败计数
 
   // 保持 onMessage 引用最新
   useEffect(() => {
@@ -36,8 +37,9 @@ export function useWebSocket(onMessage) {
       // 构建 WebSocket URL
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const host = window.location.hostname;
-      const port = import.meta.env.DEV ? "8000" : window.location.port;
-      const wsUrl = `${protocol}//${host}:${port}/ws?token=${token}`;
+      // 生产环境不带端口（使用默认的 443/80），开发环境使用 8000
+      const port = import.meta.env.DEV ? ":8000" : (window.location.port ? `:${window.location.port}` : "");
+      const wsUrl = `${protocol}//${host}${port}/ws?token=${token}`;
 
       try {
         ws.current = new WebSocket(wsUrl);
@@ -46,6 +48,7 @@ export function useWebSocket(onMessage) {
           console.log("WebSocket 已连接");
           setConnected(true);
           isConnecting.current = false;
+          authFailCount.current = 0;  // 连接成功，重置计数
         };
 
         ws.current.onmessage = (event) => {
@@ -65,10 +68,28 @@ export function useWebSocket(onMessage) {
           }
         };
 
-        ws.current.onclose = () => {
-          console.log("WebSocket 已断开");
+        ws.current.onclose = (event) => {
+          console.log("WebSocket 已断开, code:", event.code, "reason:", event.reason);
           setConnected(false);
           isConnecting.current = false;
+          
+          // 检测认证失败 (403 or 4001)
+          // 服务器返回 403 时 event.code 通常是 1006 (Abnormal Closure)
+          // 但我们自定义了 4001 作为认证失败码
+          if (event.code === 4001 || event.code === 4002) {
+            authFailCount.current += 1;
+            console.warn(`WebSocket 认证失败 (第 ${authFailCount.current} 次)`);
+            
+            // 连续认证失败超过 2 次，清除 token 让用户重新登录
+            if (authFailCount.current >= 2) {
+              console.error("WebSocket 认证多次失败，需要重新登录");
+              localStorage.removeItem("token");
+              // 刷新页面强制重新登录
+              window.location.reload();
+              return;
+            }
+          }
+          
           // 5秒后重连
           reconnectTimeout.current = setTimeout(connect, 5000);
         };
