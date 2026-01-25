@@ -430,8 +430,8 @@ async def chat_completions(
     # Antigravity 配额检查
     if settings.antigravity_quota_enabled and not user.is_admin:
         # 计算用户配额：
-        # - 如果用户有自定义配额，使用自定义配额
-        # - 否则：基础配额 + (公开凭证数 * 每凭证奖励)
+        # - quota_antigravity > 0：使用用户自定义配额
+        # - quota_antigravity = 0：使用系统公式（大锅饭模式）
         
         # 调试日志：打印配置值
         print(f"[Antigravity Quota] 🔧 配置检查:", flush=True)
@@ -443,6 +443,7 @@ async def chat_completions(
         print(f"[Antigravity Quota]   - public_cred_count: {public_cred_count}", flush=True)
         print(f"[Antigravity Quota]   - user_has_public: {user_has_public}", flush=True)
         
+        # 注意：quota_antigravity > 0 才使用自定义配额，= 0 表示使用系统公式
         if user.quota_antigravity and user.quota_antigravity > 0:
             user_quota = user.quota_antigravity
             print(f"[Antigravity Quota] 📊 使用用户自定义配额: {user_quota}", flush=True)
@@ -467,13 +468,13 @@ async def chat_completions(
         else:
             start_of_day = reset_time_utc
         
-        # 从 UsageLog 统计今日 Antigravity 使用量
+        # 从 UsageLog 统计今日 Antigravity 使用量（只统计成功请求）
         usage_result = await db.execute(
             select(func.count(UsageLog.id))
             .where(UsageLog.user_id == user.id)
             .where(UsageLog.created_at >= start_of_day)
             .where(UsageLog.model.like('antigravity/%'))
-            .where(UsageLog.status_code == 200)  # 只统计成功的请求
+            .where(UsageLog.status_code == 200)
         )
         user_used = usage_result.scalar() or 0
         

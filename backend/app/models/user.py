@@ -23,8 +23,8 @@ class User(Base):
     quota_flash = Column(Integer, default=0)   # Flash模型配额
     quota_25pro = Column(Integer, default=0)   # 2.5 Pro模型配额
     quota_30pro = Column(Integer, default=0)   # 3.0模型配额
-    # Antigravity 配额
-    quota_antigravity = Column(Integer, default=100)  # Antigravity 每日配额
+    # Antigravity 配额（0=使用系统公式计算，>0=使用自定义值）
+    quota_antigravity = Column(Integer, default=0)  # Antigravity 每日配额（0=使用大锅饭公式）
     used_antigravity = Column(Integer, default=0)     # 当天已使用次数
     # 自定义速率限制 (RPM - requests per minute)
     custom_rpm = Column(Integer, default=0)           # 自定义 RPM (0=使用系统默认)
@@ -166,4 +166,3 @@ class ErrorMessageConfig(Base):
     # 时间戳
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-

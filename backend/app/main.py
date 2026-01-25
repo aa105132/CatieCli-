@@ -15,7 +15,7 @@ from app.routers import antigravity_proxy, antigravity_manage, antigravity_oauth
 from app.routers import antigravity_anthropic, antigravity_gemini
 from app.routers import anthropic_manage, anthropic_proxy as anthropic_proxy_router
 from app.middleware.url_normalize import URLNormalizeMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 
 @asynccontextmanager
@@ -45,6 +45,29 @@ async def lifespan(app: FastAPI):
                     print(f"⚠️ 添加 retry_count 列失败（可能已存在）: {e}")
     except Exception as e:
         print(f"⚠️ 数据库迁移检查失败: {e}")
+    
+    # ===== 修复 Antigravity 配额 bug =====
+    # 问题：quota_antigravity 默认值是 100，导致覆盖了大锅饭公式
+    # 修复：将 100 改为 0，让系统使用公式计算
+    try:
+        async with async_session() as db:
+            # 统计受影响的用户数
+            count_result = await db.execute(
+                select(User).where(User.quota_antigravity == 100)
+            )
+            affected_users = count_result.scalars().all()
+            
+            if affected_users:
+                # 将所有 quota_antigravity = 100 的用户重置为 0（使用系统公式）
+                result = await db.execute(
+                    update(User).where(User.quota_antigravity == 100).values(quota_antigravity=0)
+                )
+                await db.commit()
+                print(f"✅ 已修复 {len(affected_users)} 个用户的 Antigravity 配额（100 → 0，使用大锅饭公式）")
+            else:
+                print("✅ Antigravity 配额已是最新，无需修复")
+    except Exception as e:
+        print(f"⚠️ Antigravity 配额修复失败: {e}")
     
     # 从数据库加载持久化配置
     try:
