@@ -72,34 +72,49 @@ def decode_tool_id_and_signature(encoded_id: str) -> Tuple[str, str]:
 
 # merge_system_messages 从 utils 导入 (inline 实现)
 async def merge_system_messages(request: Dict[str, Any]) -> Dict[str, Any]:
-    """合并连续的 system 消息到第一个 system 消息"""
+    """
+    合并所有 system 消息并转换为 Gemini 的 systemInstruction 格式
+    
+    这对于 "JSON 边界标记" 模式至关重要，因为工具定义会嵌入到系统提示词中
+    """
     messages = request.get("messages", [])
     if not messages:
         return request
     
-    merged_messages = []
-    current_system = None
+    # 收集所有 system 消息内容
+    system_contents = []
+    non_system_messages = []
     
     for msg in messages:
         if msg.get("role") == "system":
-            if current_system is None:
-                current_system = dict(msg)
-            else:
-                # 合并到当前 system 消息
-                existing_content = current_system.get("content", "")
-                new_content = msg.get("content", "")
-                if isinstance(existing_content, str) and isinstance(new_content, str):
-                    current_system["content"] = existing_content + "\n" + new_content
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                if content.strip():
+                    system_contents.append(content)
+            elif isinstance(content, list):
+                # 处理多模态 content（虽然 system 消息通常只有文本）
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text = item.get("text", "")
+                        if text.strip():
+                            system_contents.append(text)
+                    elif isinstance(item, str):
+                        if item.strip():
+                            system_contents.append(item)
         else:
-            if current_system is not None:
-                merged_messages.append(current_system)
-                current_system = None
-            merged_messages.append(msg)
+            non_system_messages.append(msg)
     
-    if current_system is not None:
-        merged_messages.append(current_system)
+    # 更新 messages（移除 system 消息）
+    request["messages"] = non_system_messages
     
-    request["messages"] = merged_messages
+    # 如果有 system 消息，创建 systemInstruction
+    if system_contents:
+        combined_system = "\n\n".join(system_contents)
+        request["systemInstruction"] = {
+            "parts": [{"text": combined_system}]
+        }
+        log.debug(f"[OPENAI2GEMINI] 已将 {len(system_contents)} 个 system 消息合并为 systemInstruction (长度: {len(combined_system)})")
+    
     return request
 
 
