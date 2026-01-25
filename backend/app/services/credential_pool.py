@@ -9,6 +9,8 @@ import httpx
 import asyncio
 import logging
 import weakref
+import json
+import re
 
 log = logging.getLogger(__name__)
 
@@ -424,6 +426,223 @@ class CredentialPool:
         return datetime.utcnow() < cd_end_time
     
     @staticmethod
+    def get_antigravity_model_group(model: str) -> str:
+        """
+        获取 Antigravity 模型的配额组（用于 429 冷却机制）
+        
+        返回: "claude", "gemini", "banana"
+        
+        注意：Claude 模型不区分后缀（-thinking 等），因为配额是共享的
+        """
+        if not model:
+            return "gemini"
+        model_lower = model.lower()
+        
+        # Claude 模型（所有 claude 变体共享配额）
+        if "claude" in model_lower:
+            return "claude"
+        
+        # Banana (图片) 模型
+        if "image" in model_lower:
+            return "banana"
+        
+        # 其他都是 Gemini
+        return "gemini"
+    
+    @staticmethod
+    def parse_429_quota_error(error_str: str) -> Optional[Tuple[str, datetime]]:
+        """
+        解析 429 配额耗尽错误，提取模型组和重置时间
+        
+        Args:
+            error_str: 错误信息字符串
+            
+        Returns:
+            (model_group, reset_time) 元组，解析失败返回 None
+            
+        示例错误:
+        {
+          "error": {
+            "code": 429,
+            "message": "You have exhausted your capacity on this model. Your quota will reset after 85h28m14s.",
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [{
+              "metadata": {
+                "model": "claude-opus-4-5-thinking",
+                "quotaResetDelay": "85h28m14.997367347s",
+                "quotaResetTimeStamp": "2026-01-29T01:04:15Z"
+              }
+            }]
+          }
+        }
+        """
+        try:
+            # 尝试找到 JSON 部分
+            json_match = re.search(r'\{[\s\S]*\}', error_str)
+            if not json_match:
+                return None
+            
+            error_data = json.loads(json_match.group())
+            
+            # 获取 error 对象
+            error_obj = error_data.get("error", error_data)
+            
+            # 检查是否是 429 / RESOURCE_EXHAUSTED
+            if error_obj.get("code") != 429 and error_obj.get("status") != "RESOURCE_EXHAUSTED":
+                return None
+            
+            # 从 details 中提取信息
+            details = error_obj.get("details", [])
+            for detail in details:
+                metadata = detail.get("metadata", {})
+                if not metadata:
+                    # 有时 metadata 直接在 detail 中
+                    metadata = detail
+                
+                model_name = metadata.get("model")
+                reset_timestamp = metadata.get("quotaResetTimeStamp")
+                
+                if model_name and reset_timestamp:
+                    # 解析重置时间
+                    try:
+                        # 处理时区标识 Z
+                        if reset_timestamp.endswith("Z"):
+                            reset_timestamp = reset_timestamp[:-1] + "+00:00"
+                        reset_time = datetime.fromisoformat(reset_timestamp.replace("Z", "+00:00"))
+                        # 转换为 UTC
+                        if reset_time.tzinfo:
+                            reset_time = reset_time.replace(tzinfo=None)
+                        
+                        # 获取模型组
+                        model_group = CredentialPool.get_antigravity_model_group(model_name)
+                        
+                        print(f"[CredentialPool] 🔍 解析 429 错误: model={model_name}, group={model_group}, reset={reset_time}", flush=True)
+                        return (model_group, reset_time)
+                    except Exception as e:
+                        print(f"[CredentialPool] ⚠️ 解析重置时间失败: {e}", flush=True)
+                        
+                # 尝试从 quotaResetDelay 解析
+                reset_delay = metadata.get("quotaResetDelay")
+                if model_name and reset_delay:
+                    try:
+                        # 解析 "85h28m14.997367347s" 格式
+                        hours = 0
+                        minutes = 0
+                        seconds = 0
+                        
+                        h_match = re.search(r'(\d+)h', reset_delay)
+                        if h_match:
+                            hours = int(h_match.group(1))
+                        
+                        m_match = re.search(r'(\d+)m', reset_delay)
+                        if m_match:
+                            minutes = int(m_match.group(1))
+                        
+                        s_match = re.search(r'([\d.]+)s', reset_delay)
+                        if s_match:
+                            seconds = float(s_match.group(1))
+                        
+                        total_seconds = hours * 3600 + minutes * 60 + seconds
+                        reset_time = datetime.utcnow() + timedelta(seconds=total_seconds)
+                        
+                        model_group = CredentialPool.get_antigravity_model_group(model_name)
+                        
+                        print(f"[CredentialPool] 🔍 解析 429 错误 (from delay): model={model_name}, group={model_group}, reset={reset_time}", flush=True)
+                        return (model_group, reset_time)
+                    except Exception as e:
+                        print(f"[CredentialPool] ⚠️ 解析重置延迟失败: {e}", flush=True)
+            
+            return None
+        except json.JSONDecodeError:
+            return None
+        except Exception as e:
+            print(f"[CredentialPool] ⚠️ 解析 429 错误异常: {e}", flush=True)
+            return None
+    
+    @staticmethod
+    async def set_model_group_cooldown(
+        db: AsyncSession,
+        credential_id: int,
+        model_group: str,
+        reset_time: datetime
+    ) -> bool:
+        """
+        设置凭证的模型组冷却时间
+        
+        Args:
+            db: 数据库会话
+            credential_id: 凭证 ID
+            model_group: 模型组 ("claude", "gemini", "banana")
+            reset_time: 冷却结束时间 (UTC)
+            
+        Returns:
+            是否成功
+        """
+        try:
+            result = await db.execute(
+                select(Credential).where(Credential.id == credential_id)
+            )
+            credential = result.scalar_one_or_none()
+            if not credential:
+                return False
+            
+            # 加载现有的冷却时间
+            cooldowns = {}
+            if credential.model_cooldowns:
+                try:
+                    cooldowns = json.loads(credential.model_cooldowns)
+                except:
+                    cooldowns = {}
+            
+            # 设置新的冷却时间
+            cooldowns[model_group] = reset_time.isoformat()
+            credential.model_cooldowns = json.dumps(cooldowns)
+            
+            await db.commit()
+            
+            print(f"[CredentialPool] ❄️ 凭证 {credential.email} 模型组 {model_group} 冷却至 {reset_time}", flush=True)
+            return True
+        except Exception as e:
+            print(f"[CredentialPool] ⚠️ 设置模型组冷却失败: {e}", flush=True)
+            return False
+    
+    @staticmethod
+    def is_credential_in_model_group_cooldown(credential: Credential, model_group: str) -> bool:
+        """
+        检查凭证是否在指定模型组的冷却中
+        
+        Args:
+            credential: 凭证对象
+            model_group: 模型组 ("claude", "gemini", "banana")
+            
+        Returns:
+            是否在冷却中
+        """
+        if not credential.model_cooldowns:
+            return False
+        
+        try:
+            cooldowns = json.loads(credential.model_cooldowns)
+            reset_time_str = cooldowns.get(model_group)
+            if not reset_time_str:
+                return False
+            
+            reset_time = datetime.fromisoformat(reset_time_str)
+            now = datetime.utcnow()
+            
+            if now < reset_time:
+                # 仍在冷却中
+                remaining = reset_time - now
+                print(f"[CredentialPool] ❄️ 凭证 {credential.email} 模型组 {model_group} 冷却中，剩余 {remaining}", flush=True)
+                return True
+            else:
+                # 冷却已过期，可以清理
+                return False
+        except Exception as e:
+            print(f"[CredentialPool] ⚠️ 检查模型组冷却失败: {e}", flush=True)
+            return False
+    
+    @staticmethod
     async def check_user_has_tier3_creds(db: AsyncSession, user_id: int, mode: str = "geminicli") -> bool:
         """检查用户是否有 3.0 等级的凭证"""
         mode = CredentialPool.validate_mode(mode)
@@ -587,6 +806,11 @@ class CredentialPool:
         model_group = CredentialPool.get_model_group(model) if model else "flash"
         cd_seconds = CredentialPool.get_cd_seconds(model_group)
         
+        # Antigravity 模式：获取配额组用于 429 冷却检查
+        agy_model_group = None
+        if mode == "antigravity" and model:
+            agy_model_group = CredentialPool.get_antigravity_model_group(model)
+        
         result = await db.execute(
             query.order_by(Credential.last_used_at.asc().nullsfirst())
         )
@@ -596,23 +820,40 @@ class CredentialPool:
             return None
         
         # 筛选不在 CD 中的凭证
-        available_credentials = [
-            c for c in credentials 
-            if not CredentialPool.is_credential_in_cd(c, model_group)
-        ]
+        # 对于 Antigravity 模式，还需要检查模型组冷却（429 导致的）
+        def is_credential_available(c):
+            # 检查常规 CD
+            if CredentialPool.is_credential_in_cd(c, model_group):
+                return False
+            # Antigravity 模式：检查模型组冷却（429 配额耗尽导致）
+            if agy_model_group and CredentialPool.is_credential_in_model_group_cooldown(c, agy_model_group):
+                return False
+            return True
+        
+        available_credentials = [c for c in credentials if is_credential_available(c)]
         
         total_count = len(credentials)
         available_count = len(available_credentials)
         in_cd_count = total_count - available_count
         
+        # Antigravity 模式：如果有模型组冷却的凭证，统计冷却信息
+        cooldown_info = ""
+        if mode == "antigravity" and agy_model_group:
+            cooldown_count = sum(
+                1 for c in credentials
+                if CredentialPool.is_credential_in_model_group_cooldown(c, agy_model_group)
+            )
+            if cooldown_count > 0:
+                cooldown_info = f", 配额冷却({agy_model_group})={cooldown_count}"
+        
         if not available_credentials:
             # 所有凭证都在 CD 中，选择第一个（按 last_used_at 排序的）
             credential = credentials[0]
-            print(f"[{mode}][CD] 模型组={model_group}, CD={cd_seconds}秒 | 全部{total_count}个凭证都在CD中，选择: {credential.email}", flush=True)
+            print(f"[{mode}][CD] 模型组={model_group}, CD={cd_seconds}秒{cooldown_info} | 全部{total_count}个凭证都不可用，选择: {credential.email}", flush=True)
         else:
             # 选择最久未使用的凭证
             credential = available_credentials[0]
-            print(f"[{mode}][CD] 模型组={model_group}, CD={cd_seconds}秒 | 可用{available_count}/{total_count}个, 选择: {credential.email}", flush=True)
+            print(f"[{mode}][CD] 模型组={model_group}, CD={cd_seconds}秒{cooldown_info} | 可用{available_count}/{total_count}个, 选择: {credential.email}", flush=True)
         
         # 更新使用时间和计数
         now = datetime.utcnow()

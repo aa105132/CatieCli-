@@ -143,8 +143,10 @@ async def gemini_generate_content(
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")
     
-    # 检查是否是 Banana 模型（image 生成模型）
+    # 检查模型类型
     is_banana_model = "image" in real_model.lower() or "gemini-3-pro-image" in real_model.lower()
+    is_claude_model = "claude" in real_model.lower()
+    is_gemini_model = not is_banana_model and not is_claude_model
     
     # 获取用户的公开 Antigravity 凭证数量（用于计算配额）
     public_cred_result = await db.execute(
@@ -156,36 +158,88 @@ async def gemini_generate_content(
     )
     public_cred_count = public_cred_result.scalar() or 0
     
-    # Banana 额度检查（仅对 image 模型生效）
-    if is_banana_model and settings.banana_quota_enabled and not user.is_admin:
-        # 计算 Banana 配额
-        banana_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
-        
-        # 查询今天的 Banana 使用量
-        now = datetime.utcnow()
-        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        if now < reset_time_utc:
-            start_of_day = reset_time_utc - timedelta(days=1)
+    # 计算今日时间范围
+    now = datetime.utcnow()
+    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now < reset_time_utc:
+        start_of_day = reset_time_utc - timedelta(days=1)
+    else:
+        start_of_day = reset_time_utc
+    
+    # 根据模型类型计算配额和检查使用量
+    from sqlalchemy import or_
+    if settings.antigravity_quota_enabled and not user.is_admin:
+        if is_banana_model:
+            # Banana 模型
+            if user.quota_agy_banana and user.quota_agy_banana > 0:
+                user_quota = user.quota_agy_banana
+            else:
+                user_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.model.like('%image%'))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Banana"
+            emoji = "🍌"
+        elif is_claude_model:
+            # Claude 模型
+            if user.quota_agy_claude and user.quota_agy_claude > 0:
+                user_quota = user.quota_agy_claude
+            elif settings.antigravity_pool_mode == "full_shared":
+                user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            elif user_has_public:
+                user_quota = settings.antigravity_quota_contributor
+            else:
+                user_quota = settings.antigravity_quota_default
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(or_(
+                    UsageLog.model.like('antigravity/%claude%'),
+                    UsageLog.model.like('antigravity-gemini/%claude%')
+                ))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Claude"
+            emoji = "🧠"
         else:
-            start_of_day = reset_time_utc
+            # Gemini 模型
+            if user.quota_agy_gemini and user.quota_agy_gemini > 0:
+                user_quota = user.quota_agy_gemini
+            elif settings.antigravity_pool_mode == "full_shared":
+                user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            elif user_has_public:
+                user_quota = settings.antigravity_quota_contributor
+            else:
+                user_quota = settings.antigravity_quota_default
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(or_(
+                    UsageLog.model.like('antigravity/%'),
+                    UsageLog.model.like('antigravity-gemini/%')
+                ))
+                .where(~UsageLog.model.like('%claude%'))
+                .where(~UsageLog.model.like('%image%'))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Gemini"
+            emoji = "✨"
         
-        # 同时匹配两种格式：antigravity/agy-gemini-3-pro-image% 和 antigravity-gemini/%image%
-        from sqlalchemy import or_
-        banana_usage_result = await db.execute(
-            select(func.count(UsageLog.id))
-            .where(UsageLog.user_id == user.id)
-            .where(UsageLog.created_at >= start_of_day)
-            .where(or_(
-                UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
-                UsageLog.model.like('antigravity-gemini/%image%')
-            ))
-        )
-        banana_used = banana_usage_result.scalar() or 0
+        user_used = usage_result.scalar() or 0
         
-        if banana_used >= banana_quota:
+        if user_used >= user_quota:
             raise HTTPException(
                 status_code=429,
-                detail=f"🍌 Banana 配额已用尽: {banana_used}/{banana_quota}（公开凭证: {public_cred_count}）"
+                detail=f"{emoji} Antigravity {quota_type} 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）"
             )
     
     # 插入占位记录 - 对于 image 模型使用统一格式
@@ -333,6 +387,23 @@ async def gemini_generate_content(
                     
                 except Exception as e:
                     error_str = str(e)
+                    
+                    # 检查是否是 429 配额耗尽错误
+                    is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                    
+                    if is_quota_error:
+                        # 解析 429 错误，设置模型组冷却
+                        quota_info = CredentialPool.parse_429_quota_error(error_str)
+                        if quota_info:
+                            model_group, reset_time = quota_info
+                            try:
+                                async with async_session() as bg_db:
+                                    await CredentialPool.set_model_group_cooldown(bg_db, credential.id, model_group, reset_time)
+                            except Exception as cd_err:
+                                print(f"[AntigravityGemini] ⚠️ 图片模型设置冷却失败: {cd_err}", flush=True)
+                            print(f"[AntigravityGemini] ❄️ 图片模型凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                        else:
+                            print(f"[AntigravityGemini] ⚠️ 图片模型 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
                     
                     should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
                     
@@ -517,6 +588,19 @@ async def gemini_generate_content(
         except Exception as e:
             error_str = str(e)
             
+            # 检查是否是 429 配额耗尽错误
+            is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+            
+            if is_quota_error:
+                # 解析 429 错误，设置模型组冷却
+                quota_info = CredentialPool.parse_429_quota_error(error_str)
+                if quota_info:
+                    model_group, reset_time = quota_info
+                    await CredentialPool.set_model_group_cooldown(db, credential.id, model_group, reset_time)
+                    print(f"[AntigravityGemini] ❄️ 非流式凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                else:
+                    print(f"[AntigravityGemini] ⚠️ 非流式 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
+            
             should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
             
             if should_retry and retry_attempt < max_retries:
@@ -605,8 +689,10 @@ async def gemini_stream_generate_content(
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")
     
-    # 检查是否是 Banana 模型（image 生成模型）
+    # 检查模型类型
     is_banana_model = "image" in real_model.lower() or "gemini-3-pro-image" in real_model.lower()
+    is_claude_model = "claude" in real_model.lower()
+    is_gemini_model = not is_banana_model and not is_claude_model
     
     # 获取用户的公开 Antigravity 凭证数量（用于计算配额）
     public_cred_result = await db.execute(
@@ -618,36 +704,88 @@ async def gemini_stream_generate_content(
     )
     public_cred_count = public_cred_result.scalar() or 0
     
-    # Banana 额度检查（仅对 image 模型生效）
-    if is_banana_model and settings.banana_quota_enabled and not user.is_admin:
-        # 计算 Banana 配额
-        banana_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
-        
-        # 查询今天的 Banana 使用量
-        now = datetime.utcnow()
-        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        if now < reset_time_utc:
-            start_of_day = reset_time_utc - timedelta(days=1)
+    # 计算今日时间范围
+    now = datetime.utcnow()
+    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now < reset_time_utc:
+        start_of_day = reset_time_utc - timedelta(days=1)
+    else:
+        start_of_day = reset_time_utc
+    
+    # 根据模型类型计算配额和检查使用量
+    from sqlalchemy import or_
+    if settings.antigravity_quota_enabled and not user.is_admin:
+        if is_banana_model:
+            # Banana 模型
+            if user.quota_agy_banana and user.quota_agy_banana > 0:
+                user_quota = user.quota_agy_banana
+            else:
+                user_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.model.like('%image%'))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Banana"
+            emoji = "🍌"
+        elif is_claude_model:
+            # Claude 模型
+            if user.quota_agy_claude and user.quota_agy_claude > 0:
+                user_quota = user.quota_agy_claude
+            elif settings.antigravity_pool_mode == "full_shared":
+                user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            elif user_has_public:
+                user_quota = settings.antigravity_quota_contributor
+            else:
+                user_quota = settings.antigravity_quota_default
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(or_(
+                    UsageLog.model.like('antigravity/%claude%'),
+                    UsageLog.model.like('antigravity-gemini/%claude%')
+                ))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Claude"
+            emoji = "🧠"
         else:
-            start_of_day = reset_time_utc
+            # Gemini 模型
+            if user.quota_agy_gemini and user.quota_agy_gemini > 0:
+                user_quota = user.quota_agy_gemini
+            elif settings.antigravity_pool_mode == "full_shared":
+                user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            elif user_has_public:
+                user_quota = settings.antigravity_quota_contributor
+            else:
+                user_quota = settings.antigravity_quota_default
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(or_(
+                    UsageLog.model.like('antigravity/%'),
+                    UsageLog.model.like('antigravity-gemini/%')
+                ))
+                .where(~UsageLog.model.like('%claude%'))
+                .where(~UsageLog.model.like('%image%'))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Gemini"
+            emoji = "✨"
         
-        # 同时匹配两种格式：antigravity/agy-gemini-3-pro-image% 和 antigravity-gemini/%image%
-        from sqlalchemy import or_
-        banana_usage_result = await db.execute(
-            select(func.count(UsageLog.id))
-            .where(UsageLog.user_id == user.id)
-            .where(UsageLog.created_at >= start_of_day)
-            .where(or_(
-                UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
-                UsageLog.model.like('antigravity-gemini/%image%')
-            ))
-        )
-        banana_used = banana_usage_result.scalar() or 0
+        user_used = usage_result.scalar() or 0
         
-        if banana_used >= banana_quota:
+        if user_used >= user_quota:
             raise HTTPException(
                 status_code=429,
-                detail=f"🍌 Banana 配额已用尽: {banana_used}/{banana_quota}（公开凭证: {public_cred_count}）"
+                detail=f"{emoji} Antigravity {quota_type} 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）"
             )
     
     # 插入占位记录 - 对于 image 模型使用统一格式
@@ -780,6 +918,23 @@ async def gemini_stream_generate_content(
                 
             except Exception as e:
                 error_str = str(e)
+                
+                # 检查是否是 429 配额耗尽错误
+                is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                
+                if is_quota_error:
+                    # 解析 429 错误，设置模型组冷却
+                    quota_info = CredentialPool.parse_429_quota_error(error_str)
+                    if quota_info:
+                        model_group, reset_time = quota_info
+                        try:
+                            async with async_session() as bg_db:
+                                await CredentialPool.set_model_group_cooldown(bg_db, credential.id, model_group, reset_time)
+                        except Exception as cd_err:
+                            print(f"[AntigravityGemini] ⚠️ 假流式设置冷却失败: {cd_err}", flush=True)
+                        print(f"[AntigravityGemini] ❄️ 假流式凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                    else:
+                        print(f"[AntigravityGemini] ⚠️ 假流式 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
                 
                 should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
                 
@@ -926,6 +1081,23 @@ async def gemini_stream_generate_content(
                 
             except Exception as e:
                 error_str = str(e)
+                
+                # 检查是否是 429 配额耗尽错误
+                is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                
+                if is_quota_error:
+                    # 解析 429 错误，设置模型组冷却
+                    quota_info = CredentialPool.parse_429_quota_error(error_str)
+                    if quota_info:
+                        model_group, reset_time = quota_info
+                        try:
+                            async with async_session() as bg_db:
+                                await CredentialPool.set_model_group_cooldown(bg_db, credential.id, model_group, reset_time)
+                        except Exception as cd_err:
+                            print(f"[AntigravityGemini] ⚠️ 流式设置冷却失败: {cd_err}", flush=True)
+                        print(f"[AntigravityGemini] ❄️ 流式凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                    else:
+                        print(f"[AntigravityGemini] ⚠️ 流式 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
                 
                 should_retry = any(code in error_str for code in ["401", "500", "502", "503", "504", "429"])
                 

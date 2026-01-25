@@ -119,6 +119,10 @@ async def init_db(skip_migration_check: bool = False):
                 "ALTER TABLE usage_logs ADD COLUMN retry_count INTEGER DEFAULT 0",
                 # 用户自定义 RPM
                 "ALTER TABLE users ADD COLUMN custom_rpm INTEGER DEFAULT 0",
+                # Antigravity 分类配额（新增）
+                "ALTER TABLE users ADD COLUMN quota_agy_claude INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN quota_agy_gemini INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN quota_agy_banana INTEGER DEFAULT 0",
             ]
         else:
             # PostgreSQL 迁移（使用 IF NOT EXISTS 语法）
@@ -157,6 +161,10 @@ async def init_db(skip_migration_check: bool = False):
                 "ALTER TABLE usage_logs ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0",
                 # 用户自定义 RPM
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_rpm INTEGER DEFAULT 0",
+                # Antigravity 分类配额（新增）
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_agy_claude INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_agy_gemini INTEGER DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_agy_banana INTEGER DEFAULT 0",
             ]
         
         for sql in migrations:

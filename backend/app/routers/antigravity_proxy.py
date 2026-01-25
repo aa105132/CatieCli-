@@ -386,8 +386,10 @@ async def chat_completions(
                 "rate_limit_error"
             )
     
-    # 检查是否是 Banana 模型（image 生成模型）
-    is_banana_model = model.startswith("gemini-3-pro-image") or "agy-gemini-3-pro-image" in body.get("model", "")
+    # 检查模型类型
+    is_banana_model = model.startswith("gemini-3-pro-image") or "agy-gemini-3-pro-image" in body.get("model", "") or "image" in model.lower()
+    is_claude_model = "claude" in model.lower()
+    is_gemini_model = not is_banana_model and not is_claude_model  # 其他都算 Gemini
     
     # 获取用户的公开 Antigravity 凭证数量（用于计算配额）
     public_cred_result = await db.execute(
@@ -399,95 +401,91 @@ async def chat_completions(
     )
     public_cred_count = public_cred_result.scalar() or 0
     
-    # Banana 额度检查（仅对 image 模型生效）
-    if is_banana_model and settings.banana_quota_enabled and not user.is_admin:
-        # 计算 Banana 配额
-        banana_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
-        
-        # 查询今天的 Banana 使用量
-        now = datetime.utcnow()
-        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        if now < reset_time_utc:
-            start_of_day = reset_time_utc - timedelta(days=1)
-        else:
-            start_of_day = reset_time_utc
-        
-        # 同时匹配两种格式：antigravity/agy-gemini-3-pro-image% 和 antigravity-gemini/%image%
-        banana_usage_result = await db.execute(
-            select(func.count(UsageLog.id))
-            .where(UsageLog.user_id == user.id)
-            .where(UsageLog.created_at >= start_of_day)
-            .where(or_(
-                UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
-                UsageLog.model.like('antigravity-gemini/%image%')
-            ))
-        )
-        banana_used = banana_usage_result.scalar() or 0
-        
-        if banana_used >= banana_quota:
-            return openai_error_response(
-                429,
-                f"🍌 Banana 配额已用尽: {banana_used}/{banana_quota}（公开凭证: {public_cred_count}）",
-                "rate_limit_error"
-            )
+    # 计算今日时间范围
+    now = datetime.utcnow()
+    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+    if now < reset_time_utc:
+        start_of_day = reset_time_utc - timedelta(days=1)
+    else:
+        start_of_day = reset_time_utc
     
-    # Antigravity 配额检查 - banana 模型只计算 banana 配额，不计入 Gemini 调用次数
-    if settings.antigravity_quota_enabled and not user.is_admin and not is_banana_model:
-        # 计算用户配额：
-        # - quota_antigravity > 0：使用用户自定义配额
-        # - quota_antigravity = 0：使用系统公式（大锅饭模式）
-        
-        # 调试日志：打印配置值
-        print(f"[Antigravity Quota] 🔧 配置检查:", flush=True)
-        print(f"[Antigravity Quota]   - antigravity_pool_mode: {settings.antigravity_pool_mode}", flush=True)
-        print(f"[Antigravity Quota]   - antigravity_quota_default: {settings.antigravity_quota_default}", flush=True)
-        print(f"[Antigravity Quota]   - antigravity_quota_per_cred: {settings.antigravity_quota_per_cred}", flush=True)
-        print(f"[Antigravity Quota]   - antigravity_quota_contributor: {settings.antigravity_quota_contributor}", flush=True)
-        print(f"[Antigravity Quota]   - user.quota_antigravity: {user.quota_antigravity}", flush=True)
-        print(f"[Antigravity Quota]   - public_cred_count: {public_cred_count}", flush=True)
-        print(f"[Antigravity Quota]   - user_has_public: {user_has_public}", flush=True)
-        
-        # 注意：quota_antigravity > 0 才使用自定义配额，= 0 表示使用系统公式
-        if user.quota_antigravity and user.quota_antigravity > 0:
-            user_quota = user.quota_antigravity
-            print(f"[Antigravity Quota] 📊 使用用户自定义配额: {user_quota}", flush=True)
-        elif settings.antigravity_pool_mode == "full_shared":
-            # 大锅饭模式：基础配额 + 凭证奖励
-            # 注意：即使用户没有公开凭证也给基础配额
-            user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
-            print(f"[Antigravity Quota] 📊 大锅饭模式配额计算: {settings.antigravity_quota_default} + ({public_cred_count} * {settings.antigravity_quota_per_cred}) = {user_quota}", flush=True)
-        elif user_has_public:
-            # 有公开凭证但非大锅饭模式，使用贡献者配额
-            user_quota = settings.antigravity_quota_contributor
-            print(f"[Antigravity Quota] 📊 使用贡献者配额: {user_quota}", flush=True)
+    # 根据模型类型计算配额和检查使用量
+    if settings.antigravity_quota_enabled and not user.is_admin:
+        # 确定使用哪个配额和统计哪类使用量
+        if is_banana_model:
+            # Banana 模型
+            if user.quota_agy_banana and user.quota_agy_banana > 0:
+                user_quota = user.quota_agy_banana
+            else:
+                user_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.model.like('%image%'))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Banana"
+            emoji = "🍌"
+        elif is_claude_model:
+            # Claude 模型
+            if user.quota_agy_claude and user.quota_agy_claude > 0:
+                user_quota = user.quota_agy_claude
+            elif settings.antigravity_pool_mode == "full_shared":
+                user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            elif user_has_public:
+                user_quota = settings.antigravity_quota_contributor
+            else:
+                user_quota = settings.antigravity_quota_default
+            
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(or_(
+                    UsageLog.model.like('antigravity/%claude%'),
+                    UsageLog.model.like('antigravity-gemini/%claude%')
+                ))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Claude"
+            emoji = "🧠"
         else:
-            user_quota = settings.antigravity_quota_default
-            print(f"[Antigravity Quota] 📊 使用默认配额: {user_quota}", flush=True)
+            # Gemini 模型
+            if user.quota_agy_gemini and user.quota_agy_gemini > 0:
+                user_quota = user.quota_agy_gemini
+            elif settings.antigravity_pool_mode == "full_shared":
+                user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            elif user_has_public:
+                user_quota = settings.antigravity_quota_contributor
+            else:
+                user_quota = settings.antigravity_quota_default
+            
+            # Gemini = 所有 antigravity 请求 - claude 请求 - image 请求
+            usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(or_(
+                    UsageLog.model.like('antigravity/%'),
+                    UsageLog.model.like('antigravity-gemini/%')
+                ))
+                .where(~UsageLog.model.like('%claude%'))
+                .where(~UsageLog.model.like('%image%'))
+                .where(UsageLog.status_code == 200)
+            )
+            quota_type = "Gemini"
+            emoji = "✨"
         
-        # 计算今日使用量
-        now = datetime.utcnow()
-        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        if now < reset_time_utc:
-            start_of_day = reset_time_utc - timedelta(days=1)
-        else:
-            start_of_day = reset_time_utc
-        
-        # 从 UsageLog 统计今日 Antigravity 使用量（只统计成功请求）
-        usage_result = await db.execute(
-            select(func.count(UsageLog.id))
-            .where(UsageLog.user_id == user.id)
-            .where(UsageLog.created_at >= start_of_day)
-            .where(UsageLog.model.like('antigravity/%'))
-            .where(UsageLog.status_code == 200)
-        )
         user_used = usage_result.scalar() or 0
         
-        print(f"[Antigravity Quota] 📊 用户 {user.username} 配额使用: {user_used}/{user_quota}", flush=True)
+        print(f"[Antigravity Quota] 📊 用户 {user.username} {quota_type} 配额使用: {user_used}/{user_quota}", flush=True)
         
         if user_used >= user_quota:
             return openai_error_response(
                 429,
-                f"Antigravity 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）",
+                f"{emoji} Antigravity {quota_type} 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）",
                 "rate_limit_error"
             )
     
@@ -644,7 +642,19 @@ async def chat_completions(
                 # 检查是否是 Token 过期导致的 401 错误
                 is_auth_error = any(code in error_str for code in ["401", "UNAUTHENTICATED", "invalid_grant", "Token has been expired", "token expired"])
                 
-                if is_auth_error:
+                # 检查是否是 429 配额耗尽错误
+                is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                
+                if is_quota_error:
+                    # 解析 429 错误，设置模型组冷却
+                    quota_info = CredentialPool.parse_429_quota_error(error_str)
+                    if quota_info:
+                        model_group, reset_time = quota_info
+                        await CredentialPool.set_model_group_cooldown(db, credential.id, model_group, reset_time)
+                        print(f"[Antigravity Proxy] ❄️ 凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
+                elif is_auth_error:
                     # 先尝试刷新当前凭证的 Token
                     print(f"[Antigravity Proxy] ⚠️ 认证失败，尝试刷新 Token: {credential.email}", flush=True)
                     new_token = await CredentialPool.refresh_access_token(credential)
@@ -941,7 +951,23 @@ async def chat_completions(
                 # 检查是否是 Token 过期导致的 401 错误
                 is_auth_error = any(code in error_str for code in ["401", "UNAUTHENTICATED", "invalid_grant", "Token has been expired", "token expired"])
                 
-                if is_auth_error:
+                # 检查是否是 429 配额耗尽错误
+                is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                
+                if is_quota_error:
+                    # 解析 429 错误，设置模型组冷却
+                    quota_info = CredentialPool.parse_429_quota_error(error_str)
+                    if quota_info:
+                        model_group, reset_time = quota_info
+                        try:
+                            async with async_session() as bg_db:
+                                await CredentialPool.set_model_group_cooldown(bg_db, credential.id, model_group, reset_time)
+                        except Exception as cd_err:
+                            print(f"[Antigravity Proxy] ⚠️ 假非流设置冷却失败: {cd_err}", flush=True)
+                        print(f"[Antigravity Proxy] ❄️ 假非流凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 假非流 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
+                elif is_auth_error:
                     # 先尝试刷新当前凭证的 Token
                     print(f"[Antigravity Proxy] ⚠️ 假非流认证失败，尝试刷新 Token: {credential.email}", flush=True)
                     try:
@@ -1193,7 +1219,23 @@ async def chat_completions(
                 # 检查是否是 Token 过期导致的 401 错误
                 is_auth_error = any(code in error_str for code in ["401", "UNAUTHENTICATED", "invalid_grant", "Token has been expired", "token expired"])
                 
-                if is_auth_error:
+                # 检查是否是 429 配额耗尽错误
+                is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                
+                if is_quota_error:
+                    # 解析 429 错误，设置模型组冷却
+                    quota_info = CredentialPool.parse_429_quota_error(error_str)
+                    if quota_info:
+                        model_group, reset_time = quota_info
+                        try:
+                            async with async_session() as bg_db:
+                                await CredentialPool.set_model_group_cooldown(bg_db, credential.id, model_group, reset_time)
+                        except Exception as cd_err:
+                            print(f"[Antigravity Proxy] ⚠️ 图片模型设置冷却失败: {cd_err}", flush=True)
+                        print(f"[Antigravity Proxy] ❄️ 图片模型凭证 {credential.email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 图片模型 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
+                elif is_auth_error:
                     print(f"[Antigravity Proxy] ⚠️ 图片模型认证失败，尝试刷新 Token: {credential.email}", flush=True)
                     try:
                         async with async_session() as bg_db:
@@ -1443,7 +1485,23 @@ async def chat_completions(
                 # 检查是否是 Token 过期导致的 401 错误
                 is_auth_error = any(code in error_str for code in ["401", "UNAUTHENTICATED", "invalid_grant", "Token has been expired", "token expired"])
                 
-                if is_auth_error:
+                # 检查是否是 429 配额耗尽错误
+                is_quota_error = "429" in error_str and ("RESOURCE_EXHAUSTED" in error_str or "exhausted your capacity" in error_str.lower())
+                
+                if is_quota_error:
+                    # 解析 429 错误，设置模型组冷却
+                    quota_info = CredentialPool.parse_429_quota_error(error_str)
+                    if quota_info:
+                        model_group, reset_time = quota_info
+                        try:
+                            async with async_session() as stream_db:
+                                await CredentialPool.set_model_group_cooldown(stream_db, current_cred_id, model_group, reset_time)
+                        except Exception as cd_err:
+                            print(f"[Antigravity Proxy] ⚠️ 流式设置冷却失败: {cd_err}", flush=True)
+                        print(f"[Antigravity Proxy] ❄️ 流式凭证 {current_cred_email} 模型组 {model_group} 配额耗尽，冷却至 {reset_time}", flush=True)
+                    else:
+                        print(f"[Antigravity Proxy] ⚠️ 流式 429 错误但无法解析配额信息: {error_str[:500]}", flush=True)
+                elif is_auth_error:
                     # 先尝试刷新当前凭证的 Token
                     print(f"[Antigravity Proxy] ⚠️ 流式认证失败，尝试刷新 Token: {current_cred_email}", flush=True)
                     try:

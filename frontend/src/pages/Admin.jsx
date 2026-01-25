@@ -249,6 +249,9 @@ export default function Admin() {
         quota_flash: user.quota_flash || 0,
         quota_25pro: user.quota_25pro || 0,
         quota_30pro: user.quota_30pro || 0,
+        quota_agy_claude: user.quota_agy_claude || 0,
+        quota_agy_gemini: user.quota_agy_gemini || 0,
+        quota_agy_banana: user.quota_agy_banana || 0,
         custom_rpm: user.custom_rpm || 0,
       },
     });
@@ -854,6 +857,7 @@ export default function Admin() {
                         <th
                           className="cursor-pointer hover:text-purple-400"
                           onClick={() => handleUserSort("daily_quota")}
+                          title="CLI配额 / Antigravity配额"
                         >
                           配额{" "}
                           {userSort.field === "daily_quota" &&
@@ -862,6 +866,7 @@ export default function Admin() {
                         <th
                           className="cursor-pointer hover:text-purple-400"
                           onClick={() => handleUserSort("today_usage")}
+                          title="CLI今日使用 / Antigravity今日使用"
                         >
                           今日使用{" "}
                           {userSort.field === "today_usage" &&
@@ -870,6 +875,7 @@ export default function Admin() {
                         <th
                           className="cursor-pointer hover:text-purple-400"
                           onClick={() => handleUserSort("credential_count")}
+                          title="CLI凭证数 / Antigravity凭证数"
                         >
                           凭证数{" "}
                           {userSort.field === "credential_count" &&
@@ -916,20 +922,27 @@ export default function Admin() {
                           <td>
                             <button
                               onClick={() => updateUserQuota(u.id, u)}
-                              className="text-purple-400 hover:underline"
+                              className="hover:underline"
+                              title="点击修改配额"
                             >
-                              {u.daily_quota}
+                              <span className="text-purple-400">{u.daily_quota}</span>
+                              <span className="text-gray-500">/</span>
+                              <span className="text-cyan-400">{u.agy_quota || 0}</span>
                             </button>
                           </td>
-                          <td>{u.today_usage}</td>
-                          <td
-                            className={
-                              u.credential_count > 0
-                                ? "text-green-400"
-                                : "text-gray-500"
-                            }
-                          >
-                            {u.credential_count || 0}
+                          <td>
+                            <span className="text-purple-400">{u.today_usage}</span>
+                            <span className="text-gray-500">/</span>
+                            <span className="text-cyan-400">{u.agy_usage || 0}</span>
+                          </td>
+                          <td title={`CLI: ${u.credential_count || 0}, AGY: ${u.agy_credential_count || 0} (公开: ${u.agy_public_cred_count || 0})`}>
+                            <span className={u.credential_count > 0 ? "text-purple-400" : "text-gray-500"}>
+                              {u.credential_count || 0}
+                            </span>
+                            <span className="text-gray-500">/</span>
+                            <span className={u.agy_credential_count > 0 ? "text-cyan-400" : "text-gray-500"}>
+                              {u.agy_credential_count || 0}
+                            </span>
                           </td>
                           <td className="text-gray-400 text-sm">
                             {u.created_at

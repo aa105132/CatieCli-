@@ -23,6 +23,9 @@ class UserUpdate(BaseModel):
     quota_flash: Optional[int] = None
     quota_25pro: Optional[int] = None
     quota_30pro: Optional[int] = None
+    quota_agy_claude: Optional[int] = None   # Antigravity Claude 配额 (0=使用系统公式)
+    quota_agy_gemini: Optional[int] = None   # Antigravity Gemini 配额 (0=使用系统公式)
+    quota_agy_banana: Optional[int] = None   # Antigravity Banana 配额 (0=使用系统公式)
     custom_rpm: Optional[int] = None  # 自定义 RPM (0=使用系统默认)
 
 
@@ -57,7 +60,7 @@ async def list_users(
     else:  # server (默认)
         today = date.today()
     
-    # 2. 批量查询今日使用量
+    # 2. 批量查询今日使用量（总量）
     usage_result = await db.execute(
         select(UsageLog.user_id, func.count(UsageLog.id))
         .where(UsageLog.user_id.in_(user_ids))
@@ -66,14 +69,59 @@ async def list_users(
     )
     usage_map = {row[0]: row[1] for row in usage_result.fetchall()}
     
-    # 3. 批量查询凭证数量
+    # 2.1 批量查询今日 CLI 使用量（不包含 antigravity）
+    cli_usage_result = await db.execute(
+        select(UsageLog.user_id, func.count(UsageLog.id))
+        .where(UsageLog.user_id.in_(user_ids))
+        .where(func.date(UsageLog.created_at) == today)
+        .where(~UsageLog.model.like('antigravity%'))  # 排除 antigravity
+        .group_by(UsageLog.user_id)
+    )
+    cli_usage_map = {row[0]: row[1] for row in cli_usage_result.fetchall()}
+    
+    # 2.2 批量查询今日 Antigravity 使用量
+    agy_usage_result = await db.execute(
+        select(UsageLog.user_id, func.count(UsageLog.id))
+        .where(UsageLog.user_id.in_(user_ids))
+        .where(func.date(UsageLog.created_at) == today)
+        .where(or_(
+            UsageLog.model.like('antigravity/%'),
+            UsageLog.model.like('antigravity-gemini/%')
+        ))
+        .group_by(UsageLog.user_id)
+    )
+    agy_usage_map = {row[0]: row[1] for row in agy_usage_result.fetchall()}
+    
+    # 3. 批量查询 CLI 凭证数量
     cred_result = await db.execute(
         select(Credential.user_id, func.count(Credential.id))
         .where(Credential.user_id.in_(user_ids))
         .where(Credential.is_active == True)
+        .where(Credential.api_type != "antigravity")  # CLI 凭证
         .group_by(Credential.user_id)
     )
     cred_map = {row[0]: row[1] for row in cred_result.fetchall()}
+    
+    # 3.1 批量查询 Antigravity 凭证数量
+    agy_cred_result = await db.execute(
+        select(Credential.user_id, func.count(Credential.id))
+        .where(Credential.user_id.in_(user_ids))
+        .where(Credential.is_active == True)
+        .where(Credential.api_type == "antigravity")
+        .group_by(Credential.user_id)
+    )
+    agy_cred_map = {row[0]: row[1] for row in agy_cred_result.fetchall()}
+    
+    # 3.2 批量查询公开 Antigravity 凭证数量
+    agy_public_cred_result = await db.execute(
+        select(Credential.user_id, func.count(Credential.id))
+        .where(Credential.user_id.in_(user_ids))
+        .where(Credential.is_active == True)
+        .where(Credential.api_type == "antigravity")
+        .where(Credential.is_public == True)
+        .group_by(Credential.user_id)
+    )
+    agy_public_cred_map = {row[0]: row[1] for row in agy_public_cred_result.fetchall()}
     
     # 3.5 批量查询3.0凭证数量
     from sqlalchemy import case
@@ -82,6 +130,7 @@ async def list_users(
         .where(Credential.user_id.in_(user_ids))
         .where(Credential.is_active == True)
         .where(Credential.model_tier == "3")
+        .where(Credential.api_type != "antigravity")  # CLI 凭证
         .group_by(Credential.user_id)
     )
     cred_30_map = {row[0]: row[1] for row in cred_30_result.fetchall()}
@@ -90,10 +139,14 @@ async def list_users(
     user_list = []
     for u in users:
         today_usage = usage_map.get(u.id, 0)
+        cli_usage = cli_usage_map.get(u.id, 0)
+        agy_usage = agy_usage_map.get(u.id, 0)
         credential_count = cred_map.get(u.id, 0)
+        agy_credential_count = agy_cred_map.get(u.id, 0)
+        agy_public_cred_count = agy_public_cred_map.get(u.id, 0)
         cred_30_count = cred_30_map.get(u.id, 0)
         
-        # 计算真实配额
+        # 计算 CLI 真实配额
         if u.quota_flash and u.quota_flash > 0:
             quota_flash = u.quota_flash
         elif credential_count > 0:
@@ -117,7 +170,17 @@ async def list_users(
         else:
             quota_30pro = settings.no_cred_quota_30pro
         
-        total_quota = quota_flash + quota_25pro + quota_30pro
+        cli_total_quota = quota_flash + quota_25pro + quota_30pro
+        
+        # 计算 Antigravity 配额
+        if u.quota_antigravity and u.quota_antigravity > 0:
+            agy_quota = u.quota_antigravity
+        elif settings.antigravity_pool_mode == "full_shared":
+            agy_quota = settings.antigravity_quota_default + (agy_public_cred_count * settings.antigravity_quota_per_cred)
+        elif agy_public_cred_count > 0:
+            agy_quota = settings.antigravity_quota_contributor
+        else:
+            agy_quota = settings.antigravity_quota_default
         
         user_list.append({
             "id": u.id,
@@ -125,12 +188,24 @@ async def list_users(
             "email": u.email,
             "is_active": u.is_active,
             "is_admin": u.is_admin,
-            "daily_quota": total_quota,
-            "quota_flash": quota_flash,
-            "quota_25pro": quota_25pro,
-            "quota_30pro": quota_30pro,
-            "today_usage": today_usage,
+            # CLI
+            "daily_quota": cli_total_quota,
+            "quota_flash": u.quota_flash or 0,  # 原始配置值
+            "quota_25pro": u.quota_25pro or 0,
+            "quota_30pro": u.quota_30pro or 0,
+            "today_usage": cli_usage,
             "credential_count": credential_count,
+            # Antigravity
+            "agy_quota": agy_quota,
+            "quota_agy_claude": u.quota_agy_claude or 0,  # 原始配置值
+            "quota_agy_gemini": u.quota_agy_gemini or 0,
+            "quota_agy_banana": u.quota_agy_banana or 0,
+            "agy_usage": agy_usage,
+            "agy_credential_count": agy_credential_count,
+            "agy_public_cred_count": agy_public_cred_count,
+            # 总量（兼容旧版）
+            "total_usage": today_usage,
+            # 其他
             "discord_id": u.discord_id,
             "discord_name": u.discord_name,
             "custom_rpm": u.custom_rpm or 0,
@@ -165,6 +240,12 @@ async def update_user(
         user.quota_25pro = data.quota_25pro
     if data.quota_30pro is not None:
         user.quota_30pro = data.quota_30pro
+    if data.quota_agy_claude is not None:
+        user.quota_agy_claude = data.quota_agy_claude
+    if data.quota_agy_gemini is not None:
+        user.quota_agy_gemini = data.quota_agy_gemini
+    if data.quota_agy_banana is not None:
+        user.quota_agy_banana = data.quota_agy_banana
     if data.custom_rpm is not None:
         user.custom_rpm = data.custom_rpm
     

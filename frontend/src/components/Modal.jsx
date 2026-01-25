@@ -167,6 +167,9 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
     quota_flash: defaultValues.quota_flash || 0,
     quota_25pro: defaultValues.quota_25pro || 0,
     quota_30pro: defaultValues.quota_30pro || 0,
+    quota_agy_claude: defaultValues.quota_agy_claude || 0,
+    quota_agy_gemini: defaultValues.quota_agy_gemini || 0,
+    quota_agy_banana: defaultValues.quota_agy_banana || 0,
     custom_rpm: defaultValues.custom_rpm || 0
   })
 
@@ -176,18 +179,22 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
         quota_flash: defaultValues.quota_flash || 0,
         quota_25pro: defaultValues.quota_25pro || 0,
         quota_30pro: defaultValues.quota_30pro || 0,
+        quota_agy_claude: defaultValues.quota_agy_claude || 0,
+        quota_agy_gemini: defaultValues.quota_agy_gemini || 0,
+        quota_agy_banana: defaultValues.quota_agy_banana || 0,
         custom_rpm: defaultValues.custom_rpm || 0
       })
     }
   }, [isOpen, defaultValues])
 
   // 总配额自动计算
-  const totalQuota = values.quota_flash + values.quota_25pro + values.quota_30pro
+  const cliTotalQuota = values.quota_flash + values.quota_25pro + values.quota_30pro
+  const agyTotalQuota = values.quota_agy_claude + values.quota_agy_gemini + values.quota_agy_banana
 
   const handleSubmit = (e) => {
     e.preventDefault()
     // 提交时自动计算总配额
-    onSubmit({ ...values, daily_quota: totalQuota })
+    onSubmit({ ...values, daily_quota: cliTotalQuota })
     onClose()
   }
 
@@ -195,8 +202,9 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
     <Modal isOpen={isOpen} onClose={onClose} title={title}>
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
+          {/* CLI 配额 */}
           <div>
-            <p className="text-sand-400 text-sm mb-3">按模型配额（0=使用系统默认）</p>
+            <p className="text-sand-400 text-sm mb-3">CLI 配额（0=使用系统默认）</p>
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-indigo-400 text-xs mb-1">Flash</label>
@@ -229,9 +237,48 @@ export function QuotaModal({ isOpen, onClose, onSubmit, title, defaultValues = {
           </div>
           <div className="border-t border-night-50 pt-4">
             <div className="flex justify-between items-center">
-              <span className="text-sand-400 text-sm">总配额（自动计算）</span>
-              <span className="text-wisteria-400 font-semibold">{totalQuota.toLocaleString()}</span>
+              <span className="text-sand-400 text-sm">CLI 总配额（自动计算）</span>
+              <span className="text-wisteria-400 font-semibold">{cliTotalQuota.toLocaleString()}</span>
             </div>
+          </div>
+          
+          {/* Antigravity 配额 */}
+          <div className="border-t border-night-50 pt-4">
+            <p className="text-sand-400 text-sm mb-3">Antigravity 配额（0=使用系统默认）</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-pink-400 text-xs mb-1">Claude</label>
+                <input
+                  type="number"
+                  value={values.quota_agy_claude}
+                  onChange={(e) => setValues({ ...values, quota_agy_claude: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-night-200 border border-pink-500/30 rounded-lg text-sand-100 text-sm focus:border-pink-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-cyan-400 text-xs mb-1">Gemini</label>
+                <input
+                  type="number"
+                  value={values.quota_agy_gemini}
+                  onChange={(e) => setValues({ ...values, quota_agy_gemini: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-night-200 border border-cyan-500/30 rounded-lg text-sand-100 text-sm focus:border-cyan-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-yellow-400 text-xs mb-1">Banana</label>
+                <input
+                  type="number"
+                  value={values.quota_agy_banana}
+                  onChange={(e) => setValues({ ...values, quota_agy_banana: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 bg-night-200 border border-yellow-500/30 rounded-lg text-sand-100 text-sm focus:border-yellow-500 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div className="flex justify-between items-center mt-3 pt-3 border-t border-night-50/50">
+              <span className="text-sand-400 text-sm">AGY 总配额（自动计算）</span>
+              <span className="text-cyan-400 font-semibold">{agyTotalQuota.toLocaleString()}</span>
+            </div>
+            <p className="text-sand-500 text-xs mt-2">设置后将覆盖系统公式计算的配额（0=使用系统默认）</p>
           </div>
           <div className="border-t border-night-50 pt-4">
             <p className="text-sand-400 text-sm mb-3">速率限制（0=使用系统默认）</p>
