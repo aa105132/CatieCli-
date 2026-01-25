@@ -1074,6 +1074,7 @@ async def get_config(user: User = Depends(get_current_admin)):
         "anthropic_base_rpm": settings.anthropic_base_rpm,
         "anthropic_contributor_rpm": settings.anthropic_contributor_rpm,
         "stats_timezone": settings.stats_timezone,
+        "allow_export_credentials": settings.allow_export_credentials,
     }
 
 
@@ -1115,6 +1116,16 @@ async def get_public_config():
         "antigravity_quota_enabled": settings.antigravity_quota_enabled,
         "antigravity_quota_default": settings.antigravity_quota_default,
         "antigravity_quota_per_cred": settings.antigravity_quota_per_cred,
+        "antigravity_base_rpm": settings.antigravity_base_rpm,
+        "antigravity_contributor_rpm": settings.antigravity_contributor_rpm,
+        # Banana 配置
+        "banana_quota_enabled": settings.banana_quota_enabled,
+        "banana_quota_default": settings.banana_quota_default,
+        "banana_quota_per_cred": settings.banana_quota_per_cred,
+        # CLI 凭证奖励配额（用于前端显示）
+        "quota_flash": settings.quota_flash,
+        "quota_25pro": settings.quota_25pro,
+        "quota_30pro": settings.quota_30pro,
     }
 
 
@@ -1197,6 +1208,7 @@ async def update_config(
     anthropic_base_rpm: Optional[int] = Form(None),
     anthropic_contributor_rpm: Optional[int] = Form(None),
     stats_timezone: Optional[str] = Form(None),
+    allow_export_credentials: Optional[bool] = Form(None),
     user: User = Depends(get_current_admin)
 ):
     """更新配置（持久化保存到数据库）"""
@@ -1302,6 +1314,10 @@ async def update_config(
         settings.lock_donate = lock_donate
         await save_config_to_db("lock_donate", lock_donate)
         updated["lock_donate"] = lock_donate
+    if allow_export_credentials is not None:
+        settings.allow_export_credentials = allow_export_credentials
+        await save_config_to_db("allow_export_credentials", allow_export_credentials)
+        updated["allow_export_credentials"] = allow_export_credentials
     
     # 日志保留配置
     if log_retention_days is not None:
@@ -1813,7 +1829,7 @@ async def get_global_stats(
     )
     active_users = active_users_result.scalar() or 0
     
-    return {
+    result = {
         "requests": {
             "last_hour": hour_requests,
             "today": today_requests,
@@ -1876,7 +1892,7 @@ async def get_global_stats(
     }
     
     # 缓存结果5秒
-    cache.set("stats:global", result, ttl=5)
+    cache.set(cache_key, result, ttl=5)
     
     return result
 
@@ -1999,19 +2015,17 @@ async def get_error_stats(
             "status_code": row.UsageLog.status_code,
             "latency_ms": row.UsageLog.latency_ms,
             "cd_seconds": row.UsageLog.cd_seconds,
-            "client_ip": row.UsageLog.client_ip,
+            "error_message": row.UsageLog.error_message,
             "created_at": row.UsageLog.created_at.isoformat() + "Z" if row.UsageLog.created_at else None
         }
         for row in result.all()
     ]
     
     return {
-        "error_by_code": error_by_code,
         "errors": errors,
+        "error_by_code": error_by_code,
         "total": total,
         "page": page,
         "page_size": page_size,
-        "total_pages": (total + page_size - 1) // page_size
+        "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
     }
-
-

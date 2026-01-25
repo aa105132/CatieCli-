@@ -28,6 +28,7 @@ import {
   X,
   Zap,
   AlertCircle,
+  AlertTriangle,
   Info,
   Upload,
 } from "lucide-react";
@@ -99,6 +100,21 @@ export default function Dashboard() {
   const [agyPoolMode, setAgyPoolMode] = useState("private");
   const [agyQuotaEnabled, setAgyQuotaEnabled] = useState(false);
 
+  // 奖励配置（从后端获取）
+  const [rewardConfig, setRewardConfig] = useState({
+    // CLI 奖励
+    quota_flash: 1000,
+    quota_25pro: 500,
+    quota_30pro: 200,
+    contributor_rpm: 10,
+    // Antigravity 奖励
+    antigravity_quota_per_cred: 500,
+    antigravity_contributor_rpm: 10,
+    // Banana 奖励
+    banana_quota_enabled: true,
+    banana_quota_per_cred: 50,
+  });
+
   // 获取捐赠配置
   useEffect(() => {
     api
@@ -112,6 +128,17 @@ export default function Dashboard() {
         setAllowExportCredentials(res.data.allow_export_credentials !== false);
         setAgyPoolMode(res.data.antigravity_pool_mode || "private");
         setAgyQuotaEnabled(res.data.antigravity_quota_enabled || false);
+        // 设置奖励配置
+        setRewardConfig({
+          quota_flash: res.data.quota_flash || 1000,
+          quota_25pro: res.data.quota_25pro || 500,
+          quota_30pro: res.data.quota_30pro || 200,
+          contributor_rpm: res.data.contributor_rpm || 10,
+          antigravity_quota_per_cred: res.data.antigravity_quota_per_cred || 500,
+          antigravity_contributor_rpm: res.data.antigravity_contributor_rpm || 10,
+          banana_quota_enabled: res.data.banana_quota_enabled !== false,
+          banana_quota_per_cred: res.data.banana_quota_per_cred || 50,
+        });
       })
       .catch(() => {});
   }, []);
@@ -968,6 +995,45 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* CLI 凭证奖励说明 */}
+            <div className="rounded-lg border border-wisteria-300 dark:border-wisteria-500/50 p-4 bg-wisteria-50 dark:bg-wisteria-600/10">
+              <h3 className="text-sm font-medium text-wisteria-600 dark:text-wisteria-400 mb-3 flex items-center gap-2">
+                <Gift size={16} />
+                上传 CLI 凭证额度说明
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-wisteria-600 dark:text-wisteria-400 font-medium">上传 2.5 的有效凭证：</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">每个额外增加</span>
+                  <span className="px-1.5 py-0.5 rounded bg-wisteria-200 dark:bg-wisteria-600/30 text-wisteria-700 dark:text-wisteria-300 font-medium">{rewardConfig.quota_flash}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 Flash /</span>
+                  <span className="px-1.5 py-0.5 rounded bg-wisteria-200 dark:bg-wisteria-600/30 text-wisteria-700 dark:text-wisteria-300 font-medium">{rewardConfig.quota_25pro}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 2.5 Pro /</span>
+                  <span className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-inkbrown-300 dark:text-sand-500 font-medium">0</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 3.0 Pro</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-wisteria-600 dark:text-wisteria-400 font-medium">上传 3.0 的有效凭证：</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">每个额外增加</span>
+                  <span className="px-1.5 py-0.5 rounded bg-wisteria-200 dark:bg-wisteria-600/30 text-wisteria-700 dark:text-wisteria-300 font-medium">{rewardConfig.quota_flash}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 Flash /</span>
+                  <span className="px-1.5 py-0.5 rounded bg-wisteria-200 dark:bg-wisteria-600/30 text-wisteria-700 dark:text-wisteria-300 font-medium">{rewardConfig.quota_25pro}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 2.5 Pro /</span>
+                  <span className="px-1.5 py-0.5 rounded bg-wisteria-200 dark:bg-wisteria-600/30 text-wisteria-700 dark:text-wisteria-300 font-medium">{rewardConfig.quota_30pro}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 3.0 Pro</span>
+                </div>
+              </div>
+              {/* RPM 提示 */}
+              <div className="mt-3 pt-3 border-t border-wisteria-200 dark:border-wisteria-500/30">
+                <div className="flex items-center gap-2 text-xs">
+                  <Zap size={14} className="text-goldenrod-500" />
+                  <span className="text-inkbrown-400 dark:text-sand-400">RPM 速率：上传可用凭证（CLI 或反重力）后增加对应速率至</span>
+                  <span className="px-1.5 py-0.5 rounded bg-goldenrod-200 dark:bg-goldenrod-600/30 text-goldenrod-700 dark:text-goldenrod-300 font-medium">{rewardConfig.contributor_rpm}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">RPM</span>
+                </div>
+              </div>
+            </div>
+
             {/* 统计卡片 */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
@@ -1225,6 +1291,46 @@ export default function Dashboard() {
                       <span>支持上传 JSON 凭证文件（格式：access_token, refresh_token, client_id, client_secret, project_id）</span>
                     </li>
                   </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* 反重力凭证奖励说明 */}
+            <div className="rounded-lg border border-goldenrod-300 dark:border-goldenrod-500/50 p-4 bg-goldenrod-50 dark:bg-goldenrod-600/10">
+              <h3 className="text-sm font-medium text-goldenrod-600 dark:text-goldenrod-400 mb-3 flex items-center gap-2">
+                <Rocket size={16} />
+                上传反重力凭证额度说明
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-goldenrod-600 dark:text-goldenrod-400 font-medium">上传有效反重力凭证：</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">Claude 额外增加</span>
+                  <span className="px-1.5 py-0.5 rounded bg-goldenrod-200 dark:bg-goldenrod-600/30 text-goldenrod-700 dark:text-goldenrod-300 font-medium">{rewardConfig.antigravity_quota_per_cred}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次 / Gemini 额外增加</span>
+                  <span className="px-1.5 py-0.5 rounded bg-goldenrod-200 dark:bg-goldenrod-600/30 text-goldenrod-700 dark:text-goldenrod-300 font-medium">{rewardConfig.antigravity_quota_per_cred}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次</span>
+                  {rewardConfig.banana_quota_enabled && (
+                    <>
+                      <span className="text-inkbrown-400 dark:text-sand-400">/ Banana(image系列模型) 额外增加</span>
+                      <span className="px-1.5 py-0.5 rounded bg-yellow-200 dark:bg-yellow-600/30 text-yellow-700 dark:text-yellow-300 font-medium">{rewardConfig.banana_quota_per_cred}</span>
+                      <span className="text-inkbrown-400 dark:text-sand-400">次</span>
+                    </>
+                  )}
+                </div>
+                {rewardConfig.banana_quota_enabled && (
+                  <div className="flex items-center gap-2 text-goldenrod-600 dark:text-goldenrod-400">
+                    <AlertTriangle size={14} />
+                    <span>image系列模型只能用于生图，不能用于文字输出！</span>
+                  </div>
+                )}
+              </div>
+              {/* RPM 提示 */}
+              <div className="mt-3 pt-3 border-t border-goldenrod-200 dark:border-goldenrod-500/30">
+                <div className="flex items-center gap-2 text-xs">
+                  <Zap size={14} className="text-goldenrod-500" />
+                  <span className="text-inkbrown-400 dark:text-sand-400">RPM 速率：上传可用凭证（CLI 或反重力）后增加对应速率至</span>
+                  <span className="px-1.5 py-0.5 rounded bg-goldenrod-200 dark:bg-goldenrod-600/30 text-goldenrod-700 dark:text-goldenrod-300 font-medium">{rewardConfig.antigravity_contributor_rpm}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">RPM</span>
                 </div>
               </div>
             </div>
@@ -1999,22 +2105,15 @@ export default function Dashboard() {
                                             {shortName}
                                           </div>
                                           <div className="flex items-center gap-2">
-                                            <span
-                                              className={`text-sm font-bold ${textColor}`}
-                                            >
-                                              {remaining}%
-                                            </span>
-                                            <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1">
+                                            <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
                                               <div
-                                                className={`h-1 rounded-full ${colorClass}`}
-                                                style={{
-                                                  width: `${Math.min(remaining, 100)}%`,
-                                                }}
+                                                className={`h-1.5 rounded-full ${colorClass}`}
+                                                style={{ width: `${Math.min(remaining, 100)}%` }}
                                               />
                                             </div>
-                                          </div>
-                                          <div className="text-[9px] text-inkbrown-200 dark:text-sand-600 mt-1">
-                                            {data.resetTime || "N/A"}
+                                            <span className={`text-xs font-medium ${textColor}`}>
+                                              {remaining.toFixed(0)}%
+                                            </span>
                                           </div>
                                         </div>
                                       );
@@ -2028,13 +2127,13 @@ export default function Dashboard() {
                       );
                     })()
                   ) : (
-                    <div className="text-center py-8 text-inkbrown-300 dark:text-sand-500">
-                      没有额度数据
+                    <div className="text-center py-8 text-inkbrown-300 dark:text-sand-500 text-sm">
+                      暂无额度数据
                     </div>
                   )}
                 </>
               ) : (
-                <div className="p-4 bg-cinnabar-100 dark:bg-cinnabar-600/20 border border-cinnabar-300 dark:border-cinnabar-500/50 rounded-lg text-cinnabar-600 dark:text-cinnabar-400">
+                <div className="p-4 rounded-lg border border-cinnabar-300 dark:border-cinnabar-500/50 bg-cinnabar-100 dark:bg-cinnabar-600/20 text-cinnabar-600 dark:text-cinnabar-400 text-sm">
                   {agyQuotaResult.error || "获取额度失败"}
                 </div>
               )}
