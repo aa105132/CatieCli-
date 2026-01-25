@@ -432,18 +432,52 @@ async def chat_completions(
         # 计算用户配额：
         # - 如果用户有自定义配额，使用自定义配额
         # - 否则：基础配额 + (公开凭证数 * 每凭证奖励)
+        
+        # 调试日志：打印配置值
+        print(f"[Antigravity Quota] 🔧 配置检查:", flush=True)
+        print(f"[Antigravity Quota]   - antigravity_pool_mode: {settings.antigravity_pool_mode}", flush=True)
+        print(f"[Antigravity Quota]   - antigravity_quota_default: {settings.antigravity_quota_default}", flush=True)
+        print(f"[Antigravity Quota]   - antigravity_quota_per_cred: {settings.antigravity_quota_per_cred}", flush=True)
+        print(f"[Antigravity Quota]   - antigravity_quota_contributor: {settings.antigravity_quota_contributor}", flush=True)
+        print(f"[Antigravity Quota]   - user.quota_antigravity: {user.quota_antigravity}", flush=True)
+        print(f"[Antigravity Quota]   - public_cred_count: {public_cred_count}", flush=True)
+        print(f"[Antigravity Quota]   - user_has_public: {user_has_public}", flush=True)
+        
         if user.quota_antigravity and user.quota_antigravity > 0:
             user_quota = user.quota_antigravity
-        elif settings.antigravity_pool_mode == "full_shared" and public_cred_count > 0:
+            print(f"[Antigravity Quota] 📊 使用用户自定义配额: {user_quota}", flush=True)
+        elif settings.antigravity_pool_mode == "full_shared":
             # 大锅饭模式：基础配额 + 凭证奖励
+            # 注意：即使用户没有公开凭证也给基础配额
             user_quota = settings.antigravity_quota_default + (public_cred_count * settings.antigravity_quota_per_cred)
+            print(f"[Antigravity Quota] 📊 大锅饭模式配额计算: {settings.antigravity_quota_default} + ({public_cred_count} * {settings.antigravity_quota_per_cred}) = {user_quota}", flush=True)
         elif user_has_public:
-            # 有公开凭证但没有按数量计算，使用贡献者配额
+            # 有公开凭证但非大锅饭模式，使用贡献者配额
             user_quota = settings.antigravity_quota_contributor
+            print(f"[Antigravity Quota] 📊 使用贡献者配额: {user_quota}", flush=True)
         else:
             user_quota = settings.antigravity_quota_default
+            print(f"[Antigravity Quota] 📊 使用默认配额: {user_quota}", flush=True)
         
-        user_used = user.used_antigravity or 0
+        # 计算今日使用量
+        now = datetime.utcnow()
+        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now < reset_time_utc:
+            start_of_day = reset_time_utc - timedelta(days=1)
+        else:
+            start_of_day = reset_time_utc
+        
+        # 从 UsageLog 统计今日 Antigravity 使用量
+        usage_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(UsageLog.user_id == user.id)
+            .where(UsageLog.created_at >= start_of_day)
+            .where(UsageLog.model.like('antigravity/%'))
+            .where(UsageLog.status_code == 200)  # 只统计成功的请求
+        )
+        user_used = usage_result.scalar() or 0
+        
+        print(f"[Antigravity Quota] 📊 用户 {user.username} 配额使用: {user_used}/{user_quota}", flush=True)
         
         if user_used >= user_quota:
             return openai_error_response(
@@ -451,10 +485,6 @@ async def chat_completions(
                 f"Antigravity 配额已用尽: {user_used}/{user_quota}（公开凭证: {public_cred_count}）",
                 "rate_limit_error"
             )
-        
-        # 扣减配额（先扣减，如果请求失败会在日志中记录）
-        user.used_antigravity = user_used + 1
-        await db.commit()
     
     # 插入占位记录
     # 对于 image 模型，保留 "agy-" 前缀用于 Banana 配额统计
@@ -1525,4 +1555,3 @@ async def chat_completions(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
     )
-
