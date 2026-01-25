@@ -1538,9 +1538,14 @@ async def get_global_stats(
     if api_type == "antigravity":
         # Antigravity 分类：按模型品牌 (Claude/Gemini/其他/Banana)
         def is_banana(model: str) -> bool:
-            """检测是否为 Banana 模型（图片生成模型）"""
+            """检测是否为 Banana 模型（图片生成模型）
+            
+            匹配格式：
+            - antigravity/agy-gemini-3-pro-image*（OpenAI 格式代理）
+            - antigravity-gemini/*image*（Gemini 原生格式代理）
+            """
             m = model.lower()
-            return "agy-gemini-3-pro-image" in m or "gemini-3-pro-image" in m
+            return "agy-gemini-3-pro-image" in m or "gemini-3-pro-image" in m or ("antigravity-gemini/" in m and "image" in m)
         
         def is_claude(model: str) -> bool:
             m = model.lower()

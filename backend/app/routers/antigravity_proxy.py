@@ -412,11 +412,15 @@ async def chat_completions(
         else:
             start_of_day = reset_time_utc
         
+        # 同时匹配两种格式：antigravity/agy-gemini-3-pro-image% 和 antigravity-gemini/%image%
         banana_usage_result = await db.execute(
             select(func.count(UsageLog.id))
             .where(UsageLog.user_id == user.id)
             .where(UsageLog.created_at >= start_of_day)
-            .where(UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'))
+            .where(or_(
+                UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
+                UsageLog.model.like('antigravity-gemini/%image%')
+            ))
         )
         banana_used = banana_usage_result.scalar() or 0
         
@@ -427,8 +431,8 @@ async def chat_completions(
                 "rate_limit_error"
             )
     
-    # Antigravity 配额检查
-    if settings.antigravity_quota_enabled and not user.is_admin:
+    # Antigravity 配额检查 - banana 模型只计算 banana 配额，不计入 Gemini 调用次数
+    if settings.antigravity_quota_enabled and not user.is_admin and not is_banana_model:
         # 计算用户配额：
         # - quota_antigravity > 0：使用用户自定义配额
         # - quota_antigravity = 0：使用系统公式（大锅饭模式）

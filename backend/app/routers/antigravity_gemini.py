@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime, timedelta
+from app.models.user import Credential
 import json
 import time
 import asyncio
@@ -142,10 +143,56 @@ async def gemini_generate_content(
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")
     
-    # 插入占位记录
+    # 检查是否是 Banana 模型（image 生成模型）
+    is_banana_model = "image" in real_model.lower() or "gemini-3-pro-image" in real_model.lower()
+    
+    # 获取用户的公开 Antigravity 凭证数量（用于计算配额）
+    public_cred_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.user_id == user.id)
+        .where(Credential.api_type == "antigravity")
+        .where(Credential.is_public == True)
+        .where(Credential.is_active == True)
+    )
+    public_cred_count = public_cred_result.scalar() or 0
+    
+    # Banana 额度检查（仅对 image 模型生效）
+    if is_banana_model and settings.banana_quota_enabled and not user.is_admin:
+        # 计算 Banana 配额
+        banana_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
+        
+        # 查询今天的 Banana 使用量
+        now = datetime.utcnow()
+        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now < reset_time_utc:
+            start_of_day = reset_time_utc - timedelta(days=1)
+        else:
+            start_of_day = reset_time_utc
+        
+        # 同时匹配两种格式：antigravity/agy-gemini-3-pro-image% 和 antigravity-gemini/%image%
+        from sqlalchemy import or_
+        banana_usage_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(UsageLog.user_id == user.id)
+            .where(UsageLog.created_at >= start_of_day)
+            .where(or_(
+                UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
+                UsageLog.model.like('antigravity-gemini/%image%')
+            ))
+        )
+        banana_used = banana_usage_result.scalar() or 0
+        
+        if banana_used >= banana_quota:
+            raise HTTPException(
+                status_code=429,
+                detail=f"🍌 Banana 配额已用尽: {banana_used}/{banana_quota}（公开凭证: {public_cred_count}）"
+            )
+    
+    # 插入占位记录 - 对于 image 模型使用统一格式
+    log_model = f"antigravity-gemini/agy-{real_model}" if is_banana_model else f"antigravity-gemini/{real_model}"
     placeholder_log = UsageLog(
         user_id=user.id,
-        model=f"antigravity-gemini/{real_model}",
+        model=log_model,
         endpoint=f"/antigravity/v1beta/models/{model}:generateContent",
         status_code=0,
         latency_ms=0,
@@ -558,10 +605,56 @@ async def gemini_stream_generate_content(
         if current_rpm >= max_rpm:
             raise HTTPException(status_code=429, detail=f"速率限制: {max_rpm} 次/分钟")
     
-    # 插入占位记录
+    # 检查是否是 Banana 模型（image 生成模型）
+    is_banana_model = "image" in real_model.lower() or "gemini-3-pro-image" in real_model.lower()
+    
+    # 获取用户的公开 Antigravity 凭证数量（用于计算配额）
+    public_cred_result = await db.execute(
+        select(func.count(Credential.id))
+        .where(Credential.user_id == user.id)
+        .where(Credential.api_type == "antigravity")
+        .where(Credential.is_public == True)
+        .where(Credential.is_active == True)
+    )
+    public_cred_count = public_cred_result.scalar() or 0
+    
+    # Banana 额度检查（仅对 image 模型生效）
+    if is_banana_model and settings.banana_quota_enabled and not user.is_admin:
+        # 计算 Banana 配额
+        banana_quota = settings.banana_quota_default + (public_cred_count * settings.banana_quota_per_cred)
+        
+        # 查询今天的 Banana 使用量
+        now = datetime.utcnow()
+        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if now < reset_time_utc:
+            start_of_day = reset_time_utc - timedelta(days=1)
+        else:
+            start_of_day = reset_time_utc
+        
+        # 同时匹配两种格式：antigravity/agy-gemini-3-pro-image% 和 antigravity-gemini/%image%
+        from sqlalchemy import or_
+        banana_usage_result = await db.execute(
+            select(func.count(UsageLog.id))
+            .where(UsageLog.user_id == user.id)
+            .where(UsageLog.created_at >= start_of_day)
+            .where(or_(
+                UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
+                UsageLog.model.like('antigravity-gemini/%image%')
+            ))
+        )
+        banana_used = banana_usage_result.scalar() or 0
+        
+        if banana_used >= banana_quota:
+            raise HTTPException(
+                status_code=429,
+                detail=f"🍌 Banana 配额已用尽: {banana_used}/{banana_quota}（公开凭证: {public_cred_count}）"
+            )
+    
+    # 插入占位记录 - 对于 image 模型使用统一格式
+    log_model = f"antigravity-gemini/agy-{real_model}" if is_banana_model else f"antigravity-gemini/{real_model}"
     placeholder_log = UsageLog(
         user_id=user.id,
-        model=f"antigravity-gemini/{real_model}",
+        model=log_model,
         endpoint=f"/antigravity/v1beta/models/{model}:streamGenerateContent",
         status_code=0,
         latency_ms=0,

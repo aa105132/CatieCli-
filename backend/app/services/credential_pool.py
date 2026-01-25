@@ -1190,24 +1190,91 @@ class CredentialPool:
         """
         检测账号类型（Pro/Free）
         
-        方式1: 使用 Google Drive API 检测存储空间（需要 drive scope）
-        方式2: 如果 Drive API 失败，回退到连续请求检测
+        优先使用 loadCodeAssist API 获取 currentTier 信息
+        
+        方式1: loadCodeAssist API 获取 tier 信息
+        方式2: 如果方式1失败，使用 Google Drive API 检测存储空间
+        方式3: 如果方式2也失败，回退到连续请求检测
         
         Returns:
-            {"account_type": "pro"/"free"/"unknown", "storage_gb": float}
+            {"account_type": "pro"/"free"/"unknown", "tier": str, "storage_gb": float}
         """
         import asyncio
         
-        headers = {"Authorization": f"Bearer {access_token}"}
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "User-Agent": GEMINICLI_USER_AGENT
+        }
         
-        print(f"[检测账号] 尝试使用 Drive API 检测存储空间...", flush=True)
+        # 方式1: 使用 loadCodeAssist 获取 tier 信息
+        print(f"[检测账号] 尝试使用 loadCodeAssist 检测订阅级别...", flush=True)
         
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # 方式1: 尝试 Drive API
+            try:
+                load_url = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
+                load_payload = {
+                    "metadata": {
+                        "ideType": "VSCODE",
+                        "platform": "PLATFORM_UNSPECIFIED",
+                        "pluginType": "GEMINI"
+                    }
+                }
+                
+                resp = await client.post(load_url, headers=headers, json=load_payload)
+                print(f"[检测账号] loadCodeAssist 响应: {resp.status_code}", flush=True)
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    print(f"[检测账号] loadCodeAssist 数据: currentTier={data.get('currentTier')}, allowedTiers={[t.get('id') for t in data.get('allowedTiers', [])]}", flush=True)
+                    
+                    current_tier = data.get("currentTier")
+                    allowed_tiers = data.get("allowedTiers", [])
+                    
+                    # 判断当前 tier 或可用 tier
+                    tier_id = None
+                    if current_tier:
+                        tier_id = current_tier.get("id") if isinstance(current_tier, dict) else str(current_tier)
+                    
+                    if not tier_id:
+                        # 如果没有 currentTier，查看 allowedTiers
+                        for tier in allowed_tiers:
+                            if tier.get("isDefault"):
+                                tier_id = tier.get("id")
+                                break
+                    
+                    if tier_id:
+                        tier_id_upper = tier_id.upper()
+                        print(f"[检测账号] 检测到 Tier: {tier_id}", flush=True)
+                        
+                        # 判断 Pro: STANDARD, PRO, ENTERPRISE, LEGACY_STANDARD 等
+                        # 判断 Free: FREE, LEGACY 等
+                        if any(kw in tier_id_upper for kw in ["STANDARD", "PRO", "ENTERPRISE", "BUSINESS", "TEAM"]):
+                            print(f"[检测账号] ✅ 判定为 Pro 账号 (tier: {tier_id})", flush=True)
+                            return {"account_type": "pro", "tier": tier_id}
+                        elif "FREE" in tier_id_upper:
+                            print(f"[检测账号] 判定为 Free 账号 (tier: {tier_id})", flush=True)
+                            return {"account_type": "free", "tier": tier_id}
+                        elif "LEGACY" in tier_id_upper:
+                            # LEGACY 需要进一步判断
+                            print(f"[检测账号] LEGACY 账号，进一步检测...", flush=True)
+                        else:
+                            # 未知 tier，假设为 Pro
+                            print(f"[检测账号] 未知 Tier {tier_id}，假设为 Pro", flush=True)
+                            return {"account_type": "pro", "tier": tier_id}
+                    else:
+                        print(f"[检测账号] 无法从 loadCodeAssist 获取 tier 信息", flush=True)
+                        
+            except Exception as e:
+                print(f"[检测账号] loadCodeAssist 异常: {e}", flush=True)
+            
+            # 方式2: 尝试 Drive API
+            print(f"[检测账号] 尝试使用 Drive API 检测存储空间...", flush=True)
+            
             try:
                 resp = await client.get(
                     "https://www.googleapis.com/drive/v3/about?fields=storageQuota",
-                    headers=headers
+                    headers={"Authorization": f"Bearer {access_token}"}
                 )
                 print(f"[检测账号] Drive API 响应: {resp.status_code}", flush=True)
                 
@@ -1220,9 +1287,14 @@ class CredentialPool:
                         storage_gb = round(limit / (1024**3), 1)
                         print(f"[检测账号] 存储空间: {storage_gb} GB", flush=True)
                         
-                        # Pro 账号是 2TB (2000GB) 存储空间
+                        # Pro 账号是 2TB (2000GB) 或更多存储空间
+                        # Google One: 100GB=$1.99, 200GB=$2.99, 2TB=$9.99
+                        # 只有 2TB 及以上才算 Pro
                         if storage_gb >= 2000:
                             return {"account_type": "pro", "storage_gb": storage_gb}
+                        elif storage_gb >= 100:
+                            # 100-2000GB: 付费用户，但不是最高级，标记为 unknown
+                            return {"account_type": "unknown", "storage_gb": storage_gb, "note": "Google One subscriber"}
                         else:
                             return {"account_type": "free", "storage_gb": storage_gb}
                 elif resp.status_code == 403:
@@ -1233,8 +1305,8 @@ class CredentialPool:
             except Exception as e:
                 print(f"[检测账号] Drive API 异常: {e}", flush=True)
             
-            # 方式2: 回退到连续请求检测
-            print(f"[检测账号] Drive API 无权限，使用连续请求检测...", flush=True)
+            # 方式3: 回退到连续请求检测 (RPM 限制判断)
+            print(f"[检测账号] 使用连续请求检测 RPM 限制...", flush=True)
             
             headers["Content-Type"] = "application/json"
             url = "https://cloudcode-pa.googleapis.com/v1internal:generateContent"
@@ -1279,10 +1351,14 @@ class CredentialPool:
                 
                 await asyncio.sleep(1.5)
             
-            # 5 次中至少 3 次成功才判定为 Pro
-            if success_count >= 3:
+            # Pro 账号通常有更高的 RPM 限制
+            # 5 次中至少 4 次成功才判定为 Pro (更严格)
+            if success_count >= 4:
                 print(f"[检测账号] {success_count}/5 次请求成功，判定为 Pro", flush=True)
-                return {"account_type": "pro"}
+                return {"account_type": "pro", "detection_method": "rpm"}
+            elif success_count >= 2:
+                print(f"[检测账号] {success_count}/5 次成功，可能是 Free 账号触发 RPM 限制", flush=True)
+                return {"account_type": "free", "detection_method": "rpm"}
             else:
                 print(f"[检测账号] 只有 {success_count}/5 次成功，无法确定", flush=True)
                 return {"account_type": "unknown"}
