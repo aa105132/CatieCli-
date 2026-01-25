@@ -292,10 +292,14 @@ class AntigravityClient:
         print(f"[AntigravityClient] ★ MODEL: {final_model}", flush=True)
         print(f"[AntigravityClient] ★ PROJECT: {self.project_id}", flush=True)
         print(f"[AntigravityClient] ★ URL: {url}", flush=True)
+        print(f"[AntigravityClient] ★ TOOLS: {len(tools) if tools else 0} 个工具", flush=True)
         print(f"[AntigravityClient] ★★★★★★★★★★★★★★★★★★★★", flush=True)
         print(f"[AntigravityClient] generationConfig: {normalized.get('generationConfig')}", flush=True)
         print(f"[AntigravityClient] systemInstruction 首个 part 前100字符: {str(normalized.get('systemInstruction', {}).get('parts', [{}])[0])[:100]}", flush=True)
         print(f"[AntigravityClient] contents 数量: {len(normalized.get('contents', []))}", flush=True)
+        # 打印工具信息
+        if normalized.get("tools"):
+            print(f"[AntigravityClient] tools: {json.dumps(normalized.get('tools'), ensure_ascii=False)[:500]}", flush=True)
         # 打印完整 payload
         import json as json_module
         print(f"[AntigravityClient] ===== 完整 PAYLOAD (前5000字符) =====", flush=True)
@@ -363,7 +367,7 @@ class AntigravityClient:
             "request": normalized,
         }
         
-        print(f"[AntigravityClient] 流式请求: model={final_model}, project={self.project_id}", flush=True)
+        print(f"[AntigravityClient] 流式请求: model={final_model}, project={self.project_id}, tools={len(tools) if tools else 0}", flush=True)
         
         timeout = httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -538,13 +542,30 @@ class AntigravityClient:
         
         print(f"[AntigravityClient] OpenAI->Gemini 转换完成, contents数量: {len(gemini_dict.get('contents', []))}", flush=True)
         
-        # 3. 提取转换后的字段
+        # 3. 提取转换后的字段 - 包括 tools 和 toolConfig！
         contents = gemini_dict.get("contents", [])
         generation_config = gemini_dict.get("generationConfig", {})
         system_instruction = gemini_dict.get("systemInstruction")
+        tools = gemini_dict.get("tools")  # 关键修复：提取工具定义
+        tool_config = gemini_dict.get("toolConfig")  # 关键修复：提取工具配置
         
-        # 4. 调用 generate_content (会在内部调用 _normalize_antigravity_request)
-        result = await self.generate_content(gemini_model, contents, generation_config, system_instruction)
+        # 打印工具信息
+        if tools:
+            print(f"[AntigravityClient] ✅ 检测到 {len(tools)} 个工具组（functionDeclarations）", flush=True)
+            for tool_group in tools:
+                if "functionDeclarations" in tool_group:
+                    func_names = [f.get("name", "?") for f in tool_group["functionDeclarations"]]
+                    print(f"[AntigravityClient] 工具列表: {func_names}", flush=True)
+        
+        # 4. 调用 generate_content - 传递 tools 和 tool_config！
+        result = await self.generate_content(
+            gemini_model, 
+            contents, 
+            generation_config, 
+            system_instruction,
+            tools=tools,  # 关键修复：传递工具定义
+            tool_config=tool_config  # 关键修复：传递工具配置
+        )
         return self._convert_to_openai_response(result, model, server_base_url)
     
     async def chat_completions_stream(
@@ -570,12 +591,25 @@ class AntigravityClient:
         from app.services.openai2gemini_full import convert_openai_to_gemini_request
         gemini_dict = await convert_openai_to_gemini_request(openai_request)
         
-        # 3. 提取字段
+        # 3. 提取字段 - 包括 tools 和 toolConfig！
         contents = gemini_dict.get("contents", [])
         generation_config = gemini_dict.get("generationConfig", {})
         system_instruction = gemini_dict.get("systemInstruction")
+        tools = gemini_dict.get("tools")  # 关键修复：提取工具定义
+        tool_config = gemini_dict.get("toolConfig")  # 关键修复：提取工具配置
         
-        async for chunk in self.generate_content_stream(gemini_model, contents, generation_config, system_instruction):
+        # 打印工具信息
+        if tools:
+            print(f"[AntigravityClient] ✅ 流式请求检测到工具定义", flush=True)
+        
+        async for chunk in self.generate_content_stream(
+            gemini_model, 
+            contents, 
+            generation_config, 
+            system_instruction,
+            tools=tools,  # 关键修复：传递工具定义
+            tool_config=tool_config  # 关键修复：传递工具配置
+        ):
             yield self._convert_to_openai_stream(chunk, model, server_base_url)
     
     async def chat_completions_fake_stream(
@@ -600,10 +634,12 @@ class AntigravityClient:
         from app.services.openai2gemini_full import convert_openai_to_gemini_request
         gemini_dict = await convert_openai_to_gemini_request(openai_request)
         
-        # 3. 提取字段
+        # 3. 提取字段 - 包括 tools 和 toolConfig！
         contents = gemini_dict.get("contents", [])
         generation_config = gemini_dict.get("generationConfig", {})
         system_instruction = gemini_dict.get("systemInstruction")
+        tools = gemini_dict.get("tools")  # 关键修复：提取工具定义
+        tool_config = gemini_dict.get("toolConfig")  # 关键修复：提取工具配置
         
         # 发送初始 chunk（空内容，保持连接）
         initial_chunk = {
@@ -615,9 +651,16 @@ class AntigravityClient:
         }
         yield f"data: {json.dumps(initial_chunk)}\n\n"
         
-        # 创建请求任务
+        # 创建请求任务 - 传递 tools 和 tool_config！
         request_task = asyncio.create_task(
-            self.generate_content(gemini_model, contents, generation_config, system_instruction)
+            self.generate_content(
+                gemini_model, 
+                contents, 
+                generation_config, 
+                system_instruction,
+                tools=tools,  # 关键修复：传递工具定义
+                tool_config=tool_config  # 关键修复：传递工具配置
+            )
         )
         
         # 每2秒发送心跳，直到请求完成
