@@ -1373,14 +1373,19 @@ async def chat_completions(
         status_code = extract_status_code(str(last_error)) if last_error else 503
         yield json.dumps({"error": {"message": f"所有凭证都失败了: {last_error}", "type": "api_error", "code": str(status_code)}})
     
-    if is_image_model:
-        # 图片模型：使用假非流模式（非流式端点 + 心跳机制）
+    if is_image_model and not stream:
+        # 图片模型非流式：使用假非流模式（非流式端点 + 心跳机制）
         print(f"[Antigravity Proxy] 🖼️ 图片模型检测到，使用假非流模式（非流式端点 + 心跳） (model={model}, stream={stream})", flush=True)
         return StreamingResponse(
             image_fake_non_stream_generator(),
             media_type="application/json",
             headers={"Cache-Control": "no-cache"}
         )
+    
+    if is_image_model and stream:
+        # 图片模型流式：使用真流式模式（可以实时返回思维链）
+        print(f"[Antigravity Proxy] 🖼️ 图片模型检测到，使用真流式模式（实时返回思维链） (model={model}, stream={stream})", flush=True)
+        # 直接进入流式处理逻辑，不返回假非流
     
     if use_fake_streaming or not stream:
         print(f"[Antigravity Proxy] 🔄 使用假非流模式 (use_fake_streaming={use_fake_streaming}, stream={stream})", flush=True)

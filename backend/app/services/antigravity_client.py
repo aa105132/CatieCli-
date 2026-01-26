@@ -92,8 +92,15 @@ class AntigravityClient:
                 
             generation_config = {
                 "candidateCount": 1,
-                "imageConfig": image_config
+                "imageConfig": image_config,
+                # 图片模型也支持思维链
+                "thinkingConfig": {
+                    "thinkingBudget": 8192,  # 图片模型使用适中的思考预算
+                    "includeThoughts": True
+                }
             }
+            
+            print(f"[AntigravityClient] 图片模型已设置 thinkingConfig: thinkingBudget=8192", flush=True)
             
             # 清理不必要的字段
             result.pop("systemInstruction", None)
@@ -1025,8 +1032,18 @@ class AntigravityClient:
             "usage": self._convert_usage_metadata(usage_metadata)
         }
     
+    def _get_image_hash(self, base64_data: str) -> str:
+        """计算图片 base64 数据的哈希值（用于去重）"""
+        import hashlib
+        # 使用长度 + 前1000 + 后1000 计算hash，确保能正确区分不同图片
+        data_len = len(base64_data)
+        prefix = base64_data[:1000] if data_len >= 1000 else base64_data
+        suffix = base64_data[-1000:] if data_len >= 1000 else ""
+        sample = f"{data_len}:{prefix}:{suffix}"
+        return hashlib.md5(sample.encode()).hexdigest()
+    
     def _convert_to_openai_stream(self, chunk_data: str, model: str, server_base_url: str = None) -> str:
-        """将Gemini流式响应转换为OpenAI SSE格式 - 支持工具调用和usage统计"""
+        """将Gemini流式响应转换为OpenAI SSE格式 - 支持工具调用、思维链和usage统计"""
         try:
             from app.services.openai2gemini_full import extract_tool_calls_from_parts
             
@@ -1050,6 +1067,9 @@ class AntigravityClient:
                 if "content" in candidate and "parts" in candidate["content"]:
                     parts = candidate["content"]["parts"]
                     
+                    # 调试：打印 parts 结构
+                    # print(f"[Stream Debug] parts数量: {len(parts)}, 内容: {json.dumps(parts, ensure_ascii=False)[:500]}", flush=True)
+                    
                     # 使用完整转换器提取工具调用 (流式需要 index)
                     tool_calls, text_content = extract_tool_calls_from_parts(parts, is_streaming=True)
                     
@@ -1057,7 +1077,11 @@ class AntigravityClient:
                         # 处理思考内容 (thought: True 或 有 thoughtSignature)
                         is_thinking = part.get("thought", False) or "thoughtSignature" in part
                         if "text" in part and is_thinking:
-                            reasoning_content += part.get("text", "")
+                            thinking_text = part.get("text", "")
+                            if thinking_text:
+                                reasoning_content += thinking_text
+                                # 调试：打印思维链内容
+                                # print(f"[Stream Debug] 🧠 检测到思维链: {thinking_text[:100]}...", flush=True)
                         # 处理普通文本 (非思考，且未被 extract_tool_calls_from_parts 处理)
                         elif "text" in part and not is_thinking:
                             text = part.get("text", "")
@@ -1065,24 +1089,32 @@ class AntigravityClient:
                             import re
                             if text and not re.fullmatch(r'^<-[A-Z_]+->$', text.strip()):
                                 content += text
-                        # 处理图片 (inlineData)
+                        # 处理图片 (inlineData) - 只保留最后一张（最大的）图片
                         elif "inlineData" in part:
                             inline_data = part["inlineData"]
                             mime_type = inline_data.get("mimeType", "image/png")
                             img_data = inline_data.get("data", "")
                             if img_data:
-                                from app.services.image_storage import ImageStorage
-                                relative_url = ImageStorage.save_base64_image(img_data, mime_type)
+                                # 初始化图片暂存（流式模式下，后面的图片会覆盖前面的）
+                                if not hasattr(self, '_stream_pending_image'):
+                                    self._stream_pending_image = None
+                                    self._stream_image_count = 0
                                 
-                                if relative_url:
-                                    if server_base_url:
-                                        final_url = f"{server_base_url}{relative_url}"
-                                    else:
-                                        final_url = relative_url
-                                    content += f"![Generated Image]({final_url})"
+                                self._stream_image_count += 1
+                                img_size = len(img_data)
+                                
+                                # 保存当前图片数据，等待后续判断
+                                # 优先选择更大的图片（通常是最终的高分辨率版本）
+                                if self._stream_pending_image is None or img_size > self._stream_pending_image.get("size", 0):
+                                    self._stream_pending_image = {
+                                        "data": img_data,
+                                        "mime_type": mime_type,
+                                        "size": img_size,
+                                        "index": self._stream_image_count
+                                    }
+                                    print(f"[Stream] 📷 暂存第{self._stream_image_count}张图片 (size={img_size//1024}KB)", flush=True)
                                 else:
-                                    data_url = f"data:{mime_type};base64,{img_data}"
-                                    content += f"![Generated Image]({data_url})"
+                                    print(f"[Stream] ⏭️ 跳过较小图片 (第{self._stream_image_count}张, size={img_size//1024}KB)", flush=True)
                         # 处理代码执行
                         elif "executableCode" in part:
                             exec_code = part["executableCode"]
@@ -1108,6 +1140,27 @@ class AntigravityClient:
                         finish_reason = "length"
                     elif gemini_finish_reason in ["SAFETY", "RECITATION"]:
                         finish_reason = "content_filter"
+                    
+                    # 流式结束时，处理暂存的图片（只保存最大的那张）
+                    if hasattr(self, '_stream_pending_image') and self._stream_pending_image:
+                        pending = self._stream_pending_image
+                        from app.services.image_storage import ImageStorage
+                        relative_url = ImageStorage.save_base64_image(pending["data"], pending["mime_type"])
+                        
+                        if relative_url:
+                            if server_base_url:
+                                final_url = f"{server_base_url}{relative_url}"
+                            else:
+                                final_url = relative_url
+                            content += f"![Generated Image]({final_url})"
+                            print(f"[Stream] 🖼️ 最终图片已保存 (第{pending['index']}张, size={pending['size']//1024}KB): {relative_url}", flush=True)
+                        else:
+                            data_url = f"data:{pending['mime_type']};base64,{pending['data']}"
+                            content += f"![Generated Image]({data_url})"
+                        
+                        # 清理暂存
+                        self._stream_pending_image = None
+                        self._stream_image_count = 0
             
             # 构建 delta
             delta = {}
@@ -1117,7 +1170,9 @@ class AntigravityClient:
                 delta["content"] = content
             if reasoning_content:
                 delta["reasoning_content"] = reasoning_content
+                # print(f"[Stream Debug] ✅ 返回思维链 chunk: {len(reasoning_content)} chars", flush=True)
             
+            # 重要：即使没有 content 和 tool_calls，只要有 reasoning_content 也要返回
             if not delta and finish_reason is None:
                 return ""
             

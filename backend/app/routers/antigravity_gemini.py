@@ -844,11 +844,11 @@ async def gemini_stream_generate_content(
     
     client = AntigravityClient(access_token, project_id)
     
-    # 检查是否是图片模型 - 图片模型不支持流式端点，必须使用假流式（非流式端点获取数据）
+    # 检查是否是图片模型 - 图片模型现在支持真流式，可以实时返回思维链
     is_image_model = "image" in final_model.lower()
     if is_image_model:
-        use_fake_streaming = True  # 图片模型强制使用假流式
-        print(f"[AntigravityGemini] 🖼️ 图片模型检测到，强制使用假流式模式 (model={final_model})", flush=True)
+        print(f"[AntigravityGemini] 🖼️ 图片模型检测到，使用真流式模式 (model={final_model})", flush=True)
+        # 不再强制使用假流式，让图片模型也能真流式返回思维链
     
     # 假流式生成器
     async def fake_stream_generator():

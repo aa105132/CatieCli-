@@ -252,10 +252,10 @@ def _build_candidate(parts: List[Dict[str, Any]], finish_reason: Optional[str] =
 
 
 def build_gemini_fake_stream_chunks(
-    content: str, 
-    reasoning_content: str, 
-    finish_reason: str, 
-    images: List[Dict[str, Any]] = None, 
+    content: str,
+    reasoning_content: str,
+    finish_reason: str,
+    images: List[Dict[str, Any]] = None,
     chunk_size: int = 50
 ) -> List[Dict[str, Any]]:
     """构建 Gemini 格式的假流式响应数据块
@@ -276,7 +276,47 @@ def build_gemini_fake_stream_chunks(
     log.debug(f"[build_gemini_fake_stream_chunks] Input - content: {repr(content)}, reasoning: {repr(reasoning_content)}, finish_reason: {finish_reason}, images count: {len(images)}")
     chunks = []
 
-    # 如果没有正常内容但有思维内容,提供默认回复
+    # 如果有图片但没有文本，创建包含图片的响应块
+    if not content and images:
+        log.debug(f"[build_gemini_fake_stream_chunks] 检测到图片模型响应：只有图片，没有文本内容，思维链长度={len(reasoning_content)}")
+        chunks = []
+        
+        # 先发送思维链（如果有）
+        if reasoning_content:
+            for i in range(0, len(reasoning_content), chunk_size):
+                chunk_text = reasoning_content[i:i + chunk_size]
+                is_last_reasoning = i + chunk_size >= len(reasoning_content)
+                # 思维链块不设置 finish_reason
+                chunks.append(_build_candidate([{"text": chunk_text, "thought": True}], None))
+            log.debug(f"[build_gemini_fake_stream_chunks] 已添加 {len(chunks)} 个思维链块")
+        
+        # 然后发送图片
+        parts = []
+        for img in images:
+            if img.get("type") == "image_url":
+                url = img.get("image_url", {}).get("url", "")
+                if url.startswith("data:"):
+                    parts_of_url = url.split(";base64,")
+                    if len(parts_of_url) == 2:
+                        mime_type = parts_of_url[0].replace("data:", "")
+                        base64_data = parts_of_url[1]
+                        parts.append({
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": base64_data
+                            }
+                        })
+        if parts:
+            # 图片响应：包含图片数据，设置 finish_reason
+            chunk_data = _build_candidate(parts, finish_reason)
+            log.debug(f"[build_gemini_fake_stream_chunks] 构建图片响应块: parts数量={len(parts)}")
+            chunks.append(chunk_data)
+            return chunks
+        else:
+            # 图片解析失败
+            return [_build_candidate([{"text": "[图片解析失败，请重新尝试]"}], finish_reason)]
+
+    # 如果没有正常内容也没有图片，提供默认回复
     if not content:
         default_text = "[模型正在思考中,请稍后再试或重新提问]" if reasoning_content else "[响应为空,请重新尝试]"
         return [_build_candidate([{"text": default_text}], finish_reason)]
@@ -362,7 +402,43 @@ def build_openai_fake_stream_chunks(
     elif finish_reason in ["SAFETY", "RECITATION"]:
         openai_finish_reason = "content_filter"
 
-    # 如果没有正常内容但有思维内容，提供默认回复
+    # 如果有图片但没有文本，创建包含图片的响应块
+    if not content and images:
+        log.debug(f"[build_openai_fake_stream_chunks] 检测到图片模型响应：只有图片，没有文本内容，思维链长度={len(reasoning_content)}")
+        chunks = []
+        
+        # 先发送思维链（如果有）
+        if reasoning_content:
+            for i in range(0, len(reasoning_content), chunk_size):
+                chunk_text = reasoning_content[i:i + chunk_size]
+                chunks.append({
+                    "id": response_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"reasoning_content": chunk_text},
+                        "finish_reason": None,
+                    }]
+                })
+            log.debug(f"[build_openai_fake_stream_chunks] 已添加 {len(chunks)} 个思维链块")
+        
+        # 然后发送图片
+        chunks.append({
+            "id": response_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "delta": {"content": images},  # 返回图片数组
+                "finish_reason": openai_finish_reason,
+            }]
+        })
+        return chunks
+
+    # 如果没有正常内容也没有图片，提供默认回复
     if not content:
         default_text = "[模型正在思考中，请稍后再试或重新提问]" if reasoning_content else "[响应为空，请重新尝试]"
         return [{

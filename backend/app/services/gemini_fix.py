@@ -80,8 +80,15 @@ def prepare_image_generation_request(
     request_body["model"] = "gemini-3-pro-image"  # 统一使用基础模型名
     request_body["generationConfig"] = {
         "candidateCount": 1,
-        "imageConfig": image_config
+        "imageConfig": image_config,
+        # 图片模型也支持思维链
+        "thinkingConfig": {
+            "thinkingBudget": 8192,  # 适中的思考预算
+            "includeThoughts": True
+        }
     }
+    
+    print(f"[GEMINI_FIX] 图片模型已设置 thinkingConfig: thinkingBudget=8192", flush=True)
 
     # 移除不需要的字段
     for key in ("systemInstruction", "tools", "toolConfig"):
