@@ -301,25 +301,43 @@ async def credential_from_callback_url(
             except Exception as e:
                 print(f"启用服务失败: {e}", flush=True)
         
-        # 检查是否已存在相同邮箱的凭证（去重）
-        from sqlalchemy import select
+        # 如果 project_id 获取失败，给用户明确的错误提示
+        if not project_id:
+            print(f"[OAuth] ❌ 无法获取 project_id，凭证将无法使用", flush=True)
+            # 对于 GeminiCLI 凭证，project_id 是必须的
+            # 提示用户需要先在 GeminiCLI 或 Gemini CLI IDE 插件中激活
+            raise HTTPException(
+                status_code=400,
+                detail="无法获取 project_id。请确保您的 Google 账号已激活 GeminiCLI 服务。"
+                       "可以尝试：1) 先下载并登录 Gemini CLI IDE 插件 2) 或直接使用凭证文件上传方式。"
+            )
+        
+        # 检查是否已存在相同邮箱的 GeminiCLI 凭证（去重）
+        # 注意：必须同时检查 api_type，因为 GeminiCLI 和 Antigravity 是独立的凭证系统
+        from sqlalchemy import select, or_
         from app.services.crypto import encrypt_credential
         existing_cred = await db.execute(
             select(Credential).where(
                 Credential.user_id == user.id,
-                Credential.email == email
+                Credential.email == email,
+                or_(
+                    Credential.api_type == "geminicli",
+                    Credential.api_type == None,
+                    Credential.api_type == ""
+                )
             )
         )
         existing = existing_cred.scalar_one_or_none()
         
         if existing:
-            # 更新现有凭证而不是新增
+            # 更新现有 GeminiCLI 凭证而不是新增
             existing.api_key = encrypt_credential(access_token)
             existing.refresh_token = encrypt_credential(refresh_token)
             existing.project_id = project_id
+            existing.api_type = "geminicli"  # 确保 api_type 正确
             credential = existing
             is_new_credential = False
-            print(f"[凭证更新] 更新现有凭证: {email}", flush=True)
+            print(f"[凭证更新] 更新现有 GeminiCLI 凭证: {email}", flush=True)
         else:
             # 创建新凭证
             credential = Credential(
@@ -549,25 +567,32 @@ async def credential_from_callback_url_discord(
             except Exception as e:
                 print(f"[Discord OAuth] 启用服务失败: {e}", flush=True)
         
-        # 检查是否已存在相同邮箱的凭证（去重）
-        from sqlalchemy import select
+        # 检查是否已存在相同邮箱的 GeminiCLI 凭证（去重）
+        # 注意：必须同时检查 api_type，因为 GeminiCLI 和 Antigravity 是独立的凭证系统
+        from sqlalchemy import select, or_
         from app.services.crypto import encrypt_credential
         existing_cred = await db.execute(
             select(Credential).where(
                 Credential.user_id == user.id,
-                Credential.email == email
+                Credential.email == email,
+                or_(
+                    Credential.api_type == "geminicli",
+                    Credential.api_type == None,
+                    Credential.api_type == ""
+                )
             )
         )
         existing = existing_cred.scalar_one_or_none()
         
         if existing:
-            # 更新现有凭证
+            # 更新现有 GeminiCLI 凭证
             existing.api_key = encrypt_credential(access_token)
             existing.refresh_token = encrypt_credential(refresh_token)
             existing.project_id = project_id
+            existing.api_type = "geminicli"  # 确保 api_type 正确
             credential = existing
             is_new_credential = False
-            print(f"[Discord OAuth] 更新现有凭证: {email}", flush=True)
+            print(f"[Discord OAuth] 更新现有 GeminiCLI 凭证: {email}", flush=True)
         else:
             # 创建新凭证
             credential = Credential(
