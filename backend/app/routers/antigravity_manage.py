@@ -1293,12 +1293,18 @@ async def get_antigravity_stats(
         if settings.banana_quota_enabled:
             banana_quota = settings.banana_quota_default + user_public_creds * settings.banana_quota_per_cred
             
-            # 查询今天的 Banana 使用量
+            # 查询今天的 Banana 使用量（同时匹配 OpenAI 格式和 Gemini 格式）
+            from sqlalchemy import or_
             banana_usage_result = await db.execute(
                 select(func.count(UsageLog.id))
                 .where(UsageLog.user_id == user.id)
                 .where(UsageLog.created_at >= start_of_day)
-                .where(UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'))
+                .where(or_(
+                    UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
+                    UsageLog.model.like('antigravity-gemini/agy-gemini-3-pro-image%'),
+                    UsageLog.model.like('%image%')  # 兜底匹配
+                ))
+                .where(UsageLog.status_code == 200)
             )
             banana_used = banana_usage_result.scalar() or 0
         else:
@@ -1356,12 +1362,18 @@ async def get_antigravity_stats(
         if settings.banana_quota_enabled:
             banana_quota = settings.banana_quota_default + user_public * settings.banana_quota_per_cred
             
-            # 查询今天的 Banana 使用量
+            # 查询今天的 Banana 使用量（同时匹配 OpenAI 格式和 Gemini 格式）
+            from sqlalchemy import or_
             banana_usage_result = await db.execute(
                 select(func.count(UsageLog.id))
                 .where(UsageLog.user_id == user.id)
                 .where(UsageLog.created_at >= start_of_day)
-                .where(UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'))
+                .where(or_(
+                    UsageLog.model.like('antigravity/agy-gemini-3-pro-image%'),
+                    UsageLog.model.like('antigravity-gemini/agy-gemini-3-pro-image%'),
+                    UsageLog.model.like('%image%')  # 兜底匹配
+                ))
+                .where(UsageLog.status_code == 200)
             )
             banana_used = banana_usage_result.scalar() or 0
         else:
