@@ -159,12 +159,8 @@ async def gemini_generate_content(
     public_cred_count = public_cred_result.scalar() or 0
     
     # 计算今日时间范围
-    now = datetime.utcnow()
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
     
     # 根据模型类型计算配额和检查使用量
     from sqlalchemy import or_
@@ -705,12 +701,8 @@ async def gemini_stream_generate_content(
     public_cred_count = public_cred_result.scalar() or 0
     
     # 计算今日时间范围
-    now = datetime.utcnow()
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
     
     # 根据模型类型计算配额和检查使用量
     from sqlalchemy import or_

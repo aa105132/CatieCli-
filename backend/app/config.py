@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from datetime import datetime, timezone, timedelta, date
 import os
 import shutil
 
@@ -167,8 +168,44 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     anthropic_base_rpm: int = 10                   # 默认 RPM
     anthropic_contributor_rpm: int = 20            # 贡献者 RPM
     
-    # 统计时区设置 (server=服务器时区, utc=UTC, utc8=北京时间)
+    # 统计时区设置 (server=服务器时区午夜重置, utc=UTC午夜重置(北京下午4点), utc8=北京时间午夜重置)
     stats_timezone: str = "server"
+    
+    def get_start_of_day(self) -> datetime:
+        """
+        根据 stats_timezone 设置获取今日开始时间（UTC）
+        
+        - server: 服务器本地时间午夜 0:00
+        - utc: UTC 00:00（北京时间下午4点）
+        - utc8: UTC 16:00（北京时间午夜0点）
+        
+        返回 UTC 时间（无时区信息），用于数据库查询
+        """
+        now = datetime.utcnow()
+        
+        if self.stats_timezone == "utc":
+            # UTC 00:00 重置
+            today_utc = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            if now < today_utc:
+                today_utc = today_utc - timedelta(days=1)
+            return today_utc
+            
+        elif self.stats_timezone == "utc8":
+            # 北京时间 00:00 = UTC 16:00
+            today_utc = now.replace(hour=16, minute=0, second=0, microsecond=0)
+            if now < today_utc:
+                today_utc = today_utc - timedelta(days=1)
+            return today_utc
+            
+        else:  # server
+            # 服务器本地时间午夜
+            local_midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            # 转换为 UTC
+            local_offset = datetime.now() - datetime.utcnow()
+            utc_midnight = local_midnight - local_offset
+            if now < utc_midnight:
+                utc_midnight = utc_midnight - timedelta(days=1)
+            return utc_midnight
     
     # Discord OAuth (可选，用于 Discord 登录/注册)
     discord_client_id: str = ""

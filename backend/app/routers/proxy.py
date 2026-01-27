@@ -76,12 +76,8 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
     
     # 检查配额
     # 配额在北京时间 15:00 (UTC 07:00) 重置
-    now = datetime.utcnow()
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
 
     # 获取请求的模型
     body = await request.json()

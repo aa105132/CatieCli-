@@ -1272,12 +1272,8 @@ async def get_antigravity_stats(
         user_active = user_active_result.scalar() or 0
         
         # 查询用户今天的 Banana 使用量（image 模型）
-        now = datetime.utcnow()
-        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        if now < reset_time_utc:
-            start_of_day = reset_time_utc - timedelta(days=1)
-        else:
-            start_of_day = reset_time_utc
+        # 根据 stats_timezone 配置计算今日开始时间
+        start_of_day = settings.get_start_of_day()
         
         # 统计用户（管理员自己）公开凭证数
         user_public_result = await db.execute(
@@ -1355,12 +1351,8 @@ async def get_antigravity_stats(
         user_public = user_public_result.scalar() or 0
         
         # 计算 Banana 配额信息
-        now = datetime.utcnow()
-        reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-        if now < reset_time_utc:
-            start_of_day = reset_time_utc - timedelta(days=1)
-        else:
-            start_of_day = reset_time_utc
+        # 根据 stats_timezone 配置计算今日开始时间
+        start_of_day = settings.get_start_of_day()
         
         if settings.banana_quota_enabled:
             # 优先使用用户自定义配额

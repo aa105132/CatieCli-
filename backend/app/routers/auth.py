@@ -119,13 +119,8 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
 @router.get("/me")
 async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """获取当前用户信息"""
-    # 获取今日使用量
-    now = datetime.utcnow()
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
         
     result = await db.execute(
         select(func.count(UsageLog.id))

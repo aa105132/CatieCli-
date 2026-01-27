@@ -825,12 +825,8 @@ async def get_stats_overview(
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
     
-    # 计算今天的开始时间（UTC 07:00 = 北京时间 15:00）
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
     
     # 今日请求数（基于 UTC 07:00 重置）
     today_result = await db.execute(
@@ -1507,12 +1503,8 @@ async def get_global_stats(
     hour_ago = now - timedelta(hours=1)
     day_ago = now - timedelta(days=1)
     
-    # 计算今天的开始时间（UTC 07:00）
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
     
     # 构建 API 类型过滤条件
     def build_api_type_filter():

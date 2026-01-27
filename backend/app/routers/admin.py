@@ -50,31 +50,25 @@ async def list_users(
     
     user_ids = [u.id for u in users]
     
-    # 根据 stats_timezone 配置计算今日日期
-    from datetime import datetime, timezone, timedelta
-    if settings.stats_timezone == "utc":
-        today = datetime.now(timezone.utc).date()
-    elif settings.stats_timezone == "utc8":
-        utc8 = timezone(timedelta(hours=8))
-        today = datetime.now(utc8).date()
-    else:  # server (默认)
-        today = date.today()
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
     
     # 2. 批量查询今日使用量（总量）
     usage_result = await db.execute(
         select(UsageLog.user_id, func.count(UsageLog.id))
         .where(UsageLog.user_id.in_(user_ids))
-        .where(func.date(UsageLog.created_at) == today)
+        .where(UsageLog.created_at >= start_of_day)
         .group_by(UsageLog.user_id)
     )
     usage_map = {row[0]: row[1] for row in usage_result.fetchall()}
     
-    # 2.1 批量查询今日 CLI 使用量（不包含 antigravity）
+    # 2.1 批量查询今日 CLI 使用量（不包含 antigravity 端点）
     cli_usage_result = await db.execute(
         select(UsageLog.user_id, func.count(UsageLog.id))
         .where(UsageLog.user_id.in_(user_ids))
-        .where(func.date(UsageLog.created_at) == today)
-        .where(~UsageLog.model.like('antigravity%'))  # 排除 antigravity
+        .where(UsageLog.created_at >= start_of_day)
+        .where(~UsageLog.endpoint.ilike('%/agy/%'))
+        .where(~UsageLog.endpoint.ilike('%/antigravity/%'))
         .group_by(UsageLog.user_id)
     )
     cli_usage_map = {row[0]: row[1] for row in cli_usage_result.fetchall()}
@@ -83,7 +77,7 @@ async def list_users(
     agy_usage_result = await db.execute(
         select(UsageLog.user_id, func.count(UsageLog.id))
         .where(UsageLog.user_id.in_(user_ids))
-        .where(func.date(UsageLog.created_at) == today)
+        .where(UsageLog.created_at >= start_of_day)
         .where(or_(
             UsageLog.endpoint.ilike('%/agy/%'),
             UsageLog.endpoint.ilike('%/antigravity/%')

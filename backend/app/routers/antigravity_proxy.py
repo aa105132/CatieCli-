@@ -93,12 +93,8 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
         return user
     
     # 检查配额 (复用原有逻辑)
-    now = datetime.utcnow()
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
 
     body = await request.json()
     model = body.get("model", "gemini-2.5-flash")
@@ -402,12 +398,8 @@ async def chat_completions(
     public_cred_count = public_cred_result.scalar() or 0
     
     # 计算今日时间范围
-    now = datetime.utcnow()
-    reset_time_utc = now.replace(hour=7, minute=0, second=0, microsecond=0)
-    if now < reset_time_utc:
-        start_of_day = reset_time_utc - timedelta(days=1)
-    else:
-        start_of_day = reset_time_utc
+    # 根据 stats_timezone 配置计算今日开始时间
+    start_of_day = settings.get_start_of_day()
     
     # 根据模型类型计算配额和检查使用量
     if settings.antigravity_quota_enabled and not user.is_admin:
