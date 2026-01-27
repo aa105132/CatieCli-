@@ -1289,9 +1289,12 @@ async def get_antigravity_stats(
         )
         user_public_creds = user_public_result.scalar() or 0
         
-        # 计算 Banana 配额
+        # 计算 Banana 配额（优先使用用户自定义配额）
         if settings.banana_quota_enabled:
-            banana_quota = settings.banana_quota_default + user_public_creds * settings.banana_quota_per_cred
+            if user.quota_agy_banana and user.quota_agy_banana > 0:
+                banana_quota = user.quota_agy_banana
+            else:
+                banana_quota = settings.banana_quota_default + user_public_creds * settings.banana_quota_per_cred
             
             # 查询今天的 Banana 使用量（同时匹配 OpenAI 格式和 Gemini 格式）
             from sqlalchemy import or_
@@ -1360,7 +1363,11 @@ async def get_antigravity_stats(
             start_of_day = reset_time_utc
         
         if settings.banana_quota_enabled:
-            banana_quota = settings.banana_quota_default + user_public * settings.banana_quota_per_cred
+            # 优先使用用户自定义配额
+            if user.quota_agy_banana and user.quota_agy_banana > 0:
+                banana_quota = user.quota_agy_banana
+            else:
+                banana_quota = settings.banana_quota_default + user_public * settings.banana_quota_per_cred
             
             # 查询今天的 Banana 使用量（同时匹配 OpenAI 格式和 Gemini 格式）
             from sqlalchemy import or_
