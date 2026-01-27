@@ -348,28 +348,53 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     )
     agy_public_credential_count = agy_public_result.scalar() or 0
     
-    # 计算 Antigravity 配额（大锅饭模式）
+    # 计算 Antigravity 各模型配额
     # 配额计算逻辑：
-    # 1. 大锅饭模式 + 有公开凭证：基础配额 + (公开凭证数 * 每凭证奖励)
-    # 2. 有公开凭证但非大锅饭：使用贡献者配额
-    # 3. 无公开凭证：使用默认配额
-    # 4. 管理员单独设置的用户配额只在非大锅饭模式下生效（-1 表示无限制）
-    # 注意：这个配额同时奖励给 Claude 和 Gemini，两者各自独立计数
-    if settings.antigravity_pool_mode == "full_shared":
+    # 1. 优先使用管理员设置的用户自定义配额（非 0 值，-1 表示无限制）
+    # 2. 大锅饭模式：基础配额 + (公开凭证数 * 每凭证奖励)
+    # 3. 有公开凭证但非大锅饭：使用贡献者配额
+    # 4. 无公开凭证：使用默认配额
+    
+    def calc_agy_quota(custom_quota: int) -> int | None:
+        """计算 Antigravity 配额"""
+        # 优先使用用户自定义配额
+        if custom_quota and custom_quota != 0:
+            if custom_quota == -1:
+                return None  # 无限制
+            return custom_quota
         # 大锅饭模式：基础配额 + 公开凭证奖励
-        agy_quota = settings.antigravity_quota_default + (agy_public_credential_count * settings.antigravity_quota_per_cred)
-    elif user.quota_antigravity and user.quota_antigravity != 0:
-        # 管理员设置了用户配额（非 0 值）
-        if user.quota_antigravity == -1:
-            agy_quota = None  # 无限制
-        else:
-            agy_quota = user.quota_antigravity
-    elif agy_public_credential_count > 0:
+        if settings.antigravity_pool_mode == "full_shared":
+            return settings.antigravity_quota_default + (agy_public_credential_count * settings.antigravity_quota_per_cred)
         # 有公开凭证使用贡献者配额
-        agy_quota = settings.antigravity_quota_contributor
-    else:
+        if agy_public_credential_count > 0:
+            return settings.antigravity_quota_contributor
         # 无公开凭证使用默认配额
-        agy_quota = settings.antigravity_quota_default
+        return settings.antigravity_quota_default
+    
+    agy_quota_claude = calc_agy_quota(user.quota_agy_claude)
+    agy_quota_gemini = calc_agy_quota(user.quota_agy_gemini)
+    # Banana 配额使用专门的配置
+    if user.quota_agy_banana and user.quota_agy_banana != 0:
+        if user.quota_agy_banana == -1:
+            agy_quota_banana = None  # 无限制
+        else:
+            agy_quota_banana = user.quota_agy_banana
+    elif settings.antigravity_pool_mode == "full_shared":
+        agy_quota_banana = settings.banana_quota_default + (agy_public_credential_count * settings.banana_quota_per_cred)
+    elif agy_public_credential_count > 0:
+        agy_quota_banana = settings.banana_quota_default + settings.banana_quota_per_cred
+    else:
+        agy_quota_banana = settings.banana_quota_default
+    
+    # 总 AGY 配额 = Claude + Gemini + Banana（与管理后台保持一致）
+    agy_quota_total = 0
+    if agy_quota_claude is not None:
+        agy_quota_total += agy_quota_claude
+    if agy_quota_gemini is not None:
+        agy_quota_total += agy_quota_gemini
+    if agy_quota_banana is not None:
+        agy_quota_total += agy_quota_banana
+    agy_quota = agy_quota_total if agy_quota_total > 0 else None
     
     return {
         "id": user.id,
@@ -400,10 +425,17 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
         "quota_by_api_type": {
             "antigravity": agy_quota if settings.antigravity_quota_enabled else None
         },
-        # Claude 和 Gemini 各自独立配额（大锅饭模式下奖励同时增加两者）
+        # Claude 和 Gemini 各自独立配额
         "quota_by_provider": {
-            "claude": agy_quota if settings.antigravity_quota_enabled else None,
-            "gemini": agy_quota if settings.antigravity_quota_enabled else None
+            "claude": agy_quota_claude if settings.antigravity_quota_enabled else None,
+            "gemini": agy_quota_gemini if settings.antigravity_quota_enabled else None,
+            "banana": agy_quota_banana if settings.banana_quota_enabled else None
+        },
+        # 用户自定义配额原始值（用于管理界面显示）
+        "custom_quotas": {
+            "quota_agy_claude": user.quota_agy_claude or 0,
+            "quota_agy_gemini": user.quota_agy_gemini or 0,
+            "quota_agy_banana": user.quota_agy_banana or 0,
         },
         "cred_25_count": cred_25_count,
         "cred_30_count": cred_30_count,

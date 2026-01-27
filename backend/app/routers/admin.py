@@ -79,14 +79,14 @@ async def list_users(
     )
     cli_usage_map = {row[0]: row[1] for row in cli_usage_result.fetchall()}
     
-    # 2.2 批量查询今日 Antigravity 使用量
+    # 2.2 批量查询今日 Antigravity 使用量（通过 endpoint 判断，与 auth.py 保持一致）
     agy_usage_result = await db.execute(
         select(UsageLog.user_id, func.count(UsageLog.id))
         .where(UsageLog.user_id.in_(user_ids))
         .where(func.date(UsageLog.created_at) == today)
         .where(or_(
-            UsageLog.model.like('antigravity/%'),
-            UsageLog.model.like('antigravity-gemini/%')
+            UsageLog.endpoint.ilike('%/agy/%'),
+            UsageLog.endpoint.ilike('%/antigravity/%')
         ))
         .group_by(UsageLog.user_id)
     )
@@ -172,15 +172,36 @@ async def list_users(
         
         cli_total_quota = quota_flash + quota_25pro + quota_30pro
         
-        # 计算 Antigravity 配额
-        if u.quota_antigravity and u.quota_antigravity > 0:
-            agy_quota = u.quota_antigravity
+        # 计算 Antigravity 各模型配额
+        def calc_agy_quota(custom_quota: int) -> int:
+            """计算 Antigravity 配额"""
+            # 优先使用用户自定义配额
+            if custom_quota and custom_quota > 0:
+                return custom_quota
+            # 大锅饭模式：基础配额 + 公开凭证奖励
+            if settings.antigravity_pool_mode == "full_shared":
+                return settings.antigravity_quota_default + (agy_public_cred_count * settings.antigravity_quota_per_cred)
+            # 有公开凭证使用贡献者配额
+            if agy_public_cred_count > 0:
+                return settings.antigravity_quota_contributor
+            # 无公开凭证使用默认配额
+            return settings.antigravity_quota_default
+        
+        agy_quota_claude = calc_agy_quota(u.quota_agy_claude)
+        agy_quota_gemini = calc_agy_quota(u.quota_agy_gemini)
+        
+        # Banana 配额
+        if u.quota_agy_banana and u.quota_agy_banana > 0:
+            agy_quota_banana = u.quota_agy_banana
         elif settings.antigravity_pool_mode == "full_shared":
-            agy_quota = settings.antigravity_quota_default + (agy_public_cred_count * settings.antigravity_quota_per_cred)
+            agy_quota_banana = settings.banana_quota_default + (agy_public_cred_count * settings.banana_quota_per_cred)
         elif agy_public_cred_count > 0:
-            agy_quota = settings.antigravity_quota_contributor
+            agy_quota_banana = settings.banana_quota_default + settings.banana_quota_per_cred
         else:
-            agy_quota = settings.antigravity_quota_default
+            agy_quota_banana = settings.banana_quota_default
+        
+        # 总 AGY 配额 = Claude + Gemini + Banana
+        agy_quota = agy_quota_claude + agy_quota_gemini + agy_quota_banana
         
         user_list.append({
             "id": u.id,
@@ -196,8 +217,11 @@ async def list_users(
             "today_usage": cli_usage,
             "credential_count": credential_count,
             # Antigravity
-            "agy_quota": agy_quota,
-            "quota_agy_claude": u.quota_agy_claude or 0,  # 原始配置值
+            "agy_quota": agy_quota,  # 总配额 (Claude + Gemini + Banana)
+            "agy_quota_claude": agy_quota_claude,  # 计算后的配额
+            "agy_quota_gemini": agy_quota_gemini,
+            "agy_quota_banana": agy_quota_banana,
+            "quota_agy_claude": u.quota_agy_claude or 0,  # 原始配置值（0=使用系统公式）
             "quota_agy_gemini": u.quota_agy_gemini or 0,
             "quota_agy_banana": u.quota_agy_banana or 0,
             "agy_usage": agy_usage,

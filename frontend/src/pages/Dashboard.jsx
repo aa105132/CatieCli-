@@ -1340,7 +1340,7 @@ export default function Dashboard() {
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
                 <div className="text-2xl font-bold text-goldenrod-500 dark:text-goldenrod-400">
                   {userInfo?.usage_by_provider?.claude || 0}
-                  {agyPoolMode === "full_shared" && agyQuotaEnabled && userInfo?.quota_by_provider?.claude && (
+                  {agyQuotaEnabled && userInfo?.quota_by_provider?.claude && (
                     <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{userInfo.quota_by_provider.claude}</span>
                   )}
                 </div>
@@ -1349,7 +1349,7 @@ export default function Dashboard() {
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
                 <div className="text-2xl font-bold text-indigo-500 dark:text-indigo-400">
                   {userInfo?.usage_by_provider?.gemini || 0}
-                  {agyPoolMode === "full_shared" && agyQuotaEnabled && userInfo?.quota_by_provider?.gemini && (
+                  {agyQuotaEnabled && userInfo?.quota_by_provider?.gemini && (
                     <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{userInfo.quota_by_provider.gemini}</span>
                   )}
                 </div>
