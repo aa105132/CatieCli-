@@ -30,6 +30,50 @@ router = APIRouter(prefix="/api/antigravity", tags=["Antigravity凭证管理"])
 MODE = "antigravity"
 
 
+async def detect_account_type_by_drive(access_token: str) -> Optional[dict]:
+    """
+    通过 Google Drive API 检测账号类型
+    Pro 账号通常有 2TB (2000GB) 或更多存储空间
+    
+    Returns:
+        dict: {"account_type": "pro"/"free", "storage_gb": float}
+        None: 如果 Drive API 不可用
+    """
+    import httpx
+    
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/drive/v3/about?fields=storageQuota",
+                headers={"Authorization": f"Bearer {access_token}"}
+            )
+            print(f"[Antigravity检测] Drive API 响应: {resp.status_code}", flush=True)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                quota = data.get("storageQuota", {})
+                limit = int(quota.get("limit", 0))
+                
+                if limit > 0:
+                    storage_gb = round(limit / (1024**3), 1)
+                    print(f"[Antigravity检测] 存储空间: {storage_gb} GB", flush=True)
+                    
+                    # Pro 账号是 2TB (2000GB) 或更多存储空间
+                    if storage_gb >= 2000:
+                        return {"account_type": "pro", "storage_gb": storage_gb}
+                    else:
+                        return {"account_type": "free", "storage_gb": storage_gb}
+            elif resp.status_code == 403:
+                print(f"[Antigravity检测] Drive API 无权限", flush=True)
+            else:
+                print(f"[Antigravity检测] Drive API 意外响应: {resp.status_code} - {resp.text[:200]}", flush=True)
+                
+    except Exception as e:
+        print(f"[Antigravity检测] Drive API 异常: {e}", flush=True)
+    
+    return None
+
+
 # ===== 用户凭证管理 =====
 
 @router.post("/credentials/upload")
@@ -280,6 +324,7 @@ async def list_my_antigravity_credentials(
             "project_id": c.project_id,
             "is_public": c.is_public,
             "is_active": c.is_active,
+            "account_type": c.account_type or "free",  # 账号类型: "pro" 或 "free"
             "total_requests": c.total_requests or 0,
             "failed_requests": c.failed_requests or 0,
             "last_error": c.last_error,
@@ -470,17 +515,26 @@ async def verify_my_antigravity_credential(
                     if resp.status_code in [200, 429]:
                         is_valid = True
                         
-                        # 获取配额信息判断账号类型 (PRO/Normal)
+                        # 获取配额信息判断账号类型 (PRO/Free)
+                        # 使用 Drive API 检测云盘大小来判断是否为 Pro 账号
                         try:
-                            antigravity_client = AntigravityClient(
-                                access_token=access_token,
-                                project_id=cred.project_id
-                            )
-                            quota_info = await antigravity_client.fetch_quota_info()
-                            if quota_info.get("success"):
-                                account_tier = quota_info.get("accountTier", "normal")
-                                min_reset_days = quota_info.get("minResetDays")
-                                print(f"[Antigravity检测] 账号类型: {account_tier}, 重置天数: {min_reset_days}", flush=True)
+                            account_info = await detect_account_type_by_drive(access_token)
+                            if account_info:
+                                account_tier = account_info.get("account_type", "free")
+                                storage_gb = account_info.get("storage_gb")
+                                print(f"[Antigravity检测] 账号类型: {account_tier}, 云盘空间: {storage_gb}GB", flush=True)
+                            else:
+                                # Drive API 失败时回退到配额检测
+                                antigravity_client = AntigravityClient(
+                                    access_token=access_token,
+                                    project_id=cred.project_id
+                                )
+                                quota_info = await antigravity_client.fetch_quota_info()
+                                if quota_info.get("success"):
+                                    # 旧方法：通过重置周期判断（现在不准确，保留作为回退）
+                                    min_reset_days = quota_info.get("minResetDays")
+                                    account_tier = quota_info.get("accountTier", "free")
+                                    print(f"[Antigravity检测] 回退检测 - 账号类型: {account_tier}, 重置天数: {min_reset_days}", flush=True)
                         except Exception as qe:
                             print(f"[Antigravity检测] 获取账号类型失败: {qe}", flush=True)
                         
@@ -497,14 +551,10 @@ async def verify_my_antigravity_credential(
         cred.is_active = is_valid
         cred.last_error = error_msg if error_msg else None
         
-        # 保存账号类型到 note (在原有 note 前加 [PRO] 或 [Normal] 标记)
+        # 保存账号类型到 account_type 字段
         if account_tier and is_valid:
-            tier_tag = f"[{account_tier.upper()}]"
-            current_note = cred.note or ""
-            # 移除旧的类型标记
-            import re
-            current_note = re.sub(r'\[(PRO|NORMAL)\]\s*', '', current_note).strip()
-            cred.note = f"{tier_tag} {current_note}".strip() if current_note else tier_tag
+            cred.account_type = account_tier.lower()  # "pro" 或 "normal"
+            print(f"[Antigravity检测] 更新 account_type: {cred.account_type}", flush=True)
         
         await db.commit()
         

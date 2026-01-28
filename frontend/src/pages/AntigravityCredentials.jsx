@@ -531,14 +531,13 @@ export default function AntigravityCredentials() {
                           )}
                         </>
                       )}
-                      <span className="text-xs px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded font-medium">
-                        AGY
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                        cred.account_type === "pro"
+                          ? "bg-yellow-500/20 text-yellow-400"
+                          : "bg-orange-500/20 text-orange-400"
+                      }`}>
+                        {cred.account_type === "pro" ? "PRO" : "AGY"}
                       </span>
-                      {cred.remark?.includes("[PRO]") && (
-                        <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded font-medium">
-                          ⭐
-                        </span>
-                      )}
                     </div>
                     <span className="text-xs text-gray-500">#{index + 1}</span>
                   </div>
