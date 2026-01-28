@@ -272,7 +272,6 @@ async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depe
     
     # 计算用户各类模型的配额上限
     # 优先使用用户设置的按模型配额，0表示使用系统默认
-    from app.config import settings
     
     # CLI 大锅饭模式：公开凭证可以增加配额
     # 在大锅饭模式下，每个公开凭证给予额外配额奖励
