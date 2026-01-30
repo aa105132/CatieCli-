@@ -276,13 +276,38 @@ async def chat_completions(
     if settings.codex_quota_enabled and not user.is_admin:
         start_of_day = settings.get_start_of_day()
         
-        # 计算用户配额
+        # 计算用户配额（大锅饭模式：基础配额 + 凭证奖励）
         if user.quota_codex and user.quota_codex > 0:
+            # 用户有自定义配额
             user_quota = user.quota_codex
-        elif user_has_public:
-            user_quota = settings.codex_quota_contributor
         else:
+            # 统计用户公开凭证并计算奖励
+            # 获取用户公开凭证列表来计算按类型奖励
+            from sqlalchemy import and_
+            public_creds_result = await db.execute(
+                select(Credential)
+                .where(Credential.user_id == user.id)
+                .where(Credential.api_type == "codex")
+                .where(Credential.is_public == True)
+                .where(Credential.is_active == True)
+            )
+            public_creds = public_creds_result.scalars().all()
+            
+            # 基础配额
             user_quota = settings.codex_quota_default
+            
+            # 按凭证订阅类型计算奖励
+            for cred in public_creds:
+                sub_type = getattr(cred, 'subscription_type', None) or 'unknown'
+                if sub_type == 'plus':
+                    user_quota += settings.codex_quota_plus
+                elif sub_type == 'pro':
+                    user_quota += settings.codex_quota_pro
+                elif sub_type in ('team', 'business'):
+                    user_quota += settings.codex_quota_team
+                else:
+                    # 未知类型使用通用奖励
+                    user_quota += settings.codex_quota_per_cred
         
         # 获取今日使用量
         usage_result = await db.execute(
