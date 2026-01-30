@@ -2227,95 +2227,25 @@ export default function Dashboard() {
                           </div>
                         </div>
 
-                        {/* 配额预览按钮和展开区域 */}
+                        {/* 查看配额链接 */}
                         <div className="mt-3 border-t border-parchment-300 dark:border-night-50 pt-3">
-                          <button
-                            onClick={() => cred.is_active && toggleCodexQuotaPreview(cred.id)}
-                            disabled={!cred.is_active}
-                            className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-sm transition-colors ${
-                              cred.is_active
-                                ? "bg-parchment-200 dark:bg-night-50 hover:bg-parchment-300 dark:hover:bg-night-100 cursor-pointer"
-                                : "bg-parchment-300/50 dark:bg-night-200/50 text-inkbrown-200 dark:text-sand-600 cursor-not-allowed"
-                            }`}
+                          <a
+                            href="https://chatgpt.com/codex/settings/usage"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors bg-parchment-200 dark:bg-night-50 hover:bg-emerald-100 dark:hover:bg-emerald-600/20 hover:text-emerald-600 dark:hover:text-emerald-400 cursor-pointer"
                           >
                             <div className="flex items-center gap-2">
                               <BarChart2 size={14} className="text-emerald-500 dark:text-emerald-400" />
-                              <span className="text-inkbrown-300 dark:text-sand-500 text-xs">
-                                {codexLoadingQuotaPreview === cred.id
-                                  ? "加载中..."
-                                  : codexQuotaCache[cred.id]
-                                    ? "配额信息"
-                                    : "查看配额"}
+                              <span className="text-inkbrown-400 dark:text-sand-400 text-xs">
+                                查看 Codex 配额
                               </span>
                             </div>
-                            {cred.is_active && (
-                              codexExpandedQuota === cred.id
-                                ? <ChevronUp size={14} className="text-inkbrown-300 dark:text-sand-500" />
-                                : <ChevronDown size={14} className="text-inkbrown-300 dark:text-sand-500" />
-                            )}
-                          </button>
-
-                          {/* 展开的配额详情 */}
-                          {codexExpandedQuota === cred.id && cred.is_active && (
-                            <div className="mt-2 space-y-2 px-1">
-                              {codexLoadingQuotaPreview === cred.id ? (
-                                <div className="flex items-center justify-center py-3 text-inkbrown-300 dark:text-sand-500 text-xs">
-                                  <RefreshCw size={14} className="animate-spin mr-2" />
-                                  加载配额中...
-                                </div>
-                              ) : codexQuotaCache[cred.id]?.error ? (
-                                <div className="text-center py-2 text-cinnabar-500 dark:text-cinnabar-400 text-xs">
-                                  {codexQuotaCache[cred.id].error}
-                                </div>
-                              ) : codexQuotaCache[cred.id]?.rate_limits ? (
-                                <>
-                                  {/* 5小时限制 */}
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-emerald-500 dark:text-emerald-400 w-14 text-xs">5小时</span>
-                                    <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
-                                      <div
-                                        className={`h-1.5 rounded-full ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0).bar}`}
-                                        style={{ width: `${Math.min(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0, 100)}%` }}
-                                      />
-                                    </div>
-                                    <span className={`text-xs font-medium w-12 text-right ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0).text}`}>
-                                      {(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0).toFixed(0)}%
-                                    </span>
-                                  </div>
-                                  {/* 每周限制 */}
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-indigo-500 dark:text-indigo-400 w-14 text-xs">每周</span>
-                                    <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
-                                      <div
-                                        className={`h-1.5 rounded-full ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0).bar}`}
-                                        style={{ width: `${Math.min(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0, 100)}%` }}
-                                      />
-                                    </div>
-                                    <span className={`text-xs font-medium w-12 text-right ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0).text}`}>
-                                      {(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0).toFixed(0)}%
-                                    </span>
-                                  </div>
-                                  {/* 代码审查 */}
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-wisteria-500 dark:text-wisteria-400 w-14 text-xs">审查</span>
-                                    <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
-                                      <div
-                                        className={`h-1.5 rounded-full ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0).bar}`}
-                                        style={{ width: `${Math.min(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0, 100)}%` }}
-                                      />
-                                    </div>
-                                    <span className={`text-xs font-medium w-12 text-right ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0).text}`}>
-                                      {(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0).toFixed(0)}%
-                                    </span>
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="text-center py-2 text-inkbrown-300 dark:text-sand-500 text-xs">
-                                  点击加载配额信息
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            <ExternalLink size={12} className="text-inkbrown-300 dark:text-sand-500" />
+                          </a>
+                          <p className="mt-1.5 text-xs text-inkbrown-200 dark:text-sand-600 px-1">
+                            点击跳转到 ChatGPT 查看真实配额（需登录同一账户）
+                          </p>
                         </div>
                       </div>
                     ))}

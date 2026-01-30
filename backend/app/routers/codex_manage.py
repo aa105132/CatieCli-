@@ -109,27 +109,26 @@ async def upload_codex_credentials(
                 })
                 continue
             
-            access_token = cred_data.get("access_token", "")
             email = cred_data.get("email", "")
             account_id = cred_data.get("account_id", "")
             plan_type = cred_data.get("plan_type", "free")
             
-            # 如果没有 access_token，尝试刷新获取
-            if not access_token:
-                token_data = await refresh_with_retry(refresh_token)
-                if token_data:
-                    access_token = token_data.access_token
-                    email = token_data.email or email
-                    account_id = token_data.account_id or account_id
-                    plan_type = token_data.plan_type or plan_type
-                    refresh_token = token_data.refresh_token  # 可能有新的 refresh_token
-                else:
-                    results.append({
-                        "filename": file.filename,
-                        "status": "error",
-                        "message": "无法刷新 token，凭证可能已失效"
-                    })
-                    continue
+            # 始终刷新 token 以确保 access_token 是最新的
+            # OAuth access_token 通常有效期很短，直接用文件中的可能已过期
+            token_data = await refresh_with_retry(refresh_token)
+            if token_data:
+                access_token = token_data.access_token
+                email = token_data.email or email
+                account_id = token_data.account_id or account_id
+                plan_type = token_data.plan_type or plan_type
+                refresh_token = token_data.refresh_token  # 使用最新的 refresh_token
+            else:
+                results.append({
+                    "filename": file.filename,
+                    "status": "error",
+                    "message": "无法刷新 token，凭证可能已失效"
+                })
+                continue
             
             # 检查是否已存在
             existing = await db.execute(
