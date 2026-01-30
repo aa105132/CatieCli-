@@ -6,6 +6,7 @@ import Admin from "./pages/Admin";
 import AnthropicCredentials from "./pages/AnthropicCredentials";
 import AntigravityCredentials from "./pages/AntigravityCredentials";
 import AntigravityOAuth from "./pages/AntigravityOAuth";
+import CodexCredentials from "./pages/CodexCredentials";
 import Credentials from "./pages/Credentials";
 import Dashboard from "./pages/Dashboard";
 import ErrorMessages from "./pages/ErrorMessages";
@@ -156,6 +157,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <AntigravityOAuth />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/codex-credentials"
+              element={
+                <ProtectedRoute>
+                  <CodexCredentials />
                 </ProtectedRoute>
               }
             />

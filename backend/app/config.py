@@ -168,6 +168,19 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     anthropic_base_rpm: int = 10                   # 默认 RPM
     anthropic_contributor_rpm: int = 20            # 贡献者 RPM
     
+    # OpenAI Codex API 反代配置
+    codex_enabled: bool = True                     # 是否启用 Codex API 反代
+    codex_quota_enabled: bool = True               # 是否启用配额限制
+    codex_quota_default: int = 100                 # 默认每日配额
+    codex_quota_contributor: int = 500             # 贡献凭证奖励配额
+    codex_quota_reward: int = 500                  # 新凭证奖励额度
+    codex_base_rpm: int = 5                        # 默认 RPM
+    codex_contributor_rpm: int = 10                # 贡献者 RPM
+    # Codex 凭证池模式:
+    # "private" - 只能用自己的凭证
+    # "full_shared" - 大锅饭模式（捐赠凭证即可用所有公共池）
+    codex_pool_mode: str = "full_shared"
+    
     # 统计时区设置 (server=服务器时区午夜重置, utc=UTC午夜重置(北京下午4点), utc8=北京时间午夜重置)
     stats_timezone: str = "server"
     

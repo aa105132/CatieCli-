@@ -123,6 +123,8 @@ async def init_db(skip_migration_check: bool = False):
                 "ALTER TABLE users ADD COLUMN quota_agy_claude INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN quota_agy_gemini INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN quota_agy_banana INTEGER DEFAULT 0",
+                # Codex 配额（新增）
+                "ALTER TABLE users ADD COLUMN quota_codex INTEGER DEFAULT 0",
             ]
         else:
             # PostgreSQL 迁移（使用 IF NOT EXISTS 语法）
@@ -165,6 +167,8 @@ async def init_db(skip_migration_check: bool = False):
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_agy_claude INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_agy_gemini INTEGER DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_agy_banana INTEGER DEFAULT 0",
+                # Codex 配额（新增）
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_codex INTEGER DEFAULT 0",
             ]
         
         for sql in migrations:

@@ -29,6 +29,8 @@ class User(Base):
     quota_agy_gemini = Column(Integer, default=0)   # Antigravity Gemini 配额（0=使用系统默认）
     quota_agy_banana = Column(Integer, default=0)   # Antigravity Banana 配额（0=使用系统默认）
     used_antigravity = Column(Integer, default=0)   # 当天已使用次数（已弃用）
+    # Codex 配额（0=使用系统默认）
+    quota_codex = Column(Integer, default=0)        # Codex 每日配额（0=使用系统默认）
     # 自定义速率限制 (RPM - requests per minute)
     custom_rpm = Column(Integer, default=0)           # 自定义 RPM (0=使用系统默认)
     created_at = Column(DateTime, default=datetime.utcnow)

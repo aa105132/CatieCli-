@@ -14,6 +14,7 @@ from app.routers.test import router as test_router
 from app.routers import antigravity_proxy, antigravity_manage, antigravity_oauth
 from app.routers import antigravity_anthropic, antigravity_gemini
 from app.routers import anthropic_manage, anthropic_proxy as anthropic_proxy_router
+from app.routers import codex_oauth, codex_proxy, codex_manage
 from app.middleware.url_normalize import URLNormalizeMiddleware
 from sqlalchemy import select, update
 
@@ -177,6 +178,9 @@ app.include_router(antigravity_manage.router)  # Antigravity 凭证管理
 app.include_router(antigravity_oauth.router)  # Antigravity OAuth 凭证获取
 app.include_router(anthropic_proxy_router.router)  # Anthropic API 反代
 app.include_router(anthropic_manage.router)  # Anthropic 凭证管理
+app.include_router(codex_oauth.router)  # Codex OAuth 凭证获取
+app.include_router(codex_proxy.router)  # Codex API 反代
+app.include_router(codex_manage.router)  # Codex 凭证管理
 
 
 @app.get("/api/health")

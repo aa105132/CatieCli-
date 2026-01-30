@@ -5,6 +5,7 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronUp,
+  Code,
   Copy,
   Download,
   ExternalLink,
@@ -87,6 +88,25 @@ export default function Dashboard() {
   const [agyExpandedQuota, setAgyExpandedQuota] = useState(null);
   const [agyQuotaCache, setAgyQuotaCache] = useState({});
   const [agyLoadingQuotaPreview, setAgyLoadingQuotaPreview] = useState(null);
+
+  // Codex 凭证相关
+  const [codexCredentials, setCodexCredentials] = useState([]);
+  const [codexCredLoading, setCodexCredLoading] = useState(false);
+  const [codexStats, setCodexStats] = useState(null);
+  const [codexMessage, setCodexMessage] = useState({ type: "", text: "" });
+  const [codexVerifying, setCodexVerifying] = useState(null);
+  const [codexRefreshing, setCodexRefreshing] = useState(null);
+  const [codexOauthState, setCodexOauthState] = useState(null);
+  const [codexCallbackUrl, setCodexCallbackUrl] = useState("");
+  const [codexIsPublic, setCodexIsPublic] = useState(false);
+  const [codexProcessing, setCodexProcessing] = useState(false);
+  const [codexUploading, setCodexUploading] = useState(false);
+  const codexFileInputRef = useRef(null);
+  
+  // Codex 配额预览相关
+  const [codexExpandedQuota, setCodexExpandedQuota] = useState(null);
+  const [codexQuotaCache, setCodexQuotaCache] = useState({});
+  const [codexLoadingQuotaPreview, setCodexLoadingQuotaPreview] = useState(null);
 
   // 文件上传相关
   const [cliUploading, setCliUploading] = useState(false);
@@ -793,6 +813,211 @@ export default function Dashboard() {
     }
   };
 
+  // ========== Codex 相关函数 ==========
+  const fetchCodexCredentials = async () => {
+    setCodexCredLoading(true);
+    try {
+      const res = await api.get("/api/codex/credentials");
+      setCodexCredentials(res.data);
+    } catch (err) {
+      setCodexMessage({ type: "error", text: "获取凭证失败" });
+    } finally {
+      setCodexCredLoading(false);
+    }
+  };
+
+  const fetchCodexStats = async () => {
+    try {
+      const res = await api.get("/api/codex/stats");
+      setCodexStats(res.data);
+    } catch (err) {
+      console.error("获取统计失败", err);
+    }
+  };
+
+  const toggleCodexActive = async (id, currentActive) => {
+    try {
+      await api.patch(`/api/codex/credentials/${id}`, null, {
+        params: { is_active: !currentActive },
+      });
+      fetchCodexCredentials();
+    } catch (err) {
+      setCodexMessage({ type: "error", text: "操作失败" });
+    }
+  };
+
+  const toggleCodexPublic = async (id, currentPublic) => {
+    try {
+      await api.patch(`/api/codex/credentials/${id}`, null, {
+        params: { is_public: !currentPublic },
+      });
+      fetchCodexCredentials();
+    } catch (err) {
+      setCodexMessage({ type: "error", text: "操作失败" });
+    }
+  };
+
+  const deleteCodexCred = async (id) => {
+    if (!confirm("确定删除此凭证？此操作不可恢复！")) return;
+    try {
+      await api.delete(`/api/codex/credentials/${id}`);
+      setCodexMessage({ type: "success", text: "删除成功" });
+      fetchCodexCredentials();
+      fetchCodexStats();
+    } catch (err) {
+      setCodexMessage({ type: "error", text: "删除失败" });
+    }
+  };
+
+  const verifyCodexCred = async (id) => {
+    setCodexVerifying(id);
+    try {
+      const res = await api.post(`/api/codex/credentials/${id}/verify`);
+      if (res.data.is_valid) {
+        setCodexMessage({ type: "success", text: "凭证验证有效" });
+      } else {
+        setCodexMessage({ type: "error", text: res.data.error || "凭证无效" });
+      }
+      fetchCodexCredentials();
+    } catch (err) {
+      setCodexMessage({ type: "error", text: err.response?.data?.detail || "验证失败" });
+    } finally {
+      setCodexVerifying(null);
+    }
+  };
+
+  const refreshCodexToken = async (id) => {
+    setCodexRefreshing(id);
+    try {
+      const res = await api.post(`/api/codex/credentials/${id}/refresh`);
+      if (res.data.success) {
+        setCodexMessage({ type: "success", text: "Token 刷新成功" });
+      } else {
+        setCodexMessage({ type: "error", text: res.data.error || "刷新失败" });
+      }
+      fetchCodexCredentials();
+    } catch (err) {
+      setCodexMessage({ type: "error", text: err.response?.data?.detail || "刷新失败" });
+    } finally {
+      setCodexRefreshing(null);
+    }
+  };
+
+  // Codex OAuth 流程
+  const startCodexOAuth = async () => {
+    try {
+      const res = await api.get("/api/codex-oauth/auth-url");
+      setCodexOauthState(res.data);
+      window.open(res.data.auth_url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setCodexMessage({
+        type: "error",
+        text: err.response?.data?.detail || "获取授权链接失败",
+      });
+    }
+  };
+
+  const submitCodexCallback = async () => {
+    if (!codexCallbackUrl.trim()) {
+      setCodexMessage({ type: "error", text: "请输入回调 URL" });
+      return;
+    }
+    
+    setCodexProcessing(true);
+    try {
+      const res = await api.post("/api/codex-oauth/from-callback-url", {
+        callback_url: codexCallbackUrl,
+        is_public: codexIsPublic,
+      });
+      
+      setCodexMessage({ type: "success", text: res.data.message });
+      setCodexOauthState(null);
+      setCodexCallbackUrl("");
+      fetchCodexCredentials();
+      fetchCodexStats();
+    } catch (err) {
+      setCodexMessage({
+        type: "error",
+        text: err.response?.data?.detail || "处理失败",
+      });
+    } finally {
+      setCodexProcessing(false);
+    }
+  };
+
+  // Codex 文件上传
+  const handleCodexFileUpload = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setCodexUploading(true);
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append("files", files[i]);
+    }
+    formData.append("is_public", codexIsPublic ? "true" : "false");
+
+    try {
+      const res = await api.post("/api/codex/credentials/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setCodexMessage({
+        type: "success",
+        text: `成功上传 ${res.data.success_count}/${res.data.total_count} 个凭证`,
+      });
+      fetchCodexCredentials();
+      fetchCodexStats();
+    } catch (err) {
+      setCodexMessage({
+        type: "error",
+        text: err.response?.data?.detail || "上传失败",
+      });
+    } finally {
+      setCodexUploading(false);
+      if (codexFileInputRef.current) {
+        codexFileInputRef.current.value = "";
+      }
+    }
+  };
+
+  // ========== Codex 配额查询 ==========
+  const getCodexQuotaColor = (remaining) => {
+    if (remaining >= 80) return { bar: "bg-emerald-500", text: "text-emerald-500" };
+    if (remaining >= 40) return { bar: "bg-goldenrod-400", text: "text-goldenrod-400" };
+    if (remaining >= 20) return { bar: "bg-goldenrod-500", text: "text-goldenrod-500" };
+    return { bar: "bg-cinnabar-500", text: "text-cinnabar-500" };
+  };
+
+  const toggleCodexQuotaPreview = async (credId) => {
+    if (codexExpandedQuota === credId) {
+      setCodexExpandedQuota(null);
+      return;
+    }
+    
+    setCodexExpandedQuota(credId);
+    
+    if (!codexQuotaCache[credId]) {
+      await fetchCodexQuotaPreview(credId);
+    }
+  };
+
+  const fetchCodexQuotaPreview = async (credId) => {
+    setCodexLoadingQuotaPreview(credId);
+    try {
+      const res = await api.get(`/api/codex/credentials/${credId}/quota`);
+      if (res.data.success) {
+        setCodexQuotaCache(prev => ({ ...prev, [credId]: res.data }));
+      } else {
+        setCodexQuotaCache(prev => ({ ...prev, [credId]: { error: res.data.error || "获取失败" } }));
+      }
+    } catch (err) {
+      setCodexQuotaCache(prev => ({ ...prev, [credId]: { error: "获取配额失败" } }));
+    } finally {
+      setCodexLoadingQuotaPreview(null);
+    }
+  };
+
   // ========== 导出所有凭证 ==========
   const exportAllCliCredentials = async () => {
     try {
@@ -850,6 +1075,10 @@ export default function Dashboard() {
     }
     if (mainTab === "cli" && myCredentials.length === 0) {
       fetchMyCredentials();
+    }
+    if (mainTab === "codex" && codexCredentials.length === 0) {
+      fetchCodexCredentials();
+      fetchCodexStats();
     }
   }, [mainTab]);
 
@@ -948,6 +1177,17 @@ export default function Dashboard() {
           >
             <Rocket size={18} />
             反重力
+          </button>
+          <button
+            onClick={() => setMainTab("codex")}
+            className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
+              mainTab === "codex"
+                ? "bg-emerald-100 dark:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/50 shadow-md"
+                : "bg-parchment-100 dark:bg-night-100 text-inkbrown-300 dark:text-sand-400 border-parchment-400 dark:border-night-50 hover:bg-parchment-200 dark:hover:bg-night-50 hover:text-inkbrown-400 dark:hover:text-sand-300"
+            }`}
+          >
+            <Code size={18} />
+            Codex
           </button>
           <button
             onClick={() => setMainTab("apikey")}
@@ -1688,6 +1928,390 @@ export default function Dashboard() {
                               ) : (
                                 <div className="text-center py-2 text-inkbrown-300 dark:text-sand-500 text-xs">
                                   点击加载额度信息
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========== Codex 标签页 ========== */}
+        {mainTab === "codex" && (
+          <div className="space-y-5">
+            {/* 使用提示卡片 */}
+            <div className="rounded-lg border border-parchment-400 dark:border-night-50 p-4 bg-parchment-100 dark:bg-night-100">
+              <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-600/20">
+                  <Code size={20} className="text-emerald-500 dark:text-emerald-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-inkbrown-500 dark:text-sand-200 mb-2">Codex 使用说明</h3>
+                  <ul className="text-xs text-inkbrown-300 dark:text-sand-400 space-y-1.5">
+                    <li className="flex items-start gap-2">
+                      <span className="text-emerald-500 dark:text-emerald-400 mt-0.5">1.</span>
+                      <span>Codex 凭证用于调用 OpenAI GPT 模型（GPT-5.2、5.1-mini 等）</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-emerald-500 dark:text-emerald-400 mt-0.5">2.</span>
+                      <span>通过 ChatGPT OAuth 登录获取凭证，与 CLI/反重力凭证<strong className="text-emerald-600 dark:text-emerald-400">完全独立</strong></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-emerald-500 dark:text-emerald-400 mt-0.5">3.</span>
+                      <span>API 端点：<code className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-emerald-600 dark:text-emerald-400">{window.location.origin}/codex/v1</code></span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-emerald-500 dark:text-emerald-400 mt-0.5">4.</span>
+                      <span>模型前缀：<code className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-emerald-600 dark:text-emerald-400">codex-</code>（如 codex-gpt-5.2-codex）</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* 消息提示 */}
+            {codexMessage.text && (
+              <div className={`p-3 rounded-lg border text-sm ${
+                codexMessage.type === "success"
+                  ? "bg-jade-100 dark:bg-jade-600/20 border-jade-300 dark:border-jade-500/50 text-jade-600 dark:text-jade-400"
+                  : "bg-cinnabar-100 dark:bg-cinnabar-600/20 border-cinnabar-300 dark:border-cinnabar-500/50 text-cinnabar-600 dark:text-cinnabar-400"
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span>{codexMessage.text}</span>
+                  <button onClick={() => setCodexMessage({ type: "", text: "" })} className="text-inkbrown-300 hover:text-inkbrown-500">
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 统计卡片 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                <div className="text-2xl font-bold text-emerald-500 dark:text-emerald-400">
+                  {userInfo?.usage_by_provider?.codex || 0}
+                  {userInfo?.quota_by_provider?.codex && (
+                    <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{userInfo.quota_by_provider.codex}</span>
+                  )}
+                </div>
+                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">Codex 调用</div>
+              </div>
+              <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                <div className="text-2xl font-bold text-jade-500 dark:text-jade-400">{codexStats?.user_active || 0}</div>
+                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">有效凭证</div>
+              </div>
+              <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                <div className="text-2xl font-bold text-wisteria-500 dark:text-wisteria-400">{codexCredentials.filter(c => c.is_public).length}</div>
+                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">公开凭证</div>
+              </div>
+              <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                <div className="text-2xl font-bold text-indigo-500 dark:text-indigo-400">{codexStats?.pool_total || 0}</div>
+                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">池中凭证</div>
+              </div>
+            </div>
+
+            {/* OAuth 授权区域 */}
+            <div className="rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100 p-4">
+              <h3 className="text-sm font-medium text-inkbrown-500 dark:text-sand-200 mb-4 flex items-center gap-2">
+                <Shield size={16} className="text-emerald-500 dark:text-emerald-400" />
+                OAuth 授权登录
+              </h3>
+              
+              {!codexOauthState ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-inkbrown-300 dark:text-sand-400">
+                    点击下方按钮开始 ChatGPT OAuth 授权流程，登录成功后将回调 URL 粘贴到输入框完成凭证添加。
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-2 text-xs text-inkbrown-400 dark:text-sand-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={codexIsPublic}
+                        onChange={(e) => setCodexIsPublic(e.target.checked)}
+                        className="w-4 h-4 rounded border-parchment-400 dark:border-night-50 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      公开凭证（大锅饭模式）
+                    </label>
+                  </div>
+                  <button
+                    onClick={startCodexOAuth}
+                    className="w-full px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2"
+                  >
+                    <ExternalLink size={16} />
+                    开始 OAuth 授权
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-600/10 border border-emerald-200 dark:border-emerald-500/30">
+                    <p className="text-xs text-emerald-700 dark:text-emerald-300 mb-2">
+                      请在弹出的窗口中完成登录，然后将回调 URL 粘贴到下方：
+                    </p>
+                    <code className="block text-xs text-emerald-600 dark:text-emerald-400 bg-white dark:bg-night-200 p-2 rounded break-all">
+                      {codexOauthState.auth_url?.substring(0, 80)}...
+                    </code>
+                  </div>
+                  <input
+                    type="text"
+                    value={codexCallbackUrl}
+                    onChange={(e) => setCodexCallbackUrl(e.target.value)}
+                    placeholder="粘贴回调 URL（以 https://chatgpt.com 开头）"
+                    className="w-full px-3 py-2 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-50 dark:bg-night-200 text-sm text-inkbrown-500 dark:text-sand-200 placeholder:text-inkbrown-200 dark:placeholder:text-sand-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={submitCodexCallback}
+                      disabled={codexProcessing || !codexCallbackUrl.trim()}
+                      className="flex-1 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2"
+                    >
+                      {codexProcessing ? <RefreshCw size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                      提交
+                    </button>
+                    <button
+                      onClick={() => { setCodexOauthState(null); setCodexCallbackUrl(""); }}
+                      className="px-4 py-2.5 bg-parchment-200 dark:bg-night-50 hover:bg-parchment-300 dark:hover:bg-night-100 text-inkbrown-400 dark:text-sand-400 rounded-lg font-medium text-sm transition-all"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 文件上传 */}
+            <div className="rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100 p-4">
+              <h3 className="text-sm font-medium text-inkbrown-500 dark:text-sand-200 mb-3 flex items-center gap-2">
+                <Upload size={16} className="text-emerald-500 dark:text-emerald-400" />
+                上传 JSON 凭证
+              </h3>
+              <p className="text-xs text-inkbrown-300 dark:text-sand-400 mb-3">
+                支持格式：{"{"} access_token, refresh_token, email, account_id {"}"}
+              </p>
+              <input
+                type="file"
+                ref={codexFileInputRef}
+                accept=".json"
+                multiple
+                onChange={handleCodexFileUpload}
+                className="hidden"
+              />
+              <button
+                onClick={() => codexFileInputRef.current?.click()}
+                disabled={codexUploading}
+                className="w-full px-4 py-2.5 bg-parchment-200 dark:bg-night-50 hover:bg-parchment-300 dark:hover:bg-night-100 text-inkbrown-400 dark:text-sand-400 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 border border-parchment-400 dark:border-night-50"
+              >
+                {codexUploading ? <RefreshCw size={16} className="animate-spin" /> : <Upload size={16} />}
+                {codexUploading ? "上传中..." : "选择 JSON 文件"}
+              </button>
+            </div>
+
+            {/* 凭证列表 */}
+            <div className="rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+              <div className="p-4 border-b border-parchment-400 dark:border-night-50 flex items-center justify-between flex-wrap gap-2">
+                <h3 className="text-sm font-medium text-inkbrown-500 dark:text-sand-200 flex items-center gap-2">
+                  <Code size={16} className="text-emerald-500 dark:text-emerald-400" />
+                  我的 Codex 凭证
+                </h3>
+                <button
+                  onClick={() => { fetchCodexCredentials(); fetchCodexStats(); }}
+                  className="text-xs text-emerald-500 dark:text-emerald-400 hover:text-emerald-600 flex items-center gap-1"
+                >
+                  <RefreshCw size={12} />
+                  刷新
+                </button>
+              </div>
+              
+              <div className="p-4">
+                {codexCredLoading ? (
+                  <div className="text-center py-8 text-inkbrown-300 dark:text-sand-500 text-sm">
+                    <RefreshCw className="animate-spin mx-auto mb-2" size={20} />
+                    加载中...
+                  </div>
+                ) : codexCredentials.length === 0 ? (
+                  <div className="text-center py-8 text-inkbrown-300 dark:text-sand-400 text-sm">
+                    暂无凭证，请通过 OAuth 授权或上传 JSON 文件添加
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {codexCredentials.map((cred) => (
+                      <div
+                        key={cred.id}
+                        className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-50 dark:bg-night-200"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-inkbrown-500 dark:text-sand-200 truncate">
+                              {cred.email || cred.name || `凭证 #${cred.id}`}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                cred.is_active
+                                  ? "bg-jade-100 dark:bg-jade-600/20 text-jade-600 dark:text-jade-400"
+                                  : "bg-cinnabar-100 dark:bg-cinnabar-600/20 text-cinnabar-600 dark:text-cinnabar-400"
+                              }`}>
+                                {cred.is_active ? "有效" : "无效"}
+                              </span>
+                              {cred.is_public && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400">
+                                  公开
+                                </span>
+                              )}
+                              {cred.plan_type && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-wisteria-100 dark:bg-wisteria-600/20 text-wisteria-600 dark:text-wisteria-400">
+                                  {cred.plan_type}
+                                </span>
+                              )}
+                            </div>
+                            {cred.last_error && (
+                              <div className="mt-2 text-xs text-cinnabar-500 dark:text-cinnabar-400 truncate">
+                                {cred.last_error}
+                              </div>
+                            )}
+                            <div className="mt-2 text-xs text-inkbrown-200 dark:text-sand-600">
+                              调用: {cred.total_requests || 0} 次
+                              {cred.last_used_at && ` · 最后使用: ${new Date(cred.last_used_at).toLocaleString()}`}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => verifyCodexCred(cred.id)}
+                              disabled={codexVerifying === cred.id}
+                              className="p-2 text-indigo-500 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-600/20 rounded-md transition-all"
+                              title="验证凭证"
+                            >
+                              {codexVerifying === cred.id ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                            </button>
+                            <button
+                              onClick={() => refreshCodexToken(cred.id)}
+                              disabled={codexRefreshing === cred.id}
+                              className="p-2 text-emerald-500 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-600/20 rounded-md transition-all"
+                              title="刷新 Token"
+                            >
+                              {codexRefreshing === cred.id ? <RefreshCw size={14} className="animate-spin" /> : <Zap size={14} />}
+                            </button>
+                            <button
+                              onClick={() => toggleCodexPublic(cred.id, cred.is_public)}
+                              className={`p-2 rounded-md transition-all ${
+                                cred.is_public
+                                  ? "text-indigo-500 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-600/20"
+                                  : "text-inkbrown-200 dark:text-sand-600 hover:bg-parchment-200 dark:hover:bg-night-50"
+                              }`}
+                              title={cred.is_public ? "取消公开" : "公开"}
+                            >
+                              {cred.is_public ? <Globe size={14} /> : <Lock size={14} />}
+                            </button>
+                            <button
+                              onClick={() => toggleCodexActive(cred.id, cred.is_active)}
+                              className={`p-2 rounded-md transition-all ${
+                                cred.is_active
+                                  ? "text-goldenrod-500 dark:text-goldenrod-400 hover:bg-goldenrod-100 dark:hover:bg-goldenrod-600/20"
+                                  : "text-jade-500 dark:text-jade-400 hover:bg-jade-100 dark:hover:bg-jade-600/20"
+                              }`}
+                              title={cred.is_active ? "禁用" : "启用"}
+                            >
+                              {cred.is_active ? <X size={14} /> : <Check size={14} />}
+                            </button>
+                            <button
+                              onClick={() => deleteCodexCred(cred.id)}
+                              className="p-2 text-cinnabar-500 dark:text-cinnabar-400 hover:bg-cinnabar-100 dark:hover:bg-cinnabar-600/20 rounded-md transition-all"
+                              title="删除"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 配额预览按钮和展开区域 */}
+                        <div className="mt-3 border-t border-parchment-300 dark:border-night-50 pt-3">
+                          <button
+                            onClick={() => cred.is_active && toggleCodexQuotaPreview(cred.id)}
+                            disabled={!cred.is_active}
+                            className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-sm transition-colors ${
+                              cred.is_active
+                                ? "bg-parchment-200 dark:bg-night-50 hover:bg-parchment-300 dark:hover:bg-night-100 cursor-pointer"
+                                : "bg-parchment-300/50 dark:bg-night-200/50 text-inkbrown-200 dark:text-sand-600 cursor-not-allowed"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <BarChart2 size={14} className="text-emerald-500 dark:text-emerald-400" />
+                              <span className="text-inkbrown-300 dark:text-sand-500 text-xs">
+                                {codexLoadingQuotaPreview === cred.id
+                                  ? "加载中..."
+                                  : codexQuotaCache[cred.id]
+                                    ? "配额信息"
+                                    : "查看配额"}
+                              </span>
+                            </div>
+                            {cred.is_active && (
+                              codexExpandedQuota === cred.id
+                                ? <ChevronUp size={14} className="text-inkbrown-300 dark:text-sand-500" />
+                                : <ChevronDown size={14} className="text-inkbrown-300 dark:text-sand-500" />
+                            )}
+                          </button>
+
+                          {/* 展开的配额详情 */}
+                          {codexExpandedQuota === cred.id && cred.is_active && (
+                            <div className="mt-2 space-y-2 px-1">
+                              {codexLoadingQuotaPreview === cred.id ? (
+                                <div className="flex items-center justify-center py-3 text-inkbrown-300 dark:text-sand-500 text-xs">
+                                  <RefreshCw size={14} className="animate-spin mr-2" />
+                                  加载配额中...
+                                </div>
+                              ) : codexQuotaCache[cred.id]?.error ? (
+                                <div className="text-center py-2 text-cinnabar-500 dark:text-cinnabar-400 text-xs">
+                                  {codexQuotaCache[cred.id].error}
+                                </div>
+                              ) : codexQuotaCache[cred.id]?.rate_limits ? (
+                                <>
+                                  {/* 5小时限制 */}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-emerald-500 dark:text-emerald-400 w-14 text-xs">5小时</span>
+                                    <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
+                                      <div
+                                        className={`h-1.5 rounded-full ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0).bar}`}
+                                        style={{ width: `${Math.min(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0, 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className={`text-xs font-medium w-12 text-right ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0).text}`}>
+                                      {(codexQuotaCache[cred.id].rate_limits.hourly_5h?.remaining || 0).toFixed(0)}%
+                                    </span>
+                                  </div>
+                                  {/* 每周限制 */}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-indigo-500 dark:text-indigo-400 w-14 text-xs">每周</span>
+                                    <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
+                                      <div
+                                        className={`h-1.5 rounded-full ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0).bar}`}
+                                        style={{ width: `${Math.min(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0, 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className={`text-xs font-medium w-12 text-right ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0).text}`}>
+                                      {(codexQuotaCache[cred.id].rate_limits.weekly?.remaining || 0).toFixed(0)}%
+                                    </span>
+                                  </div>
+                                  {/* 代码审查 */}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-wisteria-500 dark:text-wisteria-400 w-14 text-xs">审查</span>
+                                    <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-1.5">
+                                      <div
+                                        className={`h-1.5 rounded-full ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0).bar}`}
+                                        style={{ width: `${Math.min(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0, 100)}%` }}
+                                      />
+                                    </div>
+                                    <span className={`text-xs font-medium w-12 text-right ${getCodexQuotaColor(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0).text}`}>
+                                      {(codexQuotaCache[cred.id].rate_limits.code_review?.remaining || 0).toFixed(0)}%
+                                    </span>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-center py-2 text-inkbrown-300 dark:text-sand-500 text-xs">
+                                  点击加载配额信息
                                 </div>
                               )}
                             </div>

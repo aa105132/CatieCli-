@@ -104,6 +104,8 @@ SKIP_PREFIXES: List[str] = [
     "/ws/",       # WebSocket
     "/assets/",   # 静态资源
     "/oauth/",    # OAuth
+    "/codex/",    # Codex API（独立的 OpenAI Codex 反向代理）
+    "/codex-oauth/",  # Codex OAuth 认证
     "/favicon",   # 网站图标
     "/index.html",
 ]

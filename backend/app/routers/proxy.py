@@ -621,6 +621,35 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
             for base in fallback_agy_models:
                 models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
     
+    # ===== Codex 模型（仅当有 Codex 凭证时显示）=====
+    if settings.codex_enabled:
+        codex_creds_result = await db.execute(
+            select(func.count(Credential.id))
+            .where(Credential.api_type == "codex")
+            .where(Credential.is_active == True)
+            .where(or_(
+                Credential.user_id == user.id,
+                Credential.is_public == True
+            ))
+        )
+        has_codex_creds = (codex_creds_result.scalar() or 0) > 0
+        
+        if has_codex_creds:
+            # Codex 模型列表
+            codex_models = [
+                "codex-gpt-5.2-codex",
+                "codex-gpt-5.1-codex-mini",
+                "codex-gpt-5.1-codex-max",
+                "codex-gpt-5.2",
+                "codex-gpt-5.1",
+                "codex-gpt-5.1-codex",
+                "codex-gpt-5-codex",
+                "codex-gpt-5-codex-mini",
+                "codex-gpt-5",
+            ]
+            for model_id in codex_models:
+                models.append({"id": model_id, "object": "model", "owned_by": "openai"})
+    
     return {"object": "list", "data": models}
 
 
@@ -645,7 +674,7 @@ async def chat_completions(
     
     model = body.get("model", "gemini-2.5-flash")
     
-    # 1. 提取渠道前缀（gcli- 或 agy-）
+    # 1. 提取渠道前缀（gcli-、agy- 或 codex-）
     channel_prefix = ""
     model_without_channel = model
     if model.startswith("gcli-"):
@@ -654,6 +683,9 @@ async def chat_completions(
     elif model.startswith("agy-"):
         channel_prefix = "agy-"
         model_without_channel = model[4:]
+    elif model.startswith("codex-"):
+        channel_prefix = "codex-"
+        model_without_channel = model[6:]
     
     # 2. 提取流式前缀（假流/、假非流/、流式抗截断/）
     stream_prefix = ""
@@ -667,6 +699,31 @@ async def chat_completions(
     elif model_without_channel.startswith("流式抗截断/"):
         stream_prefix = "流式抗截断/"
         base_model = model_without_channel[6:]  # len("流式抗截断/") = 6
+    
+    # 检测是否是 Codex 请求（模型名包含 codex- 前缀）
+    is_codex = channel_prefix == "codex-"
+    if is_codex:
+        # 检查 Codex 功能是否启用
+        if not settings.codex_enabled:
+            raise HTTPException(status_code=503, detail="Codex API 功能已禁用")
+        
+        # 使用基础模型名传递给 Codex 代理
+        body["model"] = model_without_channel
+        
+        # 调用 Codex 代理处理
+        from app.routers.codex_proxy import chat_completions as codex_chat_completions
+        
+        from starlette.requests import Request as StarletteRequest
+        
+        # 将修改后的 body 序列化
+        modified_body = json.dumps(body).encode()
+        
+        async def receive():
+            return {"type": "http.request", "body": modified_body}
+        
+        new_request = StarletteRequest(scope=request.scope, receive=receive)
+        
+        return await codex_chat_completions(new_request, background_tasks, user, db)
     
     # 检测是否是 Antigravity 请求（模型名包含 agy- 前缀）
     is_antigravity = channel_prefix == "agy-"
