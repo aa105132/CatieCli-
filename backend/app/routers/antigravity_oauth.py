@@ -33,7 +33,8 @@ ANTIGRAVITY_SCOPES = [
 ANTIGRAVITY_API_URL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 
 # Antigravity User-Agent (与 gcli2api 保持一致)
-ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"
+import os
+ANTIGRAVITY_USER_AGENT = os.getenv("ANTIGRAVITY_USER_AGENT", "antigravity/1.104.0 windows/amd64")
 
 # OAuth URLs
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"

@@ -10,7 +10,7 @@ class AntigravityClient:
     """Antigravity API 客户端 - 使用 Google Antigravity API"""
     
     # Antigravity User-Agent (与 gcli2api 保持一致)
-    USER_AGENT = "antigravity/1.11.3 windows/amd64"
+    USER_AGENT = "antigravity/1.104.0 windows/amd64"
     
     # 官方系统提示词 (必须添加，否则返回 429 错误)
     # 完全复制自 gcli2api gemini_fix.py 第187行

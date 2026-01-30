@@ -185,13 +185,17 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
         # 检查该类别模型的使用量
         if quota_limit > 0 and current_usage >= quota_limit:
             raise HTTPException(
-                status_code=429, 
+                status_code=429,
                 detail=f"已达到{quota_name}每日配额限制 ({current_usage}/{quota_limit})"
             )
         
+        # 计算总配额（Flash + Pro 配额）
+        # 注意：这里不再使用 user.daily_quota，而是使用实际计算的配额
+        total_quota = user_quota_flash + user_quota_pro
+        
         # 检查总配额
-        if has_credential and total_usage >= user.daily_quota:
-            raise HTTPException(status_code=429, detail="已达到今日总配额限制")
+        if has_credential and total_usage >= total_quota:
+            raise HTTPException(status_code=429, detail=f"已达到今日总配额限制 ({total_usage}/{total_quota})")
     
     return user
 

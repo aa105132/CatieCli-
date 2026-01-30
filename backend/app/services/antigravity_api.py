@@ -20,7 +20,9 @@ from log import log
 from src.credential_manager import credential_manager
 from src.httpx_client import stream_post_async, post_async
 from src.models import Model, model_to_dict
-from src.utils import ANTIGRAVITY_USER_AGENT
+# from src.utils import ANTIGRAVITY_USER_AGENT
+import os
+ANTIGRAVITY_USER_AGENT = os.getenv("ANTIGRAVITY_USER_AGENT", "antigravity/1.104.0 windows/amd64")
 
 # 导入共同的基础功能
 from src.api.utils import (

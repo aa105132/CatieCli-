@@ -179,7 +179,7 @@ class GeminiClient:
         headers = {
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json",
-            "User-Agent": "antigravity/1.11.3 windows/amd64",  # 必须使用 Antigravity User-Agent
+            "User-Agent": "antigravity/1.104.0 windows/amd64",  # 必须使用 Antigravity User-Agent
             "Accept-Encoding": "gzip",
         }
         

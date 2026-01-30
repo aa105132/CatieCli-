@@ -160,8 +160,8 @@ async def get_user_from_api_key(request: Request, db: AsyncSession = Depends(get
                 detail=f"已达到 Antigravity 每日配额限制 ({total_usage}/{user_quota})"
             )
         
-        if has_credential and total_usage >= user.daily_quota:
-            raise HTTPException(status_code=429, detail="已达到今日总配额限制")
+        # 注意：不再使用 user.daily_quota，因为上面已经使用 user_quota 检查过了
+        # user_quota 是基于凭证数量计算的实际配额
     
     return user
 

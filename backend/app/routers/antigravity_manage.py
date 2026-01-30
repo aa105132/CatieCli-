@@ -21,6 +21,9 @@ from app.services.credential_pool import (
     fetch_project_id,
     ANTIGRAVITY_USER_AGENT
 )
+import os
+ANTIGRAVITY_USER_AGENT = os.getenv("ANTIGRAVITY_USER_AGENT", "antigravity/1.104.0 windows/amd64")
+
 from app.config import settings
 
 

@@ -8,6 +8,7 @@ from app.config import settings
 import httpx
 import asyncio
 import logging
+import os
 import weakref
 import json
 import re
@@ -23,7 +24,7 @@ async def post_async(url: str, json: dict = None, headers: dict = None, timeout:
 
 # User-Agent 常量 (与 gcli2api 保持一致)
 GEMINICLI_USER_AGENT = "grpc-java-okhttp/1.68.1"
-ANTIGRAVITY_USER_AGENT = "antigravity/1.11.3 windows/amd64"  # 与 gcli2api 完全一致
+ANTIGRAVITY_USER_AGENT = os.getenv("ANTIGRAVITY_USER_AGENT", "antigravity/1.104.0 windows/amd64")  # 与 gcli2api 完全一致
 
 
 async def fetch_project_id(
