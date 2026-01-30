@@ -281,33 +281,19 @@ async def chat_completions(
             # 用户有自定义配额
             user_quota = user.quota_codex
         else:
-            # 统计用户公开凭证并计算奖励
-            public_creds_result = await db.execute(
-                select(Credential)
+            # 统计用户公开凭证数量
+            user_public_result = await db.execute(
+                select(func.count(Credential.id))
                 .where(Credential.user_id == user.id)
                 .where(Credential.api_type == "codex")
                 .where(Credential.is_public == True)
                 .where(Credential.is_active == True)
             )
-            public_creds = public_creds_result.scalars().all()
+            user_public_count = user_public_result.scalar() or 0
             
-            # 基础配额
-            user_quota = settings.codex_quota_default
-            
-            # 按凭证订阅类型计算奖励
-            # Credential 模型使用 account_type 字段存储订阅类型
-            for cred in public_creds:
-                sub_type = getattr(cred, 'account_type', None) or 'free'
-                
-                if sub_type == 'plus':
-                    user_quota += settings.codex_quota_plus
-                elif sub_type == 'pro':
-                    user_quota += settings.codex_quota_pro
-                elif sub_type in ('team', 'business'):
-                    user_quota += settings.codex_quota_team
-                else:
-                    # free 或未知类型使用通用奖励
-                    user_quota += settings.codex_quota_per_cred
+            # 大锅饭公式：基础配额 + 公开凭证数 * 每凭证奖励
+            # 与 codex_manage.py 保持一致
+            user_quota = settings.codex_quota_default + user_public_count * settings.codex_quota_per_cred
         
         # 获取今日使用量
         usage_result = await db.execute(
