@@ -647,19 +647,14 @@ def get_static_models() -> List[Dict[str, str]]:
     models = []
     
     for base in base_models:
-        # 添加带 codex- 前缀的版本
+        # 只添加带 codex- 前缀的版本
         models.append({"id": f"codex-{base}", "owned_by": "openai"})
-        # 添加原始模型名
-        models.append({"id": base, "owned_by": "openai"})
         
-        # 为支持的模型添加思维链后缀变体
+        # 为支持的模型添加思维链后缀变体（只保留带 codex- 前缀的）
         for supported in models_with_thinking_suffixes:
             if base == supported or base.startswith(supported):
                 for suffix in thinking_suffixes:
-                    # 带 codex- 前缀的后缀版本
                     models.append({"id": f"codex-{base}{suffix}", "owned_by": "openai"})
-                    # 原始模型名的后缀版本
-                    models.append({"id": f"{base}{suffix}", "owned_by": "openai"})
                 break  # 只匹配一次
     
     return models

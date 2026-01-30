@@ -116,20 +116,48 @@ class AntigravityClient:
         # ========== 2. 思考模型处理 (gemini_fix.py 第206-254行) ==========
         is_thinking = "think" in model.lower() or "pro" in model.lower() or "claude" in model.lower()
         is_gemini_3 = "gemini-3" in model.lower()
+        is_flash = "flash" in model.lower()
         
-        if is_thinking:
+        # 解析后缀 (支持 -maxthinking, -nothinking, -high, -medium, -low, -minimal)
+        thinking_level_from_suffix = None
+        if "-maxthinking" in model.lower():
+            thinking_level_from_suffix = "high"
+        elif "-nothinking" in model.lower():
+            # Gemini 3 Flash 支持 minimal，Pro 降级为 low
+            thinking_level_from_suffix = "minimal" if is_flash else "low"
+        elif "-high" in model.lower():
+            thinking_level_from_suffix = "high"
+        elif "-medium" in model.lower():
+            # 仅 Gemini 3 Flash 支持 medium
+            thinking_level_from_suffix = "medium" if is_flash else "low"
+        elif "-low" in model.lower():
+            thinking_level_from_suffix = "low"
+        elif "-minimal" in model.lower():
+            # 仅 Gemini 3 Flash 支持 minimal
+            thinking_level_from_suffix = "minimal" if is_flash else "low"
+        
+        if is_thinking or thinking_level_from_suffix:
             if "thinkingConfig" not in generation_config:
                 generation_config["thinkingConfig"] = {}
             
             thinking_config = generation_config["thinkingConfig"]
+            
+            # 优先使用后缀指定的 thinkingLevel
+            if thinking_level_from_suffix:
+                thinking_config["thinkingLevel"] = thinking_level_from_suffix
+                # nothinking/minimal 不需要 includeThoughts
+                if thinking_level_from_suffix not in ("minimal",):
+                    thinking_config["includeThoughts"] = True
             # Gemini 3 使用 thinkingLevel, Gemini 2.5 使用 thinkingBudget
-            if is_gemini_3:
+            elif is_gemini_3:
                 if "thinkingLevel" not in thinking_config:
                     thinking_config["thinkingLevel"] = "high"  # 默认使用动态 high
+                thinking_config["includeThoughts"] = True
             else:
                 if "thinkingBudget" not in thinking_config:
                     thinking_config["thinkingBudget"] = 1024
-            thinking_config["includeThoughts"] = True
+                thinking_config["includeThoughts"] = True
+            
             print(f"[AntigravityClient] 已设置 thinkingConfig: {thinking_config}", flush=True)
             
             # Claude 模型特殊处理
