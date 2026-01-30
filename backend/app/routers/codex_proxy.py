@@ -280,6 +280,7 @@ async def chat_completions(
         if user.quota_codex and user.quota_codex > 0:
             # 用户有自定义配额
             user_quota = user.quota_codex
+            print(f"[Codex Quota Debug] 用户 {user.username} 使用自定义配额: {user_quota}", flush=True)
         else:
             # 统计用户公开凭证数量
             user_public_result = await db.execute(
@@ -294,6 +295,13 @@ async def chat_completions(
             # 大锅饭公式：基础配额 + 公开凭证数 * 每凭证奖励
             # 与 codex_manage.py 保持一致
             user_quota = settings.codex_quota_default + user_public_count * settings.codex_quota_per_cred
+            
+            print(f"[Codex Quota Debug] 用户 {user.username}: "
+                  f"user_id={user.id}, "
+                  f"user_public_count={user_public_count}, "
+                  f"codex_quota_default={settings.codex_quota_default}, "
+                  f"codex_quota_per_cred={settings.codex_quota_per_cred}, "
+                  f"计算配额={user_quota}", flush=True)
         
         # 获取今日使用量
         usage_result = await db.execute(
