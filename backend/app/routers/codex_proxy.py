@@ -295,16 +295,9 @@ async def chat_completions(
             user_quota = settings.codex_quota_default
             
             # 按凭证订阅类型计算奖励
+            # Credential 模型使用 account_type 字段存储订阅类型
             for cred in public_creds:
-                # 从 extra_info JSON 中获取订阅类型
-                sub_type = 'unknown'
-                if cred.extra_info:
-                    try:
-                        import json
-                        extra = json.loads(cred.extra_info) if isinstance(cred.extra_info, str) else cred.extra_info
-                        sub_type = extra.get('subscription_type', 'unknown')
-                    except:
-                        pass
+                sub_type = getattr(cred, 'account_type', None) or 'free'
                 
                 if sub_type == 'plus':
                     user_quota += settings.codex_quota_plus
@@ -313,7 +306,7 @@ async def chat_completions(
                 elif sub_type in ('team', 'business'):
                     user_quota += settings.codex_quota_team
                 else:
-                    # 未知类型使用通用奖励
+                    # free 或未知类型使用通用奖励
                     user_quota += settings.codex_quota_per_cred
         
         # 获取今日使用量
