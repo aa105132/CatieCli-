@@ -14,20 +14,26 @@ from app.services.codex_auth import get_codex_headers, CODEX_API_BASE
 
 
 # 模型后缀配置
-# -maxthinking: 最高推理强度
-# -low: 最低推理强度
+# -maxthinking: 最高推理强度 (xhigh)
+# -nothinking: 最低推理强度 (minimal)
+# -low: 低推理强度
 MODEL_SUFFIXES = {
-    "-maxthinking": "high",
+    "-maxthinking": "xhigh",
+    "-nothinking": "minimal",
     "-low": "low",
 }
 
-# 支持后缀的基础模型列表
+# 支持后缀的基础模型列表（包括所有 GPT-5.x 系列）
 MODELS_WITH_THINKING = [
+    "gpt-5",
     "gpt-5.1",
     "gpt-5.2",
     "gpt-5-codex",
     "gpt-5.1-codex",
     "gpt-5.2-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1-codex-mini",
+    "gpt-5.1-codex-max",
 ]
 
 
@@ -629,9 +635,14 @@ def get_static_models() -> List[Dict[str, str]]:
         "gpt-5",                  # 编码和代理的推理模型
     ]
     
-    # 支持思维链后缀的模型
-    models_with_thinking_suffixes = ["gpt-5.1", "gpt-5.2"]
-    thinking_suffixes = ["-maxthinking", "-low"]
+    # 支持思维链后缀的模型（包括带 -codex 后缀的版本）
+    models_with_thinking_suffixes = [
+        "gpt-5", "gpt-5.1", "gpt-5.2",
+        "gpt-5-codex", "gpt-5.1-codex", "gpt-5.2-codex",
+        "gpt-5-codex-mini", "gpt-5.1-codex-mini",
+        "gpt-5.1-codex-max",
+    ]
+    thinking_suffixes = ["-maxthinking", "-nothinking", "-low"]
     
     models = []
     
@@ -643,12 +654,13 @@ def get_static_models() -> List[Dict[str, str]]:
         
         # 为支持的模型添加思维链后缀变体
         for supported in models_with_thinking_suffixes:
-            if base == supported:
+            if base == supported or base.startswith(supported):
                 for suffix in thinking_suffixes:
                     # 带 codex- 前缀的后缀版本
                     models.append({"id": f"codex-{base}{suffix}", "owned_by": "openai"})
                     # 原始模型名的后缀版本
                     models.append({"id": f"{base}{suffix}", "owned_by": "openai"})
+                break  # 只匹配一次
     
     return models
 

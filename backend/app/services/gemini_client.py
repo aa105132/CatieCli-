@@ -511,25 +511,68 @@ class GeminiClient:
         return model
     
     def _get_thinking_config(self, model: str) -> Optional[Dict]:
-        """根据模型名获取 thinking 配置"""
+        """根据模型名获取 thinking 配置
+        
+        Gemini 3 系列使用 thinkingLevel:
+        - Gemini 3 Pro: 支持 low, high（默认动态 high）
+        - Gemini 3 Flash: 支持 minimal, low, medium, high（默认动态 high）
+        
+        Gemini 2.5 系列使用 thinkingBudget:
+        - 2.5 Pro: 128-32768
+        - 2.5 Flash: 0-24576
+        """
+        is_gemini_3 = "gemini-3" in model
+        is_flash = "flash" in model
+        
+        # ========== 兼容旧后缀 ==========
         # 显式指定 maxthinking
         if "-maxthinking" in model:
-            if "flash" in model:
-                return {"thinkingConfig": {"thinkingBudget": 24576, "includeThoughts": True}}
-            return {"thinkingConfig": {"thinkingBudget": 32768, "includeThoughts": True}}
+            if is_gemini_3:
+                # Gemini 3 使用 thinkingLevel: high
+                return {"thinkingConfig": {"thinkingLevel": "high", "includeThoughts": True}}
+            else:
+                # Gemini 2.5 使用 thinkingBudget
+                budget = 24576 if is_flash else 32768
+                return {"thinkingConfig": {"thinkingBudget": budget, "includeThoughts": True}}
+        
         # 显式指定 nothinking
         elif "-nothinking" in model:
-            # flash 模型可以用 0，pro 模型最低 128
-            if "flash" in model:
-                return {"thinkingConfig": {"thinkingBudget": 0}}
-            # pro/gemini-3 等高级模型最低 128
-            return {"thinkingConfig": {"thinkingBudget": 128}}
-        # gemini-3-pro-preview 默认需要 thinkingBudget
-        elif "gemini-3" in model:
-            return {"thinkingConfig": {"thinkingBudget": 8192, "includeThoughts": True}}
-        # 2.5 pro 也可能需要
+            if is_gemini_3:
+                # Gemini 3 Flash 使用 thinkingLevel: minimal
+                if is_flash:
+                    return {"thinkingConfig": {"thinkingLevel": "minimal"}}
+                # Gemini 3 Pro 不支持完全禁用，使用 low
+                return {"thinkingConfig": {"thinkingLevel": "low"}}
+            else:
+                # Gemini 2.5 Flash 可以用 0，Pro 最低 128
+                budget = 0 if is_flash else 128
+                return {"thinkingConfig": {"thinkingBudget": budget}}
+        
+        # ========== 新后缀: thinkingLevel ==========
+        # Gemini 3 系列 - 优先使用 thinkingLevel
+        elif is_gemini_3:
+            if "-high" in model:
+                return {"thinkingConfig": {"thinkingLevel": "high", "includeThoughts": True}}
+            elif "-medium" in model:
+                if is_flash:
+                    return {"thinkingConfig": {"thinkingLevel": "medium", "includeThoughts": True}}
+                # Pro 不支持 medium，降级为 low
+                return {"thinkingConfig": {"thinkingLevel": "low", "includeThoughts": True}}
+            elif "-low" in model:
+                return {"thinkingConfig": {"thinkingLevel": "low", "includeThoughts": True}}
+            elif "-minimal" in model:
+                if is_flash:
+                    return {"thinkingConfig": {"thinkingLevel": "minimal"}}
+                # Pro 不支持 minimal，降级为 low
+                return {"thinkingConfig": {"thinkingLevel": "low"}}
+            else:
+                # 默认: 使用动态 high，包含思考
+                return {"thinkingConfig": {"thinkingLevel": "high", "includeThoughts": True}}
+        
+        # ========== Gemini 2.5 系列 ==========
         elif "2.5-pro" in model:
             return {"thinkingConfig": {"thinkingBudget": 1024, "includeThoughts": True}}
+        
         return None
     
     # _get_search_config 已废弃，搜索检测直接在 generate_content 中进行

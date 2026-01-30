@@ -700,15 +700,38 @@ async def chat_completions(
         stream_prefix = "流式抗截断/"
         base_model = model_without_channel[6:]  # len("流式抗截断/") = 6
     
-    # 检测是否是 Codex 请求（模型名包含 codex- 前缀）
+    # 检测是否是 Codex 请求
+    # 1. 模型名包含 codex- 前缀
+    # 2. 模型名是 gpt-5.x 系列（自动路由到 Codex）
     is_codex = channel_prefix == "codex-"
+    
+    # 自动检测 GPT-5.x 模型（不需要 codex- 前缀）
+    gpt5_patterns = ["gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5-codex", "gpt-5.1-codex", "gpt-5.2-codex"]
+    if not is_codex and not channel_prefix:  # 没有任何前缀时检测
+        # 提取基础模型名（去除后缀如 -maxthinking, -nothinking, -low）
+        base_model_check = base_model
+        for suffix in ["-maxthinking", "-nothinking", "-xhigh", "-high", "-medium", "-low", "-minimal"]:
+            base_model_check = base_model_check.replace(suffix, "")
+        
+        for pattern in gpt5_patterns:
+            if base_model_check.lower() == pattern or base_model_check.lower().startswith(pattern + "-"):
+                is_codex = True
+                print(f"[Proxy] 自动检测到 GPT-5.x 模型: {base_model}，路由到 Codex", flush=True)
+                break
+    
     if is_codex:
         # 检查 Codex 功能是否启用
         if not settings.codex_enabled:
             raise HTTPException(status_code=503, detail="Codex API 功能已禁用")
         
-        # 使用基础模型名传递给 Codex 代理
-        body["model"] = model_without_channel
+        # 传递完整模型名给 Codex 代理（包含后缀如 -maxthinking）
+        # codex_client.py 的 parse_model_suffix 会正确处理后缀
+        if channel_prefix == "codex-":
+            # 有 codex- 前缀：使用去掉前缀后的模型名
+            body["model"] = model_without_channel
+        else:
+            # 自动检测的 GPT-5.x：使用流式前缀 + 基础模型（已包含后缀）
+            body["model"] = stream_prefix + base_model
         
         # 调用 Codex 代理处理
         from app.routers.codex_proxy import chat_completions as codex_chat_completions
@@ -1449,13 +1472,24 @@ async def gemini_generate_content(
         request_body["tools"] = [{"googleSearch": {}}]
     
     # 添加 thinking 配置（根据后缀）
+    # Gemini 3 使用 thinkingLevel, Gemini 2.5 使用 thinkingBudget
     if use_maxthinking or use_nothinking:
         if "generationConfig" not in request_body:
             request_body["generationConfig"] = {}
+        is_gemini_3 = "gemini-3" in api_model
+        is_flash = "flash" in api_model
         if use_maxthinking:
-            request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": -1}
+            if is_gemini_3:
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "high"}
+            else:
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": -1}
         elif use_nothinking:
-            request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+            if is_gemini_3:
+                # Gemini 3 Flash 支持 minimal，Pro 只能用 low
+                level = "minimal" if is_flash else "low"
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": level}
+            else:
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
     
     # 重试逻辑
     max_retries = settings.error_retry_count
@@ -1781,13 +1815,24 @@ async def gemini_stream_generate_content(
         request_body["tools"] = [{"googleSearch": {}}]
     
     # 添加 thinking 配置（根据后缀）
+    # Gemini 3 使用 thinkingLevel, Gemini 2.5 使用 thinkingBudget
     if use_maxthinking or use_nothinking:
         if "generationConfig" not in request_body:
             request_body["generationConfig"] = {}
+        is_gemini_3 = "gemini-3" in api_model
+        is_flash = "flash" in api_model
         if use_maxthinking:
-            request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": -1}
+            if is_gemini_3:
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "high"}
+            else:
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": -1}
         elif use_nothinking:
-            request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+            if is_gemini_3:
+                # Gemini 3 Flash 支持 minimal，Pro 只能用 low
+                level = "minimal" if is_flash else "low"
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": level}
+            else:
+                request_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
     
     # 预先获取第一个凭证（使用主db）
     max_retries = settings.error_retry_count

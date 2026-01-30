@@ -148,6 +148,8 @@ def get_thinking_settings(model_name: str) -> Tuple[Optional[int], Optional[str]
     # ========== 新 CLI 模式: 基于思考预算/等级 ==========
 
     # Gemini 3 Preview 系列: 使用 thinkingLevel
+    # - Gemini 3 Pro: 支持 low, high（默认动态 high）
+    # - Gemini 3 Flash: 支持 minimal, low, medium, high（默认动态 high）
     if "gemini-3" in base_model:
         if "-high" in model_name:
             return None, "high"
@@ -155,14 +157,18 @@ def get_thinking_settings(model_name: str) -> Tuple[Optional[int], Optional[str]
             # 仅 3-flash-preview 支持 medium
             if "flash" in base_model:
                 return None, "medium"
-            # pro 系列不支持 medium，返回 Default
-            return None, None
+            # pro 系列不支持 medium，使用 low 作为降级
+            return None, "low"
         elif "-low" in model_name:
             return None, "low"
         elif "-minimal" in model_name:
-            return None, None
+            # 仅 3-flash-preview 支持 minimal
+            if "flash" in base_model:
+                return None, "minimal"
+            # pro 系列不支持 minimal，使用 low 作为降级
+            return None, "low"
         else:
-            # Default: 不设置 thinking 配置
+            # Default: 不设置 thinking 配置（使用默认动态 high）
             return None, None
 
     # Gemini 2.5 系列: 使用 thinkingBudget

@@ -93,14 +93,14 @@ class AntigravityClient:
             generation_config = {
                 "candidateCount": 1,
                 "imageConfig": image_config,
-                # 图片模型也支持思维链
+                # 图片模型使用 thinkingLevel (Gemini 3)
                 "thinkingConfig": {
-                    "thinkingBudget": 8192,  # 图片模型使用适中的思考预算
+                    "thinkingLevel": "high",  # 图片模型使用 high 等级
                     "includeThoughts": True
                 }
             }
             
-            print(f"[AntigravityClient] 图片模型已设置 thinkingConfig: thinkingBudget=8192", flush=True)
+            print(f"[AntigravityClient] 图片模型已设置 thinkingConfig: thinkingLevel=high", flush=True)
             
             # 清理不必要的字段
             result.pop("systemInstruction", None)
@@ -115,16 +115,22 @@ class AntigravityClient:
         
         # ========== 2. 思考模型处理 (gemini_fix.py 第206-254行) ==========
         is_thinking = "think" in model.lower() or "pro" in model.lower() or "claude" in model.lower()
+        is_gemini_3 = "gemini-3" in model.lower()
         
         if is_thinking:
             if "thinkingConfig" not in generation_config:
                 generation_config["thinkingConfig"] = {}
             
             thinking_config = generation_config["thinkingConfig"]
-            if "thinkingBudget" not in thinking_config:
-                thinking_config["thinkingBudget"] = 1024
+            # Gemini 3 使用 thinkingLevel, Gemini 2.5 使用 thinkingBudget
+            if is_gemini_3:
+                if "thinkingLevel" not in thinking_config:
+                    thinking_config["thinkingLevel"] = "high"  # 默认使用动态 high
+            else:
+                if "thinkingBudget" not in thinking_config:
+                    thinking_config["thinkingBudget"] = 1024
             thinking_config["includeThoughts"] = True
-            print(f"[AntigravityClient] 已设置 thinkingConfig: thinkingBudget={thinking_config['thinkingBudget']}", flush=True)
+            print(f"[AntigravityClient] 已设置 thinkingConfig: {thinking_config}", flush=True)
             
             # Claude 模型特殊处理
             if "claude" in model.lower():
