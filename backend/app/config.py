@@ -298,6 +298,17 @@ PERSISTENT_CONFIG_KEYS = [
     "anthropic_base_rpm",
     "anthropic_contributor_rpm",
     "stats_timezone",
+    # Codex 配置
+    "codex_enabled",
+    "codex_quota_enabled",
+    "codex_quota_default",
+    "codex_quota_per_cred",
+    "codex_quota_plus",
+    "codex_quota_pro",
+    "codex_quota_team",
+    "codex_base_rpm",
+    "codex_contributor_rpm",
+    "codex_pool_mode",
 ]
 
 
