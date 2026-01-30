@@ -128,7 +128,7 @@ async def get_codex_credential(
     user_cred_query = user_cred_query.order_by(Credential.last_used_at.asc().nulls_first())
     
     result = await db.execute(user_cred_query)
-    credential = result.scalar_one_or_none()
+    credential = result.scalars().first()
     
     if credential:
         return credential
@@ -146,7 +146,7 @@ async def get_codex_credential(
         public_cred_query = public_cred_query.order_by(Credential.last_used_at.asc().nulls_first())
         
         result = await db.execute(public_cred_query)
-        credential = result.scalar_one_or_none()
+        credential = result.scalars().first()
         
         if credential:
             return credential
@@ -291,6 +291,17 @@ async def chat_completions(
                 .where(Credential.is_active == True)
             )
             user_public_count = user_public_result.scalar() or 0
+            
+            # 调试：查看所有用户凭证
+            all_creds_result = await db.execute(
+                select(Credential)
+                .where(Credential.user_id == user.id)
+                .where(Credential.api_type == "codex")
+            )
+            all_creds = all_creds_result.scalars().all()
+            print(f"[Codex Quota Debug] 用户 {user.username} (id={user.id}) 的 Codex 凭证:", flush=True)
+            for cred in all_creds:
+                print(f"  - id={cred.id}, email={cred.email}, is_public={cred.is_public}, is_active={cred.is_active}", flush=True)
             
             # 大锅饭公式：基础配额 + 公开凭证数 * 每凭证奖励
             # 与 codex_manage.py 保持一致
