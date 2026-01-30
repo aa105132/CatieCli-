@@ -119,6 +119,8 @@ export default function Dashboard() {
   // Antigravity 配置
   const [agyPoolMode, setAgyPoolMode] = useState("private");
   const [agyQuotaEnabled, setAgyQuotaEnabled] = useState(false);
+  const [antigravityEnabled, setAntigravityEnabled] = useState(true);
+  const [codexEnabled, setCodexEnabled] = useState(true);
 
   // 奖励配置（从后端获取）
   const [rewardConfig, setRewardConfig] = useState({
@@ -148,6 +150,8 @@ export default function Dashboard() {
         setAllowExportCredentials(res.data.allow_export_credentials !== false);
         setAgyPoolMode(res.data.antigravity_pool_mode || "private");
         setAgyQuotaEnabled(res.data.antigravity_quota_enabled || false);
+        setAntigravityEnabled(res.data.antigravity_enabled !== false);
+        setCodexEnabled(res.data.codex_enabled !== false);
         // 设置奖励配置
         setRewardConfig({
           quota_flash: res.data.quota_flash || 1000,
@@ -158,6 +162,13 @@ export default function Dashboard() {
           antigravity_contributor_rpm: res.data.antigravity_contributor_rpm || 10,
           banana_quota_enabled: res.data.banana_quota_enabled !== false,
           banana_quota_per_cred: res.data.banana_quota_per_cred || 50,
+          codex_quota_per_cred: res.data.codex_quota_per_cred || 200,
+          codex_quota_default: res.data.codex_quota_default || 0,
+          codex_quota_plus: res.data.codex_quota_plus || 150,
+          codex_quota_pro: res.data.codex_quota_pro || 300,
+          codex_quota_team: res.data.codex_quota_team || 250,
+          codex_base_rpm: res.data.codex_base_rpm || 5,
+          codex_contributor_rpm: res.data.codex_contributor_rpm || 10,
         });
       })
       .catch(() => {});
@@ -1069,14 +1080,14 @@ export default function Dashboard() {
 
   // 当切换标签时加载数据
   useEffect(() => {
-    if (mainTab === "antigravity" && agyCredentials.length === 0) {
+    if (mainTab === "antigravity" && antigravityEnabled && agyCredentials.length === 0) {
       fetchAgyCredentials();
       fetchAgyStats();
     }
     if (mainTab === "cli" && myCredentials.length === 0) {
       fetchMyCredentials();
     }
-    if (mainTab === "codex" && codexCredentials.length === 0) {
+    if (mainTab === "codex" && codexEnabled && codexCredentials.length === 0) {
       fetchCodexCredentials();
       fetchCodexStats();
     }
@@ -1167,28 +1178,32 @@ export default function Dashboard() {
             <Server size={18} />
             CLI
           </button>
-          <button
-            onClick={() => setMainTab("antigravity")}
-            className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
-              mainTab === "antigravity"
-                ? "bg-goldenrod-100 dark:bg-goldenrod-600/20 text-goldenrod-600 dark:text-goldenrod-400 border-goldenrod-300 dark:border-goldenrod-500/50 shadow-md"
-                : "bg-parchment-100 dark:bg-night-100 text-inkbrown-300 dark:text-sand-400 border-parchment-400 dark:border-night-50 hover:bg-parchment-200 dark:hover:bg-night-50 hover:text-inkbrown-400 dark:hover:text-sand-300"
-            }`}
-          >
-            <Rocket size={18} />
-            反重力
-          </button>
-          <button
-            onClick={() => setMainTab("codex")}
-            className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
-              mainTab === "codex"
-                ? "bg-emerald-100 dark:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/50 shadow-md"
-                : "bg-parchment-100 dark:bg-night-100 text-inkbrown-300 dark:text-sand-400 border-parchment-400 dark:border-night-50 hover:bg-parchment-200 dark:hover:bg-night-50 hover:text-inkbrown-400 dark:hover:text-sand-300"
-            }`}
-          >
-            <Code size={18} />
-            Codex
-          </button>
+          {antigravityEnabled && (
+            <button
+              onClick={() => setMainTab("antigravity")}
+              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
+                mainTab === "antigravity"
+                  ? "bg-goldenrod-100 dark:bg-goldenrod-600/20 text-goldenrod-600 dark:text-goldenrod-400 border-goldenrod-300 dark:border-goldenrod-500/50 shadow-md"
+                  : "bg-parchment-100 dark:bg-night-100 text-inkbrown-300 dark:text-sand-400 border-parchment-400 dark:border-night-50 hover:bg-parchment-200 dark:hover:bg-night-50 hover:text-inkbrown-400 dark:hover:text-sand-300"
+              }`}
+            >
+              <Rocket size={18} />
+              反重力
+            </button>
+          )}
+          {codexEnabled && (
+            <button
+              onClick={() => setMainTab("codex")}
+              className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
+                mainTab === "codex"
+                  ? "bg-emerald-100 dark:bg-emerald-600/20 text-emerald-600 dark:text-emerald-400 border-emerald-300 dark:border-emerald-500/50 shadow-md"
+                  : "bg-parchment-100 dark:bg-night-100 text-inkbrown-300 dark:text-sand-400 border-parchment-400 dark:border-night-50 hover:bg-parchment-200 dark:hover:bg-night-50 hover:text-inkbrown-400 dark:hover:text-sand-300"
+              }`}
+            >
+              <Code size={18} />
+              Codex
+            </button>
+          )}
           <button
             onClick={() => setMainTab("apikey")}
             className={`flex-1 px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 border ${
@@ -1503,7 +1518,7 @@ export default function Dashboard() {
         )}
 
         {/* ========== 反重力标签页 ========== */}
-        {mainTab === "antigravity" && (
+        {mainTab === "antigravity" && antigravityEnabled && (
           <div className="space-y-5">
             {/* 使用提示卡片 */}
             <div className="rounded-lg border border-parchment-400 dark:border-night-50 p-4 bg-parchment-100 dark:bg-night-100">
@@ -1943,7 +1958,7 @@ export default function Dashboard() {
         )}
 
         {/* ========== Codex 标签页 ========== */}
-        {mainTab === "codex" && (
+        {mainTab === "codex" && codexEnabled && (
           <div className="space-y-5">
             {/* 使用提示卡片 */}
             <div className="rounded-lg border border-parchment-400 dark:border-night-50 p-4 bg-parchment-100 dark:bg-night-100">
@@ -1975,6 +1990,58 @@ export default function Dashboard() {
               </div>
             </div>
 
+            {/* Codex 凭证奖励说明 */}
+            <div className="rounded-lg border border-emerald-300 dark:border-emerald-500/50 p-4 bg-emerald-50 dark:bg-emerald-600/10">
+              <h3 className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mb-3 flex items-center gap-2">
+                <Gift size={16} />
+                上传 Codex 凭证额度说明
+              </h3>
+              <div className="space-y-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">大锅饭模式：</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">上传公开凭证可获得调用额度</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-inkbrown-400 dark:text-sand-400">基础配额：</span>
+                  <span className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-inkbrown-300 dark:text-sand-500 font-medium">{rewardConfig.codex_quota_default}</span>
+                  <span className="text-inkbrown-400 dark:text-sand-400">次</span>
+                </div>
+                {/* 按订阅类型奖励 */}
+                <div className="pt-2 border-t border-emerald-200 dark:border-emerald-600/30">
+                  <div className="text-emerald-600 dark:text-emerald-400 font-medium mb-1.5">按订阅类型奖励：</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-inkbrown-400 dark:text-sand-400">Plus:</span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-200 dark:bg-emerald-600/30 text-emerald-700 dark:text-emerald-300 font-medium">{rewardConfig.codex_quota_plus}</span>
+                    <span className="text-inkbrown-200 dark:text-sand-600">|</span>
+                    <span className="text-inkbrown-400 dark:text-sand-400">Pro:</span>
+                    <span className="px-1.5 py-0.5 rounded bg-purple-200 dark:bg-purple-600/30 text-purple-700 dark:text-purple-300 font-medium">{rewardConfig.codex_quota_pro}</span>
+                    <span className="text-inkbrown-200 dark:text-sand-600">|</span>
+                    <span className="text-inkbrown-400 dark:text-sand-400">Team/企业:</span>
+                    <span className="px-1.5 py-0.5 rounded bg-blue-200 dark:bg-blue-600/30 text-blue-700 dark:text-blue-300 font-medium">{rewardConfig.codex_quota_team}</span>
+                    <span className="text-inkbrown-400 dark:text-sand-400">次</span>
+                  </div>
+                </div>
+                {/* RPM 限制说明 */}
+                <div className="pt-2 border-t border-emerald-200 dark:border-emerald-600/30">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-emerald-600 dark:text-emerald-400 font-medium">RPM 限制：</span>
+                    <span className="text-inkbrown-400 dark:text-sand-400">基础</span>
+                    <span className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-inkbrown-300 dark:text-sand-500 font-medium">{rewardConfig.codex_base_rpm}</span>
+                    <span className="text-inkbrown-200 dark:text-sand-600">/</span>
+                    <span className="text-inkbrown-400 dark:text-sand-400">贡献者</span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-200 dark:bg-emerald-600/30 text-emerald-700 dark:text-emerald-300 font-medium">{rewardConfig.codex_contributor_rpm}</span>
+                    <span className="text-inkbrown-400 dark:text-sand-400">次/分钟</span>
+                  </div>
+                </div>
+                {rewardConfig.codex_quota_default === 0 && (
+                  <div className="flex items-center gap-2 text-goldenrod-600 dark:text-goldenrod-400 pt-1">
+                    <AlertTriangle size={14} />
+                    <span>未上传公开凭证无法使用大锅饭！</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* 消息提示 */}
             {codexMessage.text && (
               <div className={`p-3 rounded-lg border text-sm ${
@@ -1995,24 +2062,24 @@ export default function Dashboard() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
                 <div className="text-2xl font-bold text-emerald-500 dark:text-emerald-400">
-                  {userInfo?.usage_by_provider?.codex || 0}
-                  {userInfo?.quota_by_provider?.codex && (
-                    <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{userInfo.quota_by_provider.codex}</span>
-                  )}
+                  {codexStats?.today_usage || 0}
+                  <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{codexStats?.quota || 0}</span>
                 </div>
-                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">Codex 调用</div>
+                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">今日配额</div>
               </div>
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
-                <div className="text-2xl font-bold text-jade-500 dark:text-jade-400">{codexStats?.user_active || 0}</div>
+                <div className={`text-2xl font-bold ${(codexStats?.quota_remaining || 0) > 50 ? 'text-jade-500 dark:text-jade-400' : (codexStats?.quota_remaining || 0) > 0 ? 'text-goldenrod-500 dark:text-goldenrod-400' : 'text-cinnabar-500 dark:text-cinnabar-400'}`}>
+                  {codexStats?.quota_remaining || 0}
+                </div>
+                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">剩余配额</div>
+              </div>
+              <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                <div className="text-2xl font-bold text-jade-500 dark:text-jade-400">{codexStats?.user_credentials || 0}</div>
                 <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">有效凭证</div>
               </div>
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
-                <div className="text-2xl font-bold text-wisteria-500 dark:text-wisteria-400">{codexCredentials.filter(c => c.is_public).length}</div>
+                <div className="text-2xl font-bold text-wisteria-500 dark:text-wisteria-400">{codexStats?.user_public_credentials || 0}</div>
                 <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">公开凭证</div>
-              </div>
-              <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
-                <div className="text-2xl font-bold text-indigo-500 dark:text-indigo-400">{codexStats?.pool_total || 0}</div>
-                <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">池中凭证</div>
               </div>
             </div>
 

@@ -18,17 +18,31 @@ from typing import List
 API_ENDPOINTS: List[str] = [
     # ============================================================
     # Antigravity API 端点（最高优先级，必须在通用端点之前）
+    # 支持两种前缀：/antigravity 和 /agy（别名）
     # ============================================================
+    # /agy 是 /antigravity 的别名（更短）
+    "/agy/v1/v1beta/models/",          # -> /antigravity/v1beta/models/
+    "/agy/v1beta/models/",             # -> /antigravity/v1beta/models/
+    "/agy/v1/models",                  # -> /antigravity/v1/models
+    "/agy/v1/messages/count_tokens",   # -> /antigravity/v1/messages/count_tokens
+    "/agy/v1/messages",                # -> /antigravity/v1/messages
+    "/agy/v1/chat/completions",        # -> /antigravity/v1/chat/completions
+    "/agy/models",                     # -> /antigravity/v1/models
+    "/agy/messages",                   # -> /antigravity/v1/messages
+    "/agy/chat/completions",           # -> /antigravity/v1/chat/completions
+    
     # SillyTavern 特殊情况：用户在 URL 末尾加 /v1 导致路径变成 /antigravity/v1/v1beta/...
     "/antigravity/v1/v1beta/models/",  # 需要转换为 /antigravity/v1beta/models/
     # 带版本号的 Antigravity 端点
     "/antigravity/v1beta/models/",     # Antigravity Gemini 原生格式 (v1beta)
     "/antigravity/v1/models/",         # Antigravity Gemini 原生格式 (v1)
+    "/antigravity/v1/models",          # Antigravity 模型列表（不带尾部斜杠）
     "/antigravity/v1/messages/count_tokens", # Antigravity Anthropic Token 计数
     "/antigravity/v1/messages",        # Antigravity Anthropic 格式
     "/antigravity/v1/chat/completions",# Antigravity OpenAI 格式
     # 不带版本号的 Antigravity 端点（需要规范化）
     "/antigravity/models/",            # -> /antigravity/v1beta/models/
+    "/antigravity/models",             # -> /antigravity/v1/models
     "/antigravity/messages",           # -> /antigravity/v1/messages
     "/antigravity/chat/completions",   # -> /antigravity/v1/chat/completions
     
@@ -104,10 +118,16 @@ SKIP_PREFIXES: List[str] = [
     "/ws/",       # WebSocket
     "/assets/",   # 静态资源
     "/oauth/",    # OAuth
-    "/codex/",    # Codex API（独立的 OpenAI Codex 反向代理）
     "/codex-oauth/",  # Codex OAuth 认证
     "/favicon",   # 网站图标
     "/index.html",
+]
+
+# 完全跳过防呆处理的路径（精确匹配或前缀匹配）
+# 这些是独立的反向代理服务中不能重写的特定端点
+SKIP_PATHS_STRICT: List[str] = [
+    "/codex/v1/models",   # Codex 模型列表，不能重写
+    "/codex/models",      # Codex 模型列表（不带 v1）
 ]
 
 
@@ -164,6 +184,17 @@ PATH_NORMALIZE_MAP = {
     "/antigravity/messages": "/antigravity/v1/messages",
     "/antigravity/chat/completions": "/antigravity/v1/chat/completions",
     "/antigravity/models/": "/antigravity/v1beta/models/",  # Gemini 原生格式默认使用 v1beta
+    "/antigravity/models": "/antigravity/v1/models",        # 模型列表（不带尾部斜杠）
+    
+    # /agy 是 /antigravity 的别名 (更短的路径)
+    "/agy/v1/models": "/antigravity/v1/models",
+    "/agy/v1/messages/count_tokens": "/antigravity/v1/messages/count_tokens",
+    "/agy/v1/messages": "/antigravity/v1/messages",
+    "/agy/v1/chat/completions": "/antigravity/v1/chat/completions",
+    "/agy/v1beta/models/": "/antigravity/v1beta/models/",
+    "/agy/models": "/antigravity/v1/models",
+    "/agy/messages": "/antigravity/v1/messages",
+    "/agy/chat/completions": "/antigravity/v1/chat/completions",
 }
 
 
@@ -193,6 +224,11 @@ def extract_api_endpoint(path: str) -> str:
     Returns:
         提取出的 API 端点路径
     """
+    # 检查是否匹配 SKIP_PATHS_STRICT（完全跳过，不进行任何处理）
+    for skip_path in SKIP_PATHS_STRICT:
+        if path == skip_path or path.startswith(skip_path + "/") or path.startswith(skip_path + "?"):
+            return path  # 直接返回原路径
+    
     # 检查是否以 SKIP_PREFIXES 开头
     # 注意：即使路径以这些前缀开头，如果其中包含 API 端点，仍需处理
     # 例如：/api/v1/messages 或 /admin/v1/messages 应该提取出 /v1/messages

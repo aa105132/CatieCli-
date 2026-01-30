@@ -53,6 +53,11 @@ class URLNormalizeMiddleware:
             # 规范化并提取 API 端点
             normalized_path = normalize_and_extract_path(original_path)
             
+            # 保存原始路径到 scope state（供后续路由使用）
+            if "state" not in scope:
+                scope["state"] = {}
+            scope["state"]["original_path"] = original_path
+            
             # 如果路径发生了变化，记录日志并修改 scope
             if normalized_path != original_path:
                 print(f"[URLNormalize] 🔀 路径重写: {original_path} -> {normalized_path}", flush=True)

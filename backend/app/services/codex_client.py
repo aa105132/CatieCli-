@@ -13,6 +13,51 @@ from typing import AsyncGenerator, Dict, Any, List, Optional, Tuple
 from app.services.codex_auth import get_codex_headers, CODEX_API_BASE
 
 
+# 模型后缀配置
+# -maxthinking: 最高推理强度
+# -low: 最低推理强度
+MODEL_SUFFIXES = {
+    "-maxthinking": "high",
+    "-low": "low",
+}
+
+# 支持后缀的基础模型列表
+MODELS_WITH_THINKING = [
+    "gpt-5.1",
+    "gpt-5.2",
+    "gpt-5-codex",
+    "gpt-5.1-codex",
+    "gpt-5.2-codex",
+]
+
+
+def parse_model_suffix(model: str) -> tuple:
+    """
+    解析模型名称和后缀
+    
+    Returns:
+        (base_model, reasoning_effort)
+        
+    Example:
+        "gpt-5.2-maxthinking" -> ("gpt-5.2", "high")
+        "gpt-5.1-high" -> ("gpt-5.1", "high")
+        "gpt-4.1-mini" -> ("gpt-4.1-mini", "medium")
+    """
+    model_lower = model.lower()
+    
+    for suffix, effort in MODEL_SUFFIXES.items():
+        if model_lower.endswith(suffix):
+            base_model = model[:-len(suffix)]
+            # 检查基础模型是否支持思维链后缀
+            for supported in MODELS_WITH_THINKING:
+                if base_model.lower().startswith(supported) or base_model.lower() == supported:
+                    return base_model, effort
+            # 不支持的模型，直接返回原模型名
+            return base_model, effort
+    
+    return model, "medium"  # 默认 medium
+
+
 class CodexClient:
     """Codex API 客户端"""
     
@@ -166,19 +211,29 @@ class CodexClient:
         - input: 消息列表
         - reasoning: 推理配置
         - store: false（不存储）
+        
+        支持模型后缀:
+        - gpt-5.2-maxthinking → reasoning.effort = "high"
+        - gpt-5.1-high → reasoning.effort = "high"
         """
+        # 解析模型后缀
+        base_model, parsed_effort = parse_model_suffix(model)
+        
+        # 优先使用 kwargs 中的 reasoning_effort，否则使用解析的后缀
+        reasoning_effort = kwargs.get("reasoning_effort", parsed_effort)
+        
         # 转换消息并提取 instructions
         input_list, instructions = self._convert_messages_to_input(messages)
         
         body = {
-            "model": model,
+            "model": base_model,  # 使用去掉后缀的基础模型名
             "input": input_list,
             "stream": True,  # Codex 默认使用流式
             "instructions": instructions,  # 从 system 消息提取的指令
             "store": False,  # 不存储
             "parallel_tool_calls": True,
             "reasoning": {
-                "effort": kwargs.get("reasoning_effort", "medium"),
+                "effort": reasoning_effort,
                 "summary": "auto",
             },
             "include": ["reasoning.encrypted_content"],
@@ -391,8 +446,8 @@ class CodexClient:
                     }]
                 }
         
-        elif event_type == "response.reasoning.delta":
-            # 思维链增量
+        elif event_type == "response.reasoning_summary_text.delta":
+            # 思维链增量（使用正确的事件类型）
             delta_text = event.get("delta", "")
             if delta_text:
                 return {
@@ -406,6 +461,20 @@ class CodexClient:
                         "finish_reason": None
                     }]
                 }
+        
+        elif event_type == "response.reasoning_summary_text.done":
+            # 思维链完成，添加换行
+            return {
+                "id": f"chatcmpl-codex-{request_id}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"reasoning_content": "\n\n"},
+                    "finish_reason": None
+                }]
+            }
         
         elif event_type == "response.function_call_arguments.delta":
             # 工具调用参数增量
@@ -536,32 +605,51 @@ def get_static_models() -> List[Dict[str, str]]:
     
     基于 OpenAI Codex 官方文档的模型列表
     使用 codex- 前缀方便客户端识别
+    
+    支持思维链后缀:
+    - -maxthinking: 强推理模式 (reasoning.effort = "high")
+    - -high: 高推理模式
+    - -medium: 中等推理模式（默认）
+    - -low: 低推理模式
+    - -nothinking: 无推理模式
     """
-    models = [
-        # 推荐模型 (Recommended models) - 带 codex- 前缀便于客户端分组
-        {"id": "codex-gpt-5.2-codex", "owned_by": "openai"},      # 最先进的代理编码模型
-        {"id": "codex-gpt-5.1-codex-mini", "owned_by": "openai"}, # GPT-5.1-Codex 的更小更经济版本
+    # 基础模型列表
+    base_models = [
+        # 推荐模型 (Recommended models)
+        "gpt-5.2-codex",          # 最先进的代理编码模型
+        "gpt-5.1-codex-mini",     # GPT-5.1-Codex 的更小更经济版本
         
         # 替代模型 (Alternative models)
-        {"id": "codex-gpt-5.1-codex-max", "owned_by": "openai"},  # 针对长期代理编码任务优化
-        {"id": "codex-gpt-5.2", "owned_by": "openai"},            # 通用代理模型
-        {"id": "codex-gpt-5.1", "owned_by": "openai"},            # 编码和代理任务
-        {"id": "codex-gpt-5.1-codex", "owned_by": "openai"},      # 长期代理编码任务
-        {"id": "codex-gpt-5-codex", "owned_by": "openai"},        # GPT-5 的长期代理编码版本
-        {"id": "codex-gpt-5-codex-mini", "owned_by": "openai"},   # GPT-5-Codex 的更小更经济版本
-        {"id": "codex-gpt-5", "owned_by": "openai"},              # 编码和代理的推理模型
-        
-        # 不带前缀的原始模型名（兼容直接传入）
-        {"id": "gpt-5.2-codex", "owned_by": "openai"},
-        {"id": "gpt-5.1-codex-mini", "owned_by": "openai"},
-        {"id": "gpt-5.1-codex-max", "owned_by": "openai"},
-        {"id": "gpt-5.2", "owned_by": "openai"},
-        {"id": "gpt-5.1", "owned_by": "openai"},
-        {"id": "gpt-5.1-codex", "owned_by": "openai"},
-        {"id": "gpt-5-codex", "owned_by": "openai"},
-        {"id": "gpt-5-codex-mini", "owned_by": "openai"},
-        {"id": "gpt-5", "owned_by": "openai"},
+        "gpt-5.1-codex-max",      # 针对长期代理编码任务优化
+        "gpt-5.2",                # 通用代理模型
+        "gpt-5.1",                # 编码和代理任务
+        "gpt-5.1-codex",          # 长期代理编码任务
+        "gpt-5-codex",            # GPT-5 的长期代理编码版本
+        "gpt-5-codex-mini",       # GPT-5-Codex 的更小更经济版本
+        "gpt-5",                  # 编码和代理的推理模型
     ]
+    
+    # 支持思维链后缀的模型
+    models_with_thinking_suffixes = ["gpt-5.1", "gpt-5.2"]
+    thinking_suffixes = ["-maxthinking", "-low"]
+    
+    models = []
+    
+    for base in base_models:
+        # 添加带 codex- 前缀的版本
+        models.append({"id": f"codex-{base}", "owned_by": "openai"})
+        # 添加原始模型名
+        models.append({"id": base, "owned_by": "openai"})
+        
+        # 为支持的模型添加思维链后缀变体
+        for supported in models_with_thinking_suffixes:
+            if base == supported:
+                for suffix in thinking_suffixes:
+                    # 带 codex- 前缀的后缀版本
+                    models.append({"id": f"codex-{base}{suffix}", "owned_by": "openai"})
+                    # 原始模型名的后缀版本
+                    models.append({"id": f"{base}{suffix}", "owned_by": "openai"})
+    
     return models
 
 

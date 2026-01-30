@@ -171,9 +171,12 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     # OpenAI Codex API 反代配置
     codex_enabled: bool = True                     # 是否启用 Codex API 反代
     codex_quota_enabled: bool = True               # 是否启用配额限制
-    codex_quota_default: int = 100                 # 默认每日配额
-    codex_quota_contributor: int = 500             # 贡献凭证奖励配额
-    codex_quota_reward: int = 500                  # 新凭证奖励额度
+    codex_quota_default: int = 0                   # 默认每日配额（无凭证用户，0=禁用）
+    codex_quota_per_cred: int = 200                # 每个公开凭证奖励的额度（大锅饭模式，通用）
+    # 按 ChatGPT 订阅类型配置奖励
+    codex_quota_plus: int = 150                    # Plus 订阅凭证奖励
+    codex_quota_pro: int = 300                     # Pro 订阅凭证奖励
+    codex_quota_team: int = 250                    # Team/Business 订阅凭证奖励
     codex_base_rpm: int = 5                        # 默认 RPM
     codex_contributor_rpm: int = 10                # 贡献者 RPM
     # Codex 凭证池模式:

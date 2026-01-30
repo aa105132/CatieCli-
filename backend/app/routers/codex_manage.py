@@ -171,8 +171,8 @@ async def upload_codex_credentials(
                 db.add(credential)
                 is_new = True
             
-            # 验证凭证
-            is_valid, verify_msg = await verify_codex_credential(access_token)
+            # 验证凭证（传入 account_id）
+            is_valid, verify_msg = await verify_codex_credential(access_token, account_id)
             credential.is_active = is_valid
             if not is_valid:
                 credential.last_error = verify_msg
@@ -285,8 +285,9 @@ async def verify_credential(
         raise HTTPException(status_code=404, detail="凭证不存在")
     
     access_token = decrypt_credential(credential.api_key)
+    account_id = credential.project_id or ""
     
-    is_valid, message = await verify_codex_credential(access_token)
+    is_valid, message = await verify_codex_credential(access_token, account_id)
     
     credential.is_active = is_valid
     if not is_valid:
@@ -611,13 +612,16 @@ async def get_codex_stats(
     )
     today_usage = usage_result.scalar() or 0
     
-    # 计算用户配额
+    # 计算用户配额（大锅饭模式：基础配额 + 每个公开凭证奖励）
     if user.quota_codex and user.quota_codex > 0:
+        # 用户有自定义配额
         user_quota = user.quota_codex
-    elif user_public_count > 0:
-        user_quota = settings.codex_quota_contributor
     else:
-        user_quota = settings.codex_quota_default
+        # 大锅饭公式：基础配额 + 公开凭证数 * 每凭证奖励
+        user_quota = settings.codex_quota_default + user_public_count * settings.codex_quota_per_cred
+    
+    # 是否可以使用大锅饭（有公开凭证或有自定义配额）
+    can_use_pool = user_public_count > 0 or (user.quota_codex and user.quota_codex > 0)
     
     return {
         "user_credentials": user_cred_count,
@@ -626,5 +630,10 @@ async def get_codex_stats(
         "today_usage": today_usage,
         "quota": user_quota,
         "quota_remaining": max(0, user_quota - today_usage),
+        "quota_enabled": settings.codex_quota_enabled,
+        "quota_per_cred": settings.codex_quota_per_cred,
+        "quota_default": settings.codex_quota_default,
+        "can_use_pool": can_use_pool,
         "is_enabled": settings.codex_enabled,
+        "pool_mode": settings.codex_pool_mode,
     }

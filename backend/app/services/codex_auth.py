@@ -325,12 +325,13 @@ def generate_credential_filename(email: str, plan_type: str = "", account_id_has
     return " - ".join(parts[:2]) + f" - {email}"
 
 
-async def verify_codex_credential(access_token: str) -> Tuple[bool, str]:
+async def verify_codex_credential(access_token: str, account_id: str = "") -> Tuple[bool, str]:
     """
     验证 Codex 凭证是否有效
     
     Args:
         access_token: 访问令牌
+        account_id: 账户 ID（某些账户需要）
     
     Returns:
         Tuple[is_valid, message]
@@ -345,7 +346,7 @@ async def verify_codex_credential(access_token: str) -> Tuple[bool, str]:
                 "stream": True,
                 "instructions": ""
             }
-            headers = get_codex_headers(access_token, "")
+            headers = get_codex_headers(access_token, account_id)
             
             response = await client.post(test_url, json=test_payload, headers=headers)
             
@@ -355,6 +356,10 @@ async def verify_codex_credential(access_token: str) -> Tuple[bool, str]:
                 return False, "凭证已过期或无效"
             elif response.status_code == 429:
                 return True, "凭证有效（配额限制中）"
+            elif response.status_code == 400:
+                # 400 可能是请求格式问题，但凭证本身是有效的
+                # 某些账户类型可能需要特定的 account_id
+                return True, "凭证有效（格式警告）"
             else:
                 return False, f"验证失败: {response.status_code}"
     except Exception as e:

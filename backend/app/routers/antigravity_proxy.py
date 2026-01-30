@@ -187,6 +187,12 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
     """列出可用模型 (OpenAI兼容) - Antigravity"""
     from app.models.user import Credential
     
+    # 检查原始路径，判断是否通过 /agy/ 前缀访问
+    # 如果通过 /agy/ 访问，只返回不带 agy- 前缀的模型
+    original_path = request.scope.get("state", {}).get("original_path", "")
+    is_agy_path = original_path.startswith("/agy/") or original_path.startswith("/agy")
+    print(f"[Antigravity] 📍 原始路径: {original_path}, 是否 /agy/ 访问: {is_agy_path}", flush=True)
+    
     # 检查是否有可用的 3.0 Antigravity 凭证
     has_tier3 = await CredentialPool.has_tier3_credentials(user, db, mode="antigravity")
     
@@ -240,21 +246,30 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                         # 过滤无效模型
                         if not is_valid_model(model_id):
                             continue
+                        
+                        # 如果通过 /agy/ 访问，跳过 agy- 前缀的模型
+                        if is_agy_path and model_id.startswith("agy-"):
+                            continue
+                        # 如果通过 /antigravity/ 访问，跳过不带 agy- 前缀的模型（避免重复）
+                        if not is_agy_path and not model_id.startswith("agy-"):
+                            # 保留不带前缀的基础模型，但不添加重复的 agy- 版本
+                            pass
+                        
                         models.append({"id": model_id, "object": "model", "owned_by": "google"})
                         models.append({"id": f"流式抗截断/{model_id}", "object": "model", "owned_by": "google"})
                         
                         if "image" in model_id.lower() and "2k" not in model_id.lower() and "4k" not in model_id.lower():
                             models.append({"id": f"{model_id}-2k", "object": "model", "owned_by": "google"})
                             models.append({"id": f"{model_id}-4k", "object": "model", "owned_by": "google"})
-                            if not model_id.startswith("agy-"):
-                                models.append({"id": f"agy-{model_id}-2k", "object": "model", "owned_by": "google"})
-                                models.append({"id": f"agy-{model_id}-4k", "object": "model", "owned_by": "google"})
                     
                     # 强制添加 Claude 模型的不带 -thinking 后缀版本
-                    claude_base_models = [
-                        "claude-opus-4-5", "agy-claude-opus-4-5",
-                        "claude-sonnet-4-5", "agy-claude-sonnet-4-5",
-                    ]
+                    if is_agy_path:
+                        claude_base_models = ["claude-opus-4-5", "claude-sonnet-4-5"]
+                    else:
+                        claude_base_models = [
+                            "claude-opus-4-5", "agy-claude-opus-4-5",
+                            "claude-sonnet-4-5", "agy-claude-sonnet-4-5",
+                        ]
                     existing_ids = {m["id"] for m in models}
                     for base_model in claude_base_models:
                         if base_model not in existing_ids:
@@ -262,13 +277,22 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
                             models.append({"id": f"流式抗截断/{base_model}", "object": "model", "owned_by": "google"})
                             print(f"[Antigravity] ✅ 强制添加 Claude 基础模型: {base_model}", flush=True)
                     
-                    image_variants = [
-                        "gemini-3-pro-image", "agy-gemini-3-pro-image",
-                        "gemini-3-pro-image-2k", "agy-gemini-3-pro-image-2k",
-                        "流式抗截断/gemini-3-pro-image-2k", "流式抗截断/agy-gemini-3-pro-image-2k",
-                        "gemini-3-pro-image-4k", "agy-gemini-3-pro-image-4k",
-                        "流式抗截断/gemini-3-pro-image-4k", "流式抗截断/agy-gemini-3-pro-image-4k",
-                    ]
+                    if is_agy_path:
+                        image_variants = [
+                            "gemini-3-pro-image",
+                            "gemini-3-pro-image-2k",
+                            "流式抗截断/gemini-3-pro-image-2k",
+                            "gemini-3-pro-image-4k",
+                            "流式抗截断/gemini-3-pro-image-4k",
+                        ]
+                    else:
+                        image_variants = [
+                            "gemini-3-pro-image", "agy-gemini-3-pro-image",
+                            "gemini-3-pro-image-2k", "agy-gemini-3-pro-image-2k",
+                            "流式抗截断/gemini-3-pro-image-2k", "流式抗截断/agy-gemini-3-pro-image-2k",
+                            "gemini-3-pro-image-4k", "agy-gemini-3-pro-image-4k",
+                            "流式抗截断/gemini-3-pro-image-4k", "流式抗截断/agy-gemini-3-pro-image-4k",
+                        ]
                     existing_ids = {m["id"] for m in models}
                     for variant in image_variants:
                         if variant not in existing_ids:
@@ -310,15 +334,17 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
     
     models = []
     for base in base_models:
-        # 基础模型
-        models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
+        # 基础模型 - 根据访问路径决定是否添加 agy- 前缀
+        if not is_agy_path:
+            models.append({"id": f"agy-{base}", "object": "model", "owned_by": "google"})
         models.append({"id": base, "object": "model", "owned_by": "google"})
         models.append({"id": f"流式抗截断/{base}", "object": "model", "owned_by": "google"})
         
         # 思维模式变体 (仅 Claude 和部分 Gemini)
         if base.startswith("claude") or "pro" in base:
             for suffix in thinking_suffixes:
-                models.append({"id": f"agy-{base}{suffix}", "object": "model", "owned_by": "google"})
+                if not is_agy_path:
+                    models.append({"id": f"agy-{base}{suffix}", "object": "model", "owned_by": "google"})
                 models.append({"id": f"{base}{suffix}", "object": "model", "owned_by": "google"})
         
         # 搜索变体已移除 - 反重力API不支持联网搜索

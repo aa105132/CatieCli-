@@ -1252,6 +1252,7 @@ export default function Admin() {
                         { value: "all", label: "全部" },
                         { value: "geminicli", label: "CLI" },
                         { value: "antigravity", label: "反重力" },
+                        { value: "codex", label: "Codex" },
                       ].map((opt) => (
                         <button
                           key={opt.value}
@@ -1329,9 +1330,11 @@ export default function Admin() {
                     {(() => {
                       const filtered = credentials.filter((c) => {
                         if (credTypeFilter === "geminicli") {
-                          if (c.api_type === "antigravity") return false;
+                          if (c.api_type === "antigravity" || c.api_type === "codex") return false;
                         } else if (credTypeFilter === "antigravity") {
                           if (c.api_type !== "antigravity") return false;
+                        } else if (credTypeFilter === "codex") {
+                          if (c.api_type !== "codex") return false;
                         }
                         if (credStatusFilter === "active" && !c.is_active)
                           return false;
@@ -1373,12 +1376,11 @@ export default function Admin() {
                         .filter((c) => {
                           // 类型筛选：CLI凭证的api_type可能是geminicli、空或null
                           if (credTypeFilter === "geminicli") {
-                            if (c.api_type === "antigravity") return false;
+                            if (c.api_type === "antigravity" || c.api_type === "codex") return false;
                           } else if (credTypeFilter === "antigravity") {
                             if (c.api_type !== "antigravity") return false;
-                          } else if (credTypeFilter !== "all") {
-                            // Handles 'all' case implicitly by not returning false
-                            return false; // Should not happen if 'all' is handled
+                          } else if (credTypeFilter === "codex") {
+                            if (c.api_type !== "codex") return false;
                           }
                           // 状态筛选
                           if (credStatusFilter === "active" && !c.is_active)
@@ -1409,6 +1411,10 @@ export default function Admin() {
                                   {c.api_type === "antigravity" ? (
                                     <span className="px-1.5 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
                                       AGY
+                                    </span>
+                                  ) : c.api_type === "codex" ? (
+                                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded text-xs font-medium">
+                                      Codex
                                     </span>
                                   ) : (
                                     <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs font-medium">
@@ -1450,25 +1456,48 @@ export default function Admin() {
                               </div>
                             </td>
                             <td className="space-x-1">
-                              {/* Pro 标签 */}
-                              {c.last_error?.includes("account_type:pro") && (
-                                <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">
-                                  ⭐ Pro
-                                </span>
-                              )}
-                              {/* 模型等级 */}
-                              {c.model_tier === "agy" ? (
-                                <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
-                                  AGY
-                                </span>
-                              ) : c.model_tier === "3" ? (
-                                <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
-                                  3.0
-                                </span>
+                              {/* Codex 凭证显示订阅类型 */}
+                              {c.api_type === "codex" ? (
+                                c.model_tier === "pro" ? (
+                                  <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs font-medium">
+                                    Pro
+                                  </span>
+                                ) : c.model_tier === "plus" ? (
+                                  <span className="px-2 py-0.5 bg-green-500/20 text-green-400 rounded text-xs font-medium">
+                                    Plus
+                                  </span>
+                                ) : c.model_tier === "team" ? (
+                                  <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded text-xs font-medium">
+                                    Team
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 bg-gray-600/50 text-gray-400 rounded text-xs">
+                                    {c.model_tier || "Free"}
+                                  </span>
+                                )
                               ) : (
-                                <span className="px-2 py-0.5 bg-gray-600/50 text-gray-400 rounded text-xs">
-                                  2.5
-                                </span>
+                                <>
+                                  {/* Pro 标签 (Gemini) */}
+                                  {c.last_error?.includes("account_type:pro") && (
+                                    <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded text-xs">
+                                      ⭐ Pro
+                                    </span>
+                                  )}
+                                  {/* 模型等级 */}
+                                  {c.model_tier === "agy" ? (
+                                    <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 rounded text-xs font-medium">
+                                      AGY
+                                    </span>
+                                  ) : c.model_tier === "3" ? (
+                                    <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded text-xs">
+                                      3.0
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 bg-gray-600/50 text-gray-400 rounded text-xs">
+                                      2.5
+                                    </span>
+                                  )}
+                                </>
                               )}
                             </td>
                             <td className="font-mono text-sm text-gray-400">

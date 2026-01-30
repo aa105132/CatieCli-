@@ -905,7 +905,7 @@ async def get_stats_by_model(
     days: int = 7,
     page: int = 1,
     page_size: int = 10,
-    api_type: str = "all",  # all, cli, antigravity
+    api_type: str = "all",  # all, cli, antigravity, codex
     user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
@@ -915,9 +915,11 @@ async def get_stats_by_model(
     # 构建 API 类型过滤条件
     def build_api_type_filter():
         if api_type == "cli":
-            return UsageLog.model.notlike('antigravity/%')
+            return ~UsageLog.model.like('antigravity/%') & ~UsageLog.model.like('codex/%')
         elif api_type == "antigravity":
             return UsageLog.model.like('antigravity/%')
+        elif api_type == "codex":
+            return UsageLog.model.like('codex/%')
         else:
             return True
     
@@ -1071,6 +1073,17 @@ async def get_config(user: User = Depends(get_current_admin)):
         "anthropic_contributor_rpm": settings.anthropic_contributor_rpm,
         "stats_timezone": settings.stats_timezone,
         "allow_export_credentials": settings.allow_export_credentials,
+        # Codex 配置
+        "codex_enabled": settings.codex_enabled,
+        "codex_quota_enabled": settings.codex_quota_enabled,
+        "codex_quota_default": settings.codex_quota_default,
+        "codex_quota_per_cred": settings.codex_quota_per_cred,
+        "codex_quota_plus": settings.codex_quota_plus,
+        "codex_quota_pro": settings.codex_quota_pro,
+        "codex_quota_team": settings.codex_quota_team,
+        "codex_base_rpm": settings.codex_base_rpm,
+        "codex_contributor_rpm": settings.codex_contributor_rpm,
+        "codex_pool_mode": settings.codex_pool_mode,
     }
 
 
@@ -1108,6 +1121,7 @@ async def get_public_config():
         "tutorial_force_first_visit": settings.tutorial_force_first_visit,
         "anthropic_enabled": settings.anthropic_enabled,
         # Antigravity 配置
+        "antigravity_enabled": settings.antigravity_enabled,
         "antigravity_pool_mode": settings.antigravity_pool_mode,
         "antigravity_quota_enabled": settings.antigravity_quota_enabled,
         "antigravity_quota_default": settings.antigravity_quota_default,
@@ -1122,6 +1136,17 @@ async def get_public_config():
         "quota_flash": settings.quota_flash,
         "quota_25pro": settings.quota_25pro,
         "quota_30pro": settings.quota_30pro,
+        # Codex 配置
+        "codex_enabled": settings.codex_enabled,
+        "codex_quota_enabled": settings.codex_quota_enabled,
+        "codex_quota_default": settings.codex_quota_default,
+        "codex_quota_per_cred": settings.codex_quota_per_cred,
+        "codex_quota_plus": settings.codex_quota_plus,
+        "codex_quota_pro": settings.codex_quota_pro,
+        "codex_quota_team": settings.codex_quota_team,
+        "codex_base_rpm": settings.codex_base_rpm,
+        "codex_contributor_rpm": settings.codex_contributor_rpm,
+        "codex_pool_mode": settings.codex_pool_mode,
     }
 
 
@@ -1205,6 +1230,17 @@ async def update_config(
     anthropic_contributor_rpm: Optional[int] = Form(None),
     stats_timezone: Optional[str] = Form(None),
     allow_export_credentials: Optional[bool] = Form(None),
+    # Codex 配置
+    codex_enabled: Optional[bool] = Form(None),
+    codex_quota_enabled: Optional[bool] = Form(None),
+    codex_quota_default: Optional[int] = Form(None),
+    codex_quota_per_cred: Optional[int] = Form(None),
+    codex_quota_plus: Optional[int] = Form(None),
+    codex_quota_pro: Optional[int] = Form(None),
+    codex_quota_team: Optional[int] = Form(None),
+    codex_base_rpm: Optional[int] = Form(None),
+    codex_contributor_rpm: Optional[int] = Form(None),
+    codex_pool_mode: Optional[str] = Form(None),
     user: User = Depends(get_current_admin)
 ):
     """更新配置（持久化保存到数据库）"""
@@ -1475,6 +1511,51 @@ async def update_config(
         await save_config_to_db("stats_timezone", stats_timezone)
         updated["stats_timezone"] = stats_timezone
     
+    # Codex 配置
+    if codex_enabled is not None:
+        settings.codex_enabled = codex_enabled
+        await save_config_to_db("codex_enabled", codex_enabled)
+        updated["codex_enabled"] = codex_enabled
+    if codex_quota_enabled is not None:
+        settings.codex_quota_enabled = codex_quota_enabled
+        await save_config_to_db("codex_quota_enabled", codex_quota_enabled)
+        updated["codex_quota_enabled"] = codex_quota_enabled
+    if codex_quota_default is not None:
+        settings.codex_quota_default = codex_quota_default
+        await save_config_to_db("codex_quota_default", codex_quota_default)
+        updated["codex_quota_default"] = codex_quota_default
+    if codex_quota_per_cred is not None:
+        settings.codex_quota_per_cred = codex_quota_per_cred
+        await save_config_to_db("codex_quota_per_cred", codex_quota_per_cred)
+        updated["codex_quota_per_cred"] = codex_quota_per_cred
+    if codex_quota_plus is not None:
+        settings.codex_quota_plus = codex_quota_plus
+        await save_config_to_db("codex_quota_plus", codex_quota_plus)
+        updated["codex_quota_plus"] = codex_quota_plus
+    if codex_quota_pro is not None:
+        settings.codex_quota_pro = codex_quota_pro
+        await save_config_to_db("codex_quota_pro", codex_quota_pro)
+        updated["codex_quota_pro"] = codex_quota_pro
+    if codex_quota_team is not None:
+        settings.codex_quota_team = codex_quota_team
+        await save_config_to_db("codex_quota_team", codex_quota_team)
+        updated["codex_quota_team"] = codex_quota_team
+    if codex_base_rpm is not None:
+        settings.codex_base_rpm = codex_base_rpm
+        await save_config_to_db("codex_base_rpm", codex_base_rpm)
+        updated["codex_base_rpm"] = codex_base_rpm
+    if codex_contributor_rpm is not None:
+        settings.codex_contributor_rpm = codex_contributor_rpm
+        await save_config_to_db("codex_contributor_rpm", codex_contributor_rpm)
+        updated["codex_contributor_rpm"] = codex_contributor_rpm
+    if codex_pool_mode is not None:
+        if codex_pool_mode in ["private", "full_shared"]:
+            settings.codex_pool_mode = codex_pool_mode
+            await save_config_to_db("codex_pool_mode", codex_pool_mode)
+            updated["codex_pool_mode"] = codex_pool_mode
+        else:
+            raise HTTPException(status_code=400, detail="无效的 Codex 凭证池模式")
+    
     return {"message": "配置已保存", "updated": updated}
 
 
@@ -1482,16 +1563,17 @@ async def update_config(
 
 @router.get("/stats/global")
 async def get_global_stats(
-    api_type: str = "all",  # all, cli, antigravity
+    api_type: str = "all",  # all, cli, antigravity, codex
     user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     """获取全站统计（按模型分类）- 带缓存
     
-    api_type: 
+    api_type:
         - all: 所有请求
-        - cli: GeminiCLI 请求（模型不含 antigravity/）
+        - cli: GeminiCLI 请求（模型不含 antigravity/ 和 codex/）
         - antigravity: Antigravity 请求（模型含 antigravity/）
+        - codex: Codex 请求（模型含 codex/）
     """
     # 尝试从缓存获取（缓存5秒，按 api_type 分开缓存）
     cache_key = f"stats:global:{api_type}"
@@ -1509,9 +1591,12 @@ async def get_global_stats(
     # 构建 API 类型过滤条件
     def build_api_type_filter():
         if api_type == "cli":
-            return UsageLog.model.notlike('antigravity/%')
+            # CLI 请求：不包含 antigravity/ 和 codex/
+            return ~UsageLog.model.like('antigravity/%') & ~UsageLog.model.like('codex/%')
         elif api_type == "antigravity":
             return UsageLog.model.like('antigravity/%')
+        elif api_type == "codex":
+            return UsageLog.model.like('codex/%')
         else:
             return True  # 不过滤
     
@@ -1527,7 +1612,31 @@ async def get_global_stats(
     model_stats = [{"model": row[0] or "unknown", "count": row[1]} for row in model_stats_result.all()]
     
     # 分类汇总 - 根据 API 类型使用不同分类方式
-    if api_type == "antigravity":
+    if api_type == "codex":
+        # Codex 分类：按模型类型 (GPT/o1/其他)
+        def is_gpt(model: str) -> bool:
+            m = model.lower()
+            return "gpt" in m
+        
+        def is_o1(model: str) -> bool:
+            m = model.lower()
+            return "o1" in m or "o3" in m or "o4" in m
+        
+        def is_other_codex(model: str) -> bool:
+            return not is_gpt(model) and not is_o1(model)
+        
+        gpt_count = sum(s["count"] for s in model_stats if is_gpt(s["model"]))
+        o1_count = sum(s["count"] for s in model_stats if is_o1(s["model"]))
+        other_codex_count = sum(s["count"] for s in model_stats if is_other_codex(s["model"]))
+        # 使用统一的字段名返回
+        flash_count = 0
+        pro_count = 0
+        tier3_count = 0
+        banana_count = 0
+        codex_gpt_count = gpt_count
+        codex_o1_count = o1_count
+        codex_other_count = other_codex_count
+    elif api_type == "antigravity":
         # Antigravity 分类：按模型品牌 (Claude/Gemini/其他/Banana)
         def is_banana(model: str) -> bool:
             """检测是否为 Banana 模型（图片生成模型）
@@ -1559,6 +1668,9 @@ async def get_global_stats(
         flash_count = claude_count  # 对应前端 flash -> Claude
         pro_count = gemini_count    # 对应前端 pro -> Gemini
         tier3_count = other_count   # 对应前端 tier3 -> 其他
+        codex_gpt_count = 0
+        codex_o1_count = 0
+        codex_other_count = 0
     else:
         # CLI/全部 分类：按 Gemini 模型等级（互斥分类：3.0 > Pro > Flash）
         def is_tier3(model: str) -> bool:
@@ -1580,6 +1692,9 @@ async def get_global_stats(
         pro_count = sum(s["count"] for s in model_stats if is_pro(s["model"]))
         flash_count = sum(s["count"] for s in model_stats if is_flash(s["model"]))
         banana_count = 0  # CLI 模式下没有 banana
+        codex_gpt_count = 0
+        codex_o1_count = 0
+        codex_other_count = 0
     
     # 最近1小时请求数
     hour_query = select(func.count(UsageLog.id)).where(UsageLog.created_at >= hour_ago)
@@ -1837,6 +1952,9 @@ async def get_global_stats(
                 "pro_2.5": pro_count,
                 "tier_3": tier3_count,
                 "banana": banana_count,
+                "codex_gpt": codex_gpt_count,
+                "codex_o1": codex_o1_count,
+                "codex_other": codex_other_count,
             },
         },
         "credentials": {

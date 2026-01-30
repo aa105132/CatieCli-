@@ -201,9 +201,15 @@ export default function Stats() {
                   </button>
                   <button
                     onClick={() => setApiType("antigravity")}
-                    className={`px-3 py-1 rounded-md transition-colors ${apiType === "antigravity" ? "bg-green-600 text-white" : "text-gray-400 hover:text-white"}`}
+                    className={`px-3 py-1 rounded-md transition-colors ${apiType === "antigravity" ? "bg-orange-600 text-white" : "text-gray-400 hover:text-white"}`}
                   >
                     Antigravity
+                  </button>
+                  <button
+                    onClick={() => setApiType("codex")}
+                    className={`px-3 py-1 rounded-md transition-colors ${apiType === "codex" ? "bg-green-600 text-white" : "text-gray-400 hover:text-white"}`}
+                  >
+                    Codex
                   </button>
                 </div>
                 <span className="px-3 py-1 bg-purple-600/30 text-purple-400 rounded-full text-sm">
@@ -241,7 +247,55 @@ export default function Stats() {
             </div>
 
             {/* 按模型分类 - 请求数/总额度 */}
-            {apiType !== "antigravity" ? (
+            {apiType === "codex" ? (
+              <div className="grid grid-cols-3 gap-4 mb-4">
+                <div className="bg-green-600/20 border border-green-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-green-400">
+                    {globalStats.requests.by_category.codex_gpt || 0}
+                  </div>
+                  <div className="text-sm text-green-300">GPT 请求</div>
+                </div>
+                <div className="bg-purple-600/20 border border-purple-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-400">
+                    {globalStats.requests.by_category.codex_o1 || 0}
+                  </div>
+                  <div className="text-sm text-purple-300">o1 请求</div>
+                </div>
+                <div className="bg-blue-600/20 border border-blue-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-400">
+                    {globalStats.requests.by_category.codex_other || 0}
+                  </div>
+                  <div className="text-sm text-blue-300">其他 请求</div>
+                </div>
+              </div>
+            ) : apiType === "antigravity" ? (
+              <div className="grid grid-cols-4 gap-4 mb-4">
+                <div className="bg-purple-600/20 border border-purple-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-400">
+                    {globalStats.requests.by_category.flash}
+                  </div>
+                  <div className="text-sm text-purple-300">Claude 请求</div>
+                </div>
+                <div className="bg-blue-600/20 border border-blue-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-400">
+                    {globalStats.requests.by_category["pro_2.5"]}
+                  </div>
+                  <div className="text-sm text-blue-300">Gemini 请求</div>
+                </div>
+                <div className="bg-yellow-600/20 border border-yellow-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-400">
+                    {globalStats.requests.by_category.banana || 0}
+                  </div>
+                  <div className="text-sm text-yellow-300">Banana 请求</div>
+                </div>
+                <div className="bg-gray-600/20 border border-gray-600/30 rounded-lg p-4 text-center">
+                  <div className="text-2xl font-bold text-gray-400">
+                    {globalStats.requests.by_category.tier_3}
+                  </div>
+                  <div className="text-sm text-gray-300">其他 请求</div>
+                </div>
+              </div>
+            ) : (
               <div className="grid grid-cols-3 gap-4 mb-4">
                 <div className="bg-cyan-600/20 border border-cyan-600/30 rounded-lg p-4 text-center">
                   <div className="text-2xl font-bold text-cyan-400">
@@ -269,33 +323,6 @@ export default function Stats() {
                     </span>
                   </div>
                   <div className="text-sm text-pink-300">3.0 请求</div>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-4 gap-4 mb-4">
-                <div className="bg-purple-600/20 border border-purple-600/30 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-purple-400">
-                    {globalStats.requests.by_category.flash}
-                  </div>
-                  <div className="text-sm text-purple-300">Claude 请求</div>
-                </div>
-                <div className="bg-blue-600/20 border border-blue-600/30 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-blue-400">
-                    {globalStats.requests.by_category["pro_2.5"]}
-                  </div>
-                  <div className="text-sm text-blue-300">Gemini 请求</div>
-                </div>
-                <div className="bg-yellow-600/20 border border-yellow-600/30 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-yellow-400">
-                    {globalStats.requests.by_category.banana || 0}
-                  </div>
-                  <div className="text-sm text-yellow-300">Banana 请求</div>
-                </div>
-                <div className="bg-gray-600/20 border border-gray-600/30 rounded-lg p-4 text-center">
-                  <div className="text-2xl font-bold text-gray-400">
-                    {globalStats.requests.by_category.tier_3}
-                  </div>
-                  <div className="text-sm text-gray-300">其他 请求</div>
                 </div>
               </div>
             )}
