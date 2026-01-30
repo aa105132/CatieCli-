@@ -282,8 +282,6 @@ async def chat_completions(
             user_quota = user.quota_codex
         else:
             # 统计用户公开凭证并计算奖励
-            # 获取用户公开凭证列表来计算按类型奖励
-            from sqlalchemy import and_
             public_creds_result = await db.execute(
                 select(Credential)
                 .where(Credential.user_id == user.id)
@@ -298,7 +296,16 @@ async def chat_completions(
             
             # 按凭证订阅类型计算奖励
             for cred in public_creds:
-                sub_type = getattr(cred, 'subscription_type', None) or 'unknown'
+                # 从 extra_info JSON 中获取订阅类型
+                sub_type = 'unknown'
+                if cred.extra_info:
+                    try:
+                        import json
+                        extra = json.loads(cred.extra_info) if isinstance(cred.extra_info, str) else cred.extra_info
+                        sub_type = extra.get('subscription_type', 'unknown')
+                    except:
+                        pass
+                
                 if sub_type == 'plus':
                     user_quota += settings.codex_quota_plus
                 elif sub_type == 'pro':
