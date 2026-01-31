@@ -151,6 +151,8 @@ export default function AntigravityCredentials() {
     setVerifying(id);
     try {
       const res = await api.post(`/api/antigravity/credentials/${id}/verify`);
+      console.log("[凭证检测] API 响应:", res.data);
+      console.log("[凭证检测] auth_url:", res.data.auth_url);
       setVerifyResult({ ...res.data, email });
       fetchCredentials();
     } catch (err) {
@@ -895,15 +897,20 @@ export default function AntigravityCredentials() {
                   </div>
                 )}
 
+              {/* 调试：始终显示 auth_url 状态 */}
+              <div className="p-2 bg-blue-900 rounded text-xs text-blue-300 break-all">
+                DEBUG auth_url: [{String(verifyResult.auth_url)}] (类型: {typeof verifyResult.auth_url})
+              </div>
+
               {/* 错误信息 */}
               {verifyResult.error && (
                 <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
                   {verifyResult.error}
                 </div>
               )}
-
-              {/* 403 授权链接 */}
-              {verifyResult.auth_url && (
+              
+              {/* 403 授权链接 - 始终检查 auth_url */}
+              {verifyResult.auth_url ? (
                 <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-lg">
                   <div className="flex items-center gap-2 mb-2 text-orange-400 font-medium">
                     <ExternalLink size={16} />
@@ -924,6 +931,10 @@ export default function AntigravityCredentials() {
                   <p className="text-xs text-gray-500 mt-2 text-center">
                     授权完成后，请重新检测凭证
                   </p>
+                </div>
+              ) : (
+                <div className="p-2 bg-gray-700 rounded text-xs text-gray-400">
+                  auth_url 为空，无法显示授权链接
                 </div>
               )}
             </div>

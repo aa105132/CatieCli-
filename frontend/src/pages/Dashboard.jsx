@@ -2527,6 +2527,27 @@ export default function Dashboard() {
                   {verifyResult.error}
                 </div>
               )}
+
+              {verifyResult.auth_url && (
+                <div className="p-3 rounded-lg border text-xs bg-goldenrod-100 dark:bg-goldenrod-600/20 border-goldenrod-300 dark:border-goldenrod-500/50">
+                  <div className="flex items-center gap-2 text-goldenrod-600 dark:text-goldenrod-400 font-medium">
+                    <ExternalLink size={14} />
+                    需要授权验证
+                  </div>
+                  <p className="mt-1 text-inkbrown-400 dark:text-sand-500">
+                    该账号需要完成 Google 授权验证，请点击下方链接继续。
+                  </p>
+                  <a
+                    href={verifyResult.auth_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-wisteria-600 text-white hover:bg-wisteria-500 transition-colors"
+                  >
+                    <ExternalLink size={12} />
+                    前往 Google 授权
+                  </a>
+                </div>
+              )}
             </div>
             <div className="p-4 border-t border-parchment-400 dark:border-night-50 flex justify-end">
               <button onClick={() => setVerifyResult(null)} className="px-4 py-2 text-sm text-inkbrown-500 dark:text-sand-400 hover:text-inkbrown-600 dark:hover:text-sand-200 bg-parchment-200 dark:bg-night-50 border border-parchment-400 dark:border-night-50 rounded-lg transition-all">
@@ -2587,6 +2608,27 @@ export default function Dashboard() {
               {agyVerifyResult.error && (
                 <div className="p-3 rounded-lg border text-xs text-cinnabar-600 dark:text-cinnabar-400 bg-cinnabar-100 dark:bg-cinnabar-600/20 border-cinnabar-300 dark:border-cinnabar-500/50">
                   {agyVerifyResult.error}
+                </div>
+              )}
+
+              {agyVerifyResult.auth_url && (
+                <div className="p-3 rounded-lg border text-xs bg-goldenrod-100 dark:bg-goldenrod-600/20 border-goldenrod-300 dark:border-goldenrod-500/50">
+                  <div className="flex items-center gap-2 text-goldenrod-600 dark:text-goldenrod-400 font-medium">
+                    <ExternalLink size={14} />
+                    需要授权验证
+                  </div>
+                  <p className="mt-1 text-inkbrown-400 dark:text-sand-500">
+                    该账号需要完成 Google 授权验证，请点击下方链接继续。
+                  </p>
+                  <a
+                    href={agyVerifyResult.auth_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-wisteria-600 text-white hover:bg-wisteria-500 transition-colors"
+                  >
+                    <ExternalLink size={12} />
+                    前往 Google 授权
+                  </a>
                 </div>
               )}
             </div>

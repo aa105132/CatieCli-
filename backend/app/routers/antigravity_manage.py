@@ -583,7 +583,7 @@ async def verify_my_antigravity_credential(
         
         await db.commit()
         
-        return {
+        result = {
             "is_valid": is_valid,
             "project_id": cred.project_id,
             "error": error_msg,
@@ -591,6 +591,8 @@ async def verify_my_antigravity_credential(
             "minResetDays": min_reset_days,
             "auth_url": auth_url  # 403时需要用户访问的授权链接
         }
+        print(f"[Antigravity检测] 返回结果: auth_url={auth_url}", flush=True)
+        return result
     except Exception as e:
         print(f"[Antigravity检测] 严重异常: {e}", flush=True)
         return {"is_valid": False, "error": f"检测异常: {str(e)[:50]}"}
