@@ -16,6 +16,7 @@ import {
   HelpCircle,
   Key,
   LogOut,
+  Mail,
   Moon,
   RefreshCcw,
   RefreshCw,
@@ -24,6 +25,8 @@ import {
   Settings,
   Shield,
   Sun,
+  ToggleLeft,
+  ToggleRight,
   Trash2,
   Users,
   X,
@@ -427,6 +430,33 @@ export default function Dashboard() {
     alert(`检测完成：${validCount} 个有效（已启用），${invalidCount} 个无效`);
   };
 
+  // 刷新所有 CLI 邮箱
+  const [refreshingCliEmails, setRefreshingCliEmails] = useState(false);
+  const refreshAllCliEmails = async () => {
+    setRefreshingCliEmails(true);
+    try {
+      const res = await api.post('/api/auth/credentials/refresh-emails');
+      alert(res.data.message);
+      fetchMyCredentials();
+    } catch (err) {
+      alert(err.response?.data?.detail || '刷新邮箱失败');
+    } finally {
+      setRefreshingCliEmails(false);
+    }
+  };
+
+  // 切换全部公开/私有 (智能判断)
+  const toggleAllCliPublicSmart = async () => {
+    const activeCreds = myCredentials.filter(c => c.is_active);
+    if (activeCreds.length === 0) return;
+    
+    // 如果公开数量超过一半，则全部转私有；否则全部转公开
+    const publicCount = activeCreds.filter(c => c.is_public).length;
+    const setPublic = publicCount <= activeCreds.length / 2;
+    
+    await toggleAllCliPublic(setPublic);
+  };
+
   // CLI 凭证全部切换公开/私有
   const toggleAllCliPublic = async (setPublic) => {
     const targetCreds = myCredentials.filter(c => c.is_public !== setPublic && c.is_active);
@@ -649,6 +679,33 @@ export default function Dashboard() {
     setVerifyingAllAgy(false);
     fetchAgyCredentials();
     alert(`检测完成：${validCount} 个有效（已启用），${invalidCount} 个无效`);
+  };
+
+  // 刷新所有 AGY 邮箱
+  const [refreshingAgyEmails, setRefreshingAgyEmails] = useState(false);
+  const refreshAllAgyEmails = async () => {
+    setRefreshingAgyEmails(true);
+    try {
+      const res = await api.post('/api/antigravity/credentials/refresh-emails');
+      setAgyMessage({ type: 'success', text: res.data.message });
+      fetchAgyCredentials();
+    } catch (err) {
+      setAgyMessage({ type: 'error', text: err.response?.data?.detail || '刷新邮箱失败' });
+    } finally {
+      setRefreshingAgyEmails(false);
+    }
+  };
+
+  // 切换全部公开/私有 (智能判断)
+  const toggleAllAgyPublicSmart = async () => {
+    const activeCreds = agyCredentials.filter(c => c.is_active);
+    if (activeCreds.length === 0) return;
+    
+    // 如果公开数量超过一半，则全部转私有；否则全部转公开
+    const publicCount = activeCreds.filter(c => c.is_public).length;
+    const setPublic = publicCount <= activeCreds.length / 2;
+    
+    await toggleAllAgyPublic(setPublic);
   };
 
   // Antigravity 凭证全部切换公开/私有
@@ -1353,23 +1410,14 @@ export default function Dashboard() {
                   CLI 凭证 ({myCredentials.length})
                 </h3>
                 <div className="flex gap-2 flex-wrap">
-                  {myCredentials.some((c) => !c.is_active) && (
-                    <button
-                      onClick={async () => {
-                        if (!confirm("确定删除所有失效凭证？")) return;
-                        try {
-                          const res = await api.delete("/api/auth/credentials/inactive/batch");
-                          alert(res.data.message);
-                          fetchMyCredentials();
-                        } catch (err) {
-                          alert(err.response?.data?.detail || "删除失败");
-                        }
-                      }}
-                      className="text-xs px-3 py-1.5 text-cinnabar-600 dark:text-cinnabar-400 bg-cinnabar-100 dark:bg-cinnabar-600/20 border border-cinnabar-300 dark:border-cinnabar-500/50 rounded-md hover:bg-cinnabar-200 dark:hover:bg-cinnabar-600/30 transition-all"
-                    >
-                      清理失效
-                    </button>
-                  )}
+                  <button
+                    onClick={refreshAllCliEmails}
+                    disabled={refreshingCliEmails}
+                    className="text-xs px-3 py-1.5 text-cyan-600 dark:text-cyan-400 bg-cyan-100 dark:bg-cyan-600/20 border border-cyan-300 dark:border-cyan-500/50 rounded-md hover:bg-cyan-200 dark:hover:bg-cyan-600/30 transition-all flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {refreshingCliEmails ? <RefreshCw size={12} className="animate-spin" /> : <Mail size={12} />}
+                    刷新邮箱
+                  </button>
                   <Link
                     to="/oauth"
                     className="text-xs px-3 py-1.5 text-wisteria-600 dark:text-wisteria-400 bg-wisteria-100 dark:bg-wisteria-600/20 border border-wisteria-300 dark:border-wisteria-500/50 rounded-md hover:bg-wisteria-200 dark:hover:bg-wisteria-600/30 transition-all"
@@ -1404,18 +1452,15 @@ export default function Dashboard() {
                         {verifyingAllCli ? "检测中..." : "检测全部"}
                       </button>
                       <button
-                        onClick={() => toggleAllCliPublic(true)}
+                        onClick={toggleAllCliPublicSmart}
                         className="text-xs px-3 py-1.5 text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-600/20 border border-purple-300 dark:border-purple-500/50 rounded-md hover:bg-purple-200 dark:hover:bg-purple-600/30 transition-all flex items-center gap-1"
                       >
-                        <Globe size={12} />
-                        全部公开
-                      </button>
-                      <button
-                        onClick={() => toggleAllCliPublic(false)}
-                        className="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-600/20 border border-gray-300 dark:border-gray-500/50 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600/30 transition-all flex items-center gap-1"
-                      >
-                        <Lock size={12} />
-                        全部私有
+                        {myCredentials.filter(c => c.is_public).length > myCredentials.filter(c => c.is_active).length / 2 ? (
+                          <ToggleRight size={12} />
+                        ) : (
+                          <ToggleLeft size={12} />
+                        )}
+                        {myCredentials.filter(c => c.is_public).length > myCredentials.filter(c => c.is_active).length / 2 ? "全部私有" : "全部公开"}
                       </button>
                     </>
                   )}
@@ -1784,14 +1829,14 @@ export default function Dashboard() {
                   反重力凭证 ({agyCredentials.length})
                 </h3>
                 <div className="flex gap-2 flex-wrap">
-                  {agyCredentials.some((c) => !c.is_active) && (
-                    <button
-                      onClick={deleteAllAgyInactive}
-                      className="text-xs px-3 py-1.5 text-cinnabar-600 dark:text-cinnabar-400 bg-cinnabar-100 dark:bg-cinnabar-600/20 border border-cinnabar-300 dark:border-cinnabar-500/50 rounded-md hover:bg-cinnabar-200 dark:hover:bg-cinnabar-600/30 transition-all"
-                    >
-                      清理失效
-                    </button>
-                  )}
+                  <button
+                    onClick={refreshAllAgyEmails}
+                    disabled={refreshingAgyEmails}
+                    className="text-xs px-3 py-1.5 text-cyan-600 dark:text-cyan-400 bg-cyan-100 dark:bg-cyan-600/20 border border-cyan-300 dark:border-cyan-500/50 rounded-md hover:bg-cyan-200 dark:hover:bg-cyan-600/30 transition-all flex items-center gap-1 disabled:opacity-50"
+                  >
+                    {refreshingAgyEmails ? <RefreshCw size={12} className="animate-spin" /> : <Mail size={12} />}
+                    刷新邮箱
+                  </button>
                   <Link
                     to="/antigravity-oauth"
                     className="text-xs px-3 py-1.5 text-goldenrod-600 dark:text-goldenrod-400 bg-goldenrod-100 dark:bg-goldenrod-600/20 border border-goldenrod-300 dark:border-goldenrod-500/50 rounded-md hover:bg-goldenrod-200 dark:hover:bg-goldenrod-600/30 transition-all"
@@ -1826,18 +1871,15 @@ export default function Dashboard() {
                         {verifyingAllAgy ? "检测中..." : "检测全部"}
                       </button>
                       <button
-                        onClick={() => toggleAllAgyPublic(true)}
+                        onClick={toggleAllAgyPublicSmart}
                         className="text-xs px-3 py-1.5 text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-600/20 border border-purple-300 dark:border-purple-500/50 rounded-md hover:bg-purple-200 dark:hover:bg-purple-600/30 transition-all flex items-center gap-1"
                       >
-                        <Globe size={12} />
-                        全部公开
-                      </button>
-                      <button
-                        onClick={() => toggleAllAgyPublic(false)}
-                        className="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-600/20 border border-gray-300 dark:border-gray-500/50 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600/30 transition-all flex items-center gap-1"
-                      >
-                        <Lock size={12} />
-                        全部私有
+                        {agyCredentials.filter(c => c.is_public).length > agyCredentials.filter(c => c.is_active).length / 2 ? (
+                          <ToggleRight size={12} />
+                        ) : (
+                          <ToggleLeft size={12} />
+                        )}
+                        {agyCredentials.filter(c => c.is_public).length > agyCredentials.filter(c => c.is_active).length / 2 ? "全部私有" : "全部公开"}
                       </button>
                     </>
                   )}

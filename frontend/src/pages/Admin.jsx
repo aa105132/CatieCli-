@@ -1119,22 +1119,6 @@ export default function Admin() {
                     </button>
                   </div>
 
-                  <div className="bg-red-600/20 border border-red-500/30 rounded-xl p-4">
-                    <div className="font-medium text-red-400 mb-1">
-                      🗑️ 清理无效
-                    </div>
-                    <p className="text-sm text-gray-400 mb-3">
-                      删除所有无效凭证
-                    </p>
-                    <button
-                      onClick={deleteInactiveCredentials}
-                      className="btn bg-red-600 hover:bg-red-500 text-white flex items-center gap-2 w-full justify-center"
-                    >
-                      <Trash2 size={16} />
-                      一键清理
-                    </button>
-                  </div>
-
                   <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-xl p-4">
                     <div className="font-medium text-yellow-400 mb-1">
                       🔍 重复检测
