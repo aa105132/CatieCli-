@@ -3,6 +3,7 @@ import {
     BarChart2,
     CheckCircle,
     Download,
+    ExternalLink,
     Gift,
     RefreshCw,
     Shield,
@@ -746,6 +747,31 @@ export default function Credentials() {
               {verifyResult.error && (
                 <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
                   {verifyResult.error}
+                </div>
+              )}
+
+              {/* 403 授权链接 */}
+              {verifyResult.auth_url && (
+                <div className="p-4 bg-orange-500/10 border border-orange-500/30 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2 text-orange-400 font-medium">
+                    <ExternalLink size={16} />
+                    需要授权验证
+                  </div>
+                  <p className="text-sm text-orange-300/80 mb-3">
+                    该账号需要完成 Google 授权验证，请点击下方链接进行验证：
+                  </p>
+                  <a
+                    href={verifyResult.auth_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full p-3 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-center font-medium transition-colors"
+                  >
+                    <ExternalLink size={16} className="inline mr-2" />
+                    前往 Google 授权
+                  </a>
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    授权完成后，请重新检测凭证
+                  </p>
                 </div>
               )}
             </div>

@@ -1128,6 +1128,7 @@ async def verify_my_credential(
         is_valid = False
         supports_3 = False
         error_msg = None
+        auth_url = None  # 403时的授权链接
         
         async with httpx.AsyncClient(timeout=15) as client:
             # 使用 cloudcode-pa 端点测试（与 gcli2api 一致）
@@ -1163,6 +1164,27 @@ async def verify_my_credential(
                         supports_3 = False
                 elif resp.status_code in [401, 403]:
                     error_msg = f"认证失败 ({resp.status_code})"
+                    # 尝试解析403响应中的授权链接
+                    if resp.status_code == 403:
+                        try:
+                            resp_data = resp.json()
+                            print(f"[凭证检测] 403响应JSON: {resp_data}", flush=True)
+                            
+                            # 优先从 details 中提取 validation_url
+                            error_obj = resp_data.get("error", {})
+                            details = error_obj.get("details", [])
+                            for detail in details:
+                                if detail.get("@type") == "type.googleapis.com/google.rpc.ErrorInfo":
+                                    metadata = detail.get("metadata", {})
+                                    validation_url = metadata.get("validation_url")
+                                    if validation_url:
+                                        auth_url = validation_url
+                                        error_msg = f"HTTP 403: PERMISSION_DENIED 账号需要验证，点击链接继续"
+                                        cred.last_error = f"403: 需要授权"
+                                        print(f"[凭证检测] 需要授权: {auth_url}", flush=True)
+                                        break
+                        except Exception as parse_err:
+                            print(f"[凭证检测] 解析403响应失败: {parse_err}", flush=True)
                 else:
                     error_msg = f"API 返回 {resp.status_code}"
             except Exception as e:
@@ -1189,7 +1211,8 @@ async def verify_my_credential(
             "supports_3": supports_3,
             "account_type": account_type,
             "storage_gb": storage_gb,
-            "error": error_msg
+            "error": error_msg,
+            "auth_url": auth_url  # 403时需要用户访问的授权链接
         }
     except Exception as e:
         print(f"[凭证检测] 严重异常: {e}", flush=True)
