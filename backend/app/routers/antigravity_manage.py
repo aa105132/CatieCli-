@@ -402,48 +402,92 @@ async def delete_my_antigravity_credential(
     return {"message": "删除成功"}
 
 
-@router.delete("/credentials/inactive/batch")
-async def delete_my_inactive_antigravity_credentials(
+@router.post("/credentials/refresh-emails")
+async def refresh_all_antigravity_emails(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """批量删除我的所有失效 Antigravity 凭证"""
+    """批量刷新所有 Antigravity 凭证的邮箱"""
+    import httpx
+    
     result = await db.execute(
         select(Credential).where(
             Credential.user_id == user.id,
             Credential.api_type == MODE,
-            Credential.is_active == False
+            Credential.is_active == True
         )
     )
-    inactive_creds = result.scalars().all()
+    creds = result.scalars().all()
     
-    if not inactive_creds:
-        return {"message": "没有失效凭证需要删除", "deleted_count": 0}
+    if not creds:
+        return {"message": "没有活跃凭证", "updated_count": 0, "total_count": 0}
     
-    cred_ids = [c.id for c in inactive_creds]
-    await db.execute(
-        update(UsageLog).where(UsageLog.credential_id.in_(cred_ids)).values(credential_id=None)
+    updated_count = 0
+    
+    async def fetch_email(token: str) -> Optional[str]:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if resp.status_code == 200:
+                return resp.json().get("email")
+        except:
+            pass
+        return None
+    
+    for cred in creds:
+        try:
+            access_token = await CredentialPool.get_access_token(cred, db)
+            if access_token:
+                email = await fetch_email(access_token)
+                if email:
+                    cred.email = email
+                    updated_count += 1
+        except Exception as e:
+            print(f"[Antigravity刷新邮箱] {cred.id} 失败: {e}", flush=True)
+    
+    await db.commit()
+    return {"message": f"已刷新 {updated_count}/{len(creds)} 个凭证邮箱", "updated_count": updated_count, "total_count": len(creds)}
+
+
+@router.post("/credentials/toggle-all-public")
+async def toggle_all_antigravity_public(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """切换所有 Antigravity 凭证的公开状态（如果大部分公开则全部设为私有，反之亦然）"""
+    result = await db.execute(
+        select(Credential).where(
+            Credential.user_id == user.id,
+            Credential.api_type == MODE,
+            Credential.is_active == True
+        )
     )
+    creds = result.scalars().all()
     
-    deleted_count = 0
-    for cred in inactive_creds:
-        await db.delete(cred)
-        deleted_count += 1
-        
-        if deleted_count % 100 == 0:
-            try:
-                await db.commit()
-            except Exception as e:
-                print(f"[Antigravity批量删除] 提交失败: {e}", flush=True)
-                await db.rollback()
+    if not creds:
+        return {"message": "没有活跃凭证", "new_status": None, "updated_count": 0}
     
-    try:
-        await db.commit()
-    except Exception as e:
-        print(f"[Antigravity批量删除] 最终提交失败: {e}", flush=True)
-        await db.rollback()
+    # 统计公开数量
+    public_count = sum(1 for c in creds if c.is_public)
+    # 如果超过一半是公开的，则全部设为私有；否则全部设为公开
+    new_public_status = public_count <= len(creds) // 2
     
-    return {"message": f"已删除 {deleted_count} 个失效凭证", "deleted_count": deleted_count}
+    updated_count = 0
+    for cred in creds:
+        if cred.is_public != new_public_status:
+            cred.is_public = new_public_status
+            updated_count += 1
+    
+    await db.commit()
+    status_text = "公开" if new_public_status else "私有"
+    return {
+        "message": f"已将 {updated_count} 个凭证设为{status_text}",
+        "new_status": new_public_status,
+        "updated_count": updated_count
+    }
 
 
 @router.post("/credentials/{cred_id}/verify")
@@ -455,6 +499,22 @@ async def verify_my_antigravity_credential(
     """验证我的 Antigravity 凭证有效性并更新 project_id"""
     import httpx
     from app.services.antigravity_client import AntigravityClient
+    
+    async def fetch_google_email(token: str) -> Optional[str]:
+        """通过 Google userinfo 获取邮箱"""
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("email")
+            print(f"[Antigravity检测] userinfo 响应: {resp.status_code}", flush=True)
+        except Exception as e:
+            print(f"[Antigravity检测] 获取邮箱失败: {e}", flush=True)
+        return None
     
     try:
         result = await db.execute(
@@ -481,6 +541,10 @@ async def verify_my_antigravity_credential(
             cred.last_error = "无法获取 access token"
             await db.commit()
             return {"is_valid": False, "error": "无法获取 access token"}
+        
+        account_email = await fetch_google_email(access_token)
+        if account_email and (not cred.email or "@" not in cred.email):
+            cred.email = account_email
         
         # 使用 Antigravity 方式重新获取 project_id
         new_project_id = await fetch_project_id(
@@ -589,7 +653,8 @@ async def verify_my_antigravity_credential(
             "error": error_msg,
             "accountTier": account_tier,
             "minResetDays": min_reset_days,
-            "auth_url": auth_url  # 403时需要用户访问的授权链接
+            "auth_url": auth_url,  # 403时需要用户访问的授权链接
+            "account_email": account_email,
         }
         print(f"[Antigravity检测] 返回结果: auth_url={auth_url}", flush=True)
         return result

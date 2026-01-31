@@ -5,9 +5,12 @@ import {
     ChevronUp,
     Download,
     ExternalLink,
+    Mail,
     RefreshCw,
     Rocket,
     Shield,
+    ToggleLeft,
+    ToggleRight,
     Trash2,
     X,
 } from "lucide-react";
@@ -35,6 +38,8 @@ export default function AntigravityCredentials() {
   const [quotaResult, setQuotaResult] = useState(null);
   const [loadingQuota, setLoadingQuota] = useState(null);
   const [stats, setStats] = useState(null);
+  const [refreshingEmails, setRefreshingEmails] = useState(false);
+  const [togglingPublic, setTogglingPublic] = useState(false);
   
   // 额度预览相关状态
   const [expandedQuota, setExpandedQuota] = useState(null); // 当前展开的凭证ID
@@ -209,21 +214,37 @@ export default function AntigravityCredentials() {
     }
   };
 
-  const deleteAllInactive = async () => {
-    if (!confirm("确定删除所有失效的 Antigravity 凭证？此操作不可恢复！"))
-      return;
+  // 刷新所有邮箱
+  const refreshAllEmails = async () => {
+    setRefreshingEmails(true);
     try {
-      const res = await api.delete(
-        "/api/antigravity/credentials/inactive/batch",
-      );
+      const res = await api.post("/api/antigravity/credentials/refresh-emails");
       setMessage({ type: "success", text: res.data.message });
       fetchCredentials();
-      fetchStats();
     } catch (err) {
       setMessage({
         type: "error",
-        text: err.response?.data?.detail || "删除失败",
+        text: err.response?.data?.detail || "刷新邮箱失败",
       });
+    } finally {
+      setRefreshingEmails(false);
+    }
+  };
+
+  // 切换全部公开/私有
+  const toggleAllPublic = async () => {
+    setTogglingPublic(true);
+    try {
+      const res = await api.post("/api/antigravity/credentials/toggle-all-public");
+      setMessage({ type: "success", text: res.data.message });
+      fetchCredentials();
+    } catch (err) {
+      setMessage({
+        type: "error",
+        text: err.response?.data?.detail || "切换失败",
+      });
+    } finally {
+      setTogglingPublic(false);
     }
   };
 
@@ -444,15 +465,36 @@ export default function AntigravityCredentials() {
             反重力凭证 ({credentials.length})
           </h2>
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-            {credentials.some((c) => !c.is_active) && (
-              <button
-                onClick={deleteAllInactive}
-                className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/30 rounded hover:bg-red-500/10"
-                title="删除所有失效凭证"
-              >
-                清理失效
-              </button>
-            )}
+            {/* 刷新邮箱按钮 */}
+            <button
+              onClick={refreshAllEmails}
+              disabled={refreshingEmails || credentials.length === 0}
+              className="text-cyan-400 hover:text-cyan-300 text-xs px-2 py-1 border border-cyan-500/30 rounded hover:bg-cyan-500/10 disabled:opacity-50 flex items-center gap-1"
+              title="刷新所有凭证邮箱"
+            >
+              {refreshingEmails ? (
+                <RefreshCw size={12} className="animate-spin" />
+              ) : (
+                <Mail size={12} />
+              )}
+              刷新邮箱
+            </button>
+            {/* 切换公开/私有按钮 */}
+            <button
+              onClick={toggleAllPublic}
+              disabled={togglingPublic || credentials.filter(c => c.is_active).length === 0}
+              className="text-purple-400 hover:text-purple-300 text-xs px-2 py-1 border border-purple-500/30 rounded hover:bg-purple-500/10 disabled:opacity-50 flex items-center gap-1"
+              title="切换全部公开/私有状态"
+            >
+              {togglingPublic ? (
+                <RefreshCw size={12} className="animate-spin" />
+              ) : credentials.filter(c => c.is_public).length > credentials.filter(c => c.is_active).length / 2 ? (
+                <ToggleRight size={12} />
+              ) : (
+                <ToggleLeft size={12} />
+              )}
+              {credentials.filter(c => c.is_public).length > credentials.filter(c => c.is_active).length / 2 ? "全部私有" : "全部公开"}
+            </button>
             <Link
               to="/antigravity-oauth"
               className="px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded text-xs font-medium flex items-center gap-1"
@@ -854,7 +896,9 @@ export default function AntigravityCredentials() {
 
             <div className="p-6 space-y-4">
               {/* 邮箱 */}
-              <div className="text-gray-400 text-sm">{verifyResult.email}</div>
+              <div className="text-gray-400 text-sm">
+                账号: {verifyResult.account_email || verifyResult.email || "未知账号"}
+              </div>
 
               {/* 状态 */}
               <div className="flex items-center gap-3">
@@ -897,10 +941,6 @@ export default function AntigravityCredentials() {
                   </div>
                 )}
 
-              {/* 调试：始终显示 auth_url 状态 */}
-              <div className="p-2 bg-blue-900 rounded text-xs text-blue-300 break-all">
-                DEBUG auth_url: [{String(verifyResult.auth_url)}] (类型: {typeof verifyResult.auth_url})
-              </div>
 
               {/* 错误信息 */}
               {verifyResult.error && (
@@ -915,6 +955,9 @@ export default function AntigravityCredentials() {
                   <div className="flex items-center gap-2 mb-2 text-orange-400 font-medium">
                     <ExternalLink size={16} />
                     需要授权验证
+                  </div>
+                  <div className="text-xs text-gray-400 mb-2">
+                    账号: {verifyResult.account_email || verifyResult.email || "未知账号"}
                   </div>
                   <p className="text-sm text-orange-300/80 mb-3">
                     该账号需要完成 Google 授权验证，请点击下方链接进行验证：
@@ -932,11 +975,7 @@ export default function AntigravityCredentials() {
                     授权完成后，请重新检测凭证
                   </p>
                 </div>
-              ) : (
-                <div className="p-2 bg-gray-700 rounded text-xs text-gray-400">
-                  auth_url 为空，无法显示授权链接
-                </div>
-              )}
+              ) : null}
             </div>
 
             <div className="p-4 border-t border-dark-600 flex justify-end">

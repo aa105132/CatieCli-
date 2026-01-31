@@ -939,53 +939,102 @@ async def delete_my_credential(
     return {"message": "删除成功"}
 
 
-@router.delete("/credentials/inactive/batch")
-async def delete_my_inactive_credentials(
+@router.post("/credentials/refresh-emails")
+async def refresh_all_geminicli_emails(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """批量删除我的所有失效凭证"""
+    """批量刷新所有 GeminiCLI 凭证的邮箱"""
+    import httpx
+    from sqlalchemy import or_
+    from app.services.credential_pool import CredentialPool
+    
     result = await db.execute(
         select(Credential).where(
             Credential.user_id == user.id,
-            Credential.is_active == False
+            Credential.is_active == True,
+            or_(
+                Credential.api_type == "geminicli",
+                Credential.api_type == None,
+                Credential.api_type == ""
+            )
         )
     )
-    inactive_creds = result.scalars().all()
+    creds = result.scalars().all()
     
-    if not inactive_creds:
-        return {"message": "没有失效凭证需要删除", "deleted_count": 0}
+    if not creds:
+        return {"message": "没有活跃凭证", "updated_count": 0, "total_count": 0}
     
-    # 先解除使用记录的外键引用，避免外键约束导致删除失败
-    cred_ids = [c.id for c in inactive_creds]
-    await db.execute(
-        update(UsageLog).where(UsageLog.credential_id.in_(cred_ids)).values(credential_id=None)
+    updated_count = 0
+    
+    async def fetch_email(token: str):
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if resp.status_code == 200:
+                return resp.json().get("email")
+        except:
+            pass
+        return None
+    
+    for cred in creds:
+        try:
+            access_token = await CredentialPool.get_access_token(cred, db)
+            if access_token:
+                email = await fetch_email(access_token)
+                if email:
+                    cred.email = email
+                    updated_count += 1
+        except Exception as e:
+            print(f"[GeminiCLI刷新邮箱] {cred.id} 失败: {e}", flush=True)
+    
+    await db.commit()
+    return {"message": f"已刷新 {updated_count}/{len(creds)} 个凭证邮箱", "updated_count": updated_count, "total_count": len(creds)}
+
+
+@router.post("/credentials/toggle-all-public")
+async def toggle_all_geminicli_public(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """切换所有 GeminiCLI 凭证的公开状态"""
+    from sqlalchemy import or_
+    
+    result = await db.execute(
+        select(Credential).where(
+            Credential.user_id == user.id,
+            Credential.is_active == True,
+            or_(
+                Credential.api_type == "geminicli",
+                Credential.api_type == None,
+                Credential.api_type == ""
+            )
+        )
     )
+    creds = result.scalars().all()
     
-    deleted_count = 0
-    for cred in inactive_creds:
-        # 失效凭证不需要扣除额度（已经扣过了）
-        await db.delete(cred)
-        deleted_count += 1
-        
-        # 每100个提交一次，避免大事务超时
-        if deleted_count % 100 == 0:
-            try:
-                await db.commit()
-                print(f"[批量删除] 已删除 {deleted_count} 个凭证", flush=True)
-            except Exception as e:
-                print(f"[批量删除] 提交失败: {e}", flush=True)
-                await db.rollback()
+    if not creds:
+        return {"message": "没有活跃凭证", "new_status": None, "updated_count": 0}
     
-    # 最终提交
-    try:
-        await db.commit()
-    except Exception as e:
-        print(f"[批量删除] 最终提交失败: {e}", flush=True)
-        await db.rollback()
+    public_count = sum(1 for c in creds if c.is_public)
+    new_public_status = public_count <= len(creds) // 2
     
-    print(f"[批量删除] 用户 {user.username} 删除了 {deleted_count} 个失效凭证", flush=True)
-    return {"message": f"已删除 {deleted_count} 个失效凭证", "deleted_count": deleted_count}
+    updated_count = 0
+    for cred in creds:
+        if cred.is_public != new_public_status:
+            cred.is_public = new_public_status
+            updated_count += 1
+    
+    await db.commit()
+    status_text = "公开" if new_public_status else "私有"
+    return {
+        "message": f"已将 {updated_count} 个凭证设为{status_text}",
+        "new_status": new_public_status,
+        "updated_count": updated_count
+    }
 
 
 @router.get("/credentials/{cred_id}/export")
@@ -1073,6 +1122,22 @@ async def verify_my_credential(
     import httpx
     from app.services.credential_pool import CredentialPool
     
+    async def fetch_google_email(token: str) -> Optional[str]:
+        """通过 Google userinfo 获取邮箱"""
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    "https://www.googleapis.com/oauth2/v2/userinfo",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("email")
+            print(f"[凭证检测] userinfo 响应: {resp.status_code}", flush=True)
+        except Exception as e:
+            print(f"[凭证检测] 获取邮箱失败: {e}", flush=True)
+        return None
+    
     try:
         print(f"[凭证检测] 开始检测凭证 {cred_id}", flush=True)
         
@@ -1110,6 +1175,10 @@ async def verify_my_credential(
                 "error": "无法获取 access token",
                 "supports_3": False
             }
+        
+        account_email = await fetch_google_email(access_token)
+        if account_email and (not cred.email or "@" not in cred.email):
+            cred.email = account_email
         
         print(f"[凭证检测] 获取到 token，开始测试", flush=True)
         
@@ -1212,7 +1281,8 @@ async def verify_my_credential(
             "account_type": account_type,
             "storage_gb": storage_gb,
             "error": error_msg,
-            "auth_url": auth_url  # 403时需要用户访问的授权链接
+            "auth_url": auth_url,  # 403时需要用户访问的授权链接
+            "account_email": account_email,
         }
     except Exception as e:
         print(f"[凭证检测] 严重异常: {e}", flush=True)

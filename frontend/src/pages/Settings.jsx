@@ -151,6 +151,9 @@ export default function Settings() {
       formData.append("codex_base_rpm", config.codex_base_rpm ?? 5);
       formData.append("codex_contributor_rpm", config.codex_contributor_rpm ?? 10);
       formData.append("codex_pool_mode", config.codex_pool_mode ?? "full_shared");
+      // 全站额度显示配置
+      formData.append("global_quota_enabled", config.global_quota_enabled ?? false);
+      formData.append("global_quota_refresh_minutes", config.global_quota_refresh_minutes ?? 30);
 
       await api.post("/api/manage/config", formData);
       setMessage({ type: "success", text: "配置已保存！" });
@@ -357,6 +360,58 @@ export default function Settings() {
                   <p className="text-xs text-gray-500 mt-2">
                     影响"今日使用"统计的重置时间
                   </p>
+                </div>
+              </div>
+
+              {/* 全站额度显示设置 */}
+              <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                  📊 全站额度显示
+                </h3>
+                <div className="space-y-4">
+                  {/* 启用开关 */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-semibold">启用全站额度显示</h4>
+                      <p className="text-gray-400 text-sm">
+                        在统计页面显示公开凭证的平均剩余额度百分比
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={config?.global_quota_enabled ?? false}
+                        onChange={(e) =>
+                          setConfig({ ...config, global_quota_enabled: e.target.checked })
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                    </label>
+                  </div>
+                  {/* 刷新间隔 */}
+                  <div>
+                    <label className="text-sm text-gray-400 mb-1 block">
+                      刷新间隔（分钟）
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1440"
+                      value={config?.global_quota_refresh_minutes ?? 30}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          global_quota_refresh_minutes:
+                            e.target.value === "" ? 30 : parseInt(e.target.value),
+                        })
+                      }
+                      className="w-32 bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-2">
+                      系统会定期查询公开凭证的 Google 配额并缓存，建议设置 30-60 分钟
+                    </p>
+                  </div>
                 </div>
               </div>
 

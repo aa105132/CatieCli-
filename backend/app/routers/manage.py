@@ -1084,6 +1084,9 @@ async def get_config(user: User = Depends(get_current_admin)):
         "codex_base_rpm": settings.codex_base_rpm,
         "codex_contributor_rpm": settings.codex_contributor_rpm,
         "codex_pool_mode": settings.codex_pool_mode,
+        # 全站额度显示配置
+        "global_quota_enabled": settings.global_quota_enabled,
+        "global_quota_refresh_minutes": settings.global_quota_refresh_minutes,
     }
 
 
@@ -1147,7 +1150,166 @@ async def get_public_config():
         "codex_base_rpm": settings.codex_base_rpm,
         "codex_contributor_rpm": settings.codex_contributor_rpm,
         "codex_pool_mode": settings.codex_pool_mode,
+        # 全站额度显示配置
+        "global_quota_enabled": settings.global_quota_enabled,
+        "global_quota_refresh_minutes": settings.global_quota_refresh_minutes,
     }
+
+
+# 全站额度缓存
+_global_quota_cache = {
+    "data": None,
+    "last_update": None
+}
+
+
+@router.get("/global-quota")
+async def get_global_quota(db: AsyncSession = Depends(get_db)):
+    """获取全站公开 Antigravity 凭证的额度百分比（按类别：Claude/Gemini/Banana）"""
+    from app.config import settings
+    from app.services.credential_pool import CredentialPool
+    from app.services.antigravity_client import AntigravityClient
+    import asyncio
+    
+    if not settings.global_quota_enabled:
+        return {"enabled": False}
+    
+    # 检查缓存是否有效
+    now = datetime.utcnow()
+    cache_minutes = settings.global_quota_refresh_minutes
+    
+    if _global_quota_cache["data"] and _global_quota_cache["last_update"]:
+        cache_age = (now - _global_quota_cache["last_update"]).total_seconds() / 60
+        if cache_age < cache_minutes:
+            return {
+                "enabled": True,
+                **_global_quota_cache["data"],
+                "cached": True,
+                "cache_age_minutes": round(cache_age, 1),
+                "next_refresh_minutes": round(cache_minutes - cache_age, 1)
+            }
+    
+    # 查询所有公开且活跃的 Antigravity 凭证
+    result = await db.execute(
+        select(Credential)
+        .where(
+            Credential.is_active == True,
+            Credential.is_public == True,
+            Credential.api_type == "antigravity"
+        )
+        .order_by(Credential.last_used_at.desc())
+        .limit(20)  # 限制最多查询20个凭证
+    )
+    creds = result.scalars().all()
+    
+    if not creds:
+        return {
+            "enabled": True,
+            "claude": {"remaining": 0, "count": 0},
+            "gemini": {"remaining": 0, "count": 0},
+            "banana": {"remaining": 0, "count": 0},
+            "total_creds": 0,
+            "sampled_creds": 0,
+            "last_update": now.isoformat() + "Z"
+        }
+    
+    # 聚合结果
+    claude_totals = []
+    gemini_totals = []
+    banana_totals = []
+    
+    # 并发获取凭证额度
+    async def fetch_single_quota(cred):
+        try:
+            access_token = await CredentialPool.get_access_token(cred, db)
+            if not access_token or not cred.project_id:
+                return None
+            
+            client = AntigravityClient(access_token, cred.project_id)
+            quota_result = await client.fetch_quota_info()
+            
+            if quota_result.get("success"):
+                models = quota_result.get("models", {})
+                if not models:
+                    return None
+                
+                # 按类别聚合
+                result_data = {
+                    "claude": [],
+                    "gemini": [],
+                    "banana": []
+                }
+                
+                for model_id, data in models.items():
+                    lower = model_id.lower()
+                    remaining = data.get("remaining", 0) * 100  # 转换为百分比
+                    
+                    if "claude" in lower:
+                        result_data["claude"].append(remaining)
+                    elif "image" in lower or "banana" in lower:
+                        result_data["banana"].append(remaining)
+                    elif "gemini" in lower or "flash" in lower or "pro" in lower:
+                        result_data["gemini"].append(remaining)
+                
+                return result_data
+        except Exception as e:
+            print(f"[全站额度] 获取凭证 {cred.id} 额度失败: {e}", flush=True)
+        return None
+    
+    # 并发执行，限制并发数
+    semaphore = asyncio.Semaphore(5)
+    
+    async def limited_fetch(cred):
+        async with semaphore:
+            return await fetch_single_quota(cred)
+    
+    results = await asyncio.gather(*[limited_fetch(c) for c in creds])
+    
+    # 过滤有效结果并聚合
+    valid_count = 0
+    for r in results:
+        if r is not None:
+            valid_count += 1
+            claude_totals.extend(r["claude"])
+            gemini_totals.extend(r["gemini"])
+            banana_totals.extend(r["banana"])
+    
+    # 计算各类别平均值
+    claude_avg = sum(claude_totals) / len(claude_totals) if claude_totals else 0
+    gemini_avg = sum(gemini_totals) / len(gemini_totals) if gemini_totals else 0
+    banana_avg = sum(banana_totals) / len(banana_totals) if banana_totals else 0
+    
+    # 更新缓存
+    cache_data = {
+        "claude": {"remaining": round(claude_avg, 1), "count": len(claude_totals)},
+        "gemini": {"remaining": round(gemini_avg, 1), "count": len(gemini_totals)},
+        "banana": {"remaining": round(banana_avg, 1), "count": len(banana_totals)},
+        "total_creds": len(creds),
+        "sampled_creds": valid_count,
+        "last_update": now.isoformat() + "Z"
+    }
+    _global_quota_cache["data"] = cache_data
+    _global_quota_cache["last_update"] = now
+    
+    return {
+        "enabled": True,
+        **cache_data,
+        "cached": False
+    }
+
+
+@router.post("/global-quota/refresh")
+async def refresh_global_quota(
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """强制刷新全站额度缓存（管理员）"""
+    # 清空缓存
+    _global_quota_cache["data"] = None
+    _global_quota_cache["last_update"] = None
+    
+    # 重新获取
+    return await get_global_quota(db)
 
 
 @router.get("/tutorial")
@@ -1241,6 +1403,9 @@ async def update_config(
     codex_base_rpm: Optional[int] = Form(None),
     codex_contributor_rpm: Optional[int] = Form(None),
     codex_pool_mode: Optional[str] = Form(None),
+    # 全站额度配置
+    global_quota_enabled: Optional[bool] = Form(None),
+    global_quota_refresh_minutes: Optional[int] = Form(None),
     user: User = Depends(get_current_admin)
 ):
     """更新配置（持久化保存到数据库）"""
@@ -1555,6 +1720,18 @@ async def update_config(
             updated["codex_pool_mode"] = codex_pool_mode
         else:
             raise HTTPException(status_code=400, detail="无效的 Codex 凭证池模式")
+    
+    # 全站额度配置
+    if global_quota_enabled is not None:
+        settings.global_quota_enabled = global_quota_enabled
+        await save_config_to_db("global_quota_enabled", global_quota_enabled)
+        updated["global_quota_enabled"] = global_quota_enabled
+    if global_quota_refresh_minutes is not None:
+        if global_quota_refresh_minutes < 1:
+            global_quota_refresh_minutes = 1  # 最少1分钟
+        settings.global_quota_refresh_minutes = global_quota_refresh_minutes
+        await save_config_to_db("global_quota_refresh_minutes", global_quota_refresh_minutes)
+        updated["global_quota_refresh_minutes"] = global_quota_refresh_minutes
     
     return {"message": "配置已保存", "updated": updated}
 

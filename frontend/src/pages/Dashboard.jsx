@@ -2515,7 +2515,9 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="p-4 space-y-3">
-              <div className="text-sm text-inkbrown-400 dark:text-sand-400">{verifyResult.email}</div>
+              <div className="text-sm text-inkbrown-400 dark:text-sand-400">
+                账号: {verifyResult.account_email || verifyResult.email || "未知账号"}
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-inkbrown-300 dark:text-sand-500">状态</span>
                 <span className={`text-xs px-2 py-0.5 rounded ${verifyResult.is_valid ? 'bg-jade-100 dark:bg-jade-600/20 text-jade-600 dark:text-jade-400' : 'bg-cinnabar-100 dark:bg-cinnabar-600/20 text-cinnabar-600 dark:text-cinnabar-400'}`}>
@@ -2533,6 +2535,9 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2 text-goldenrod-600 dark:text-goldenrod-400 font-medium">
                     <ExternalLink size={14} />
                     需要授权验证
+                  </div>
+                  <div className="mt-1 text-inkbrown-400 dark:text-sand-500">
+                    账号: {verifyResult.account_email || verifyResult.email || "未知账号"}
                   </div>
                   <p className="mt-1 text-inkbrown-400 dark:text-sand-500">
                     该账号需要完成 Google 授权验证，请点击下方链接继续。
@@ -2576,7 +2581,9 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="p-4 space-y-3">
-              <div className="text-sm text-inkbrown-400 dark:text-sand-400">{agyVerifyResult.email}</div>
+              <div className="text-sm text-inkbrown-400 dark:text-sand-400">
+                账号: {agyVerifyResult.account_email || agyVerifyResult.email || "未知账号"}
+              </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-inkbrown-300 dark:text-sand-500">状态</span>
                 <span className={`text-xs px-2 py-0.5 rounded ${agyVerifyResult.is_valid ? 'bg-jade-100 dark:bg-jade-600/20 text-jade-600 dark:text-jade-400' : 'bg-cinnabar-100 dark:bg-cinnabar-600/20 text-cinnabar-600 dark:text-cinnabar-400'}`}>
@@ -2616,6 +2623,9 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2 text-goldenrod-600 dark:text-goldenrod-400 font-medium">
                     <ExternalLink size={14} />
                     需要授权验证
+                  </div>
+                  <div className="mt-1 text-inkbrown-400 dark:text-sand-500">
+                    账号: {agyVerifyResult.account_email || agyVerifyResult.email || "未知账号"}
                   </div>
                   <p className="mt-1 text-inkbrown-400 dark:text-sand-500">
                     该账号需要完成 Google 授权验证，请点击下方链接继续。

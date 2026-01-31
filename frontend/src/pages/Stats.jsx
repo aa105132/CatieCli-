@@ -15,6 +15,8 @@ export default function Stats() {
   const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [globalStats, setGlobalStats] = useState(null);
+  const [globalQuota, setGlobalQuota] = useState(null);
+  const [globalQuotaLoading, setGlobalQuotaLoading] = useState(false);
   const [byModel, setByModel] = useState([]);
   const [modelPage, setModelPage] = useState(1);
   const [modelTotalPages, setModelTotalPages] = useState(1);
@@ -37,6 +39,35 @@ export default function Stats() {
   useEffect(() => {
     fetchStats();
   }, [days, modelPage, apiType]);
+
+  // 获取全站额度
+  useEffect(() => {
+    fetchGlobalQuota();
+  }, []);
+
+  const fetchGlobalQuota = async () => {
+    setGlobalQuotaLoading(true);
+    try {
+      const res = await api.get("/api/manage/global-quota");
+      setGlobalQuota(res.data);
+    } catch (err) {
+      console.error("获取全站额度失败", err);
+    } finally {
+      setGlobalQuotaLoading(false);
+    }
+  };
+
+  const refreshGlobalQuota = async () => {
+    setGlobalQuotaLoading(true);
+    try {
+      const res = await api.post("/api/manage/global-quota/refresh");
+      setGlobalQuota(res.data);
+    } catch (err) {
+      console.error("刷新全站额度失败", err);
+    } finally {
+      setGlobalQuotaLoading(false);
+    }
+  };
 
   const fetchStats = async () => {
     setLoading(true);
@@ -245,6 +276,55 @@ export default function Stats() {
                 <div className="text-sm text-gray-400">3.0凭证</div>
               </div>
             </div>
+
+            {/* 全站额度进度条 */}
+            {globalQuota?.enabled && (
+              <div className="bg-gray-700/50 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-300">📊 全站凭证额度</span>
+                    {globalQuota.cached && (
+                      <span className="text-xs text-gray-500">
+                        (缓存 {globalQuota.cache_age_minutes?.toFixed(1)}分钟前)
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={refreshGlobalQuota}
+                    disabled={globalQuotaLoading}
+                    className="text-xs px-2 py-1 bg-gray-600 hover:bg-gray-500 rounded flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={globalQuotaLoading ? "animate-spin" : ""} />
+                    刷新
+                  </button>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 bg-gray-600 rounded-full h-4 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        globalQuota.quota_percentage >= 60 ? 'bg-green-500' :
+                        globalQuota.quota_percentage >= 30 ? 'bg-yellow-500' :
+                        globalQuota.quota_percentage >= 10 ? 'bg-orange-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(globalQuota.quota_percentage, 100)}%` }}
+                    />
+                  </div>
+                  <span className={`text-lg font-bold ${
+                    globalQuota.quota_percentage >= 60 ? 'text-green-400' :
+                    globalQuota.quota_percentage >= 30 ? 'text-yellow-400' :
+                    globalQuota.quota_percentage >= 10 ? 'text-orange-400' : 'text-red-400'
+                  }`}>
+                    {globalQuota.quota_percentage}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+                  <span>采样 {globalQuota.sampled_creds}/{globalQuota.total_creds} 个凭证</span>
+                  {globalQuota.next_refresh_minutes && (
+                    <span>下次刷新: {globalQuota.next_refresh_minutes?.toFixed(0)}分钟后</span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* 按模型分类 - 请求数/总额度 */}
             {apiType === "codex" ? (

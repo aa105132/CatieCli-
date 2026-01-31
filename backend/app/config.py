@@ -184,6 +184,11 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     # "full_shared" - 大锅饭模式（捐赠凭证即可用所有公共池）
     codex_pool_mode: str = "full_shared"
     
+    # 全站额度显示配置
+    global_quota_enabled: bool = False               # 是否启用全站额度显示
+    global_quota_refresh_minutes: int = 30           # 刷新间隔（分钟）
+    global_quota_last_update: str = ""               # 上次更新时间（ISO格式）
+    
     # 统计时区设置 (server=服务器时区午夜重置, utc=UTC午夜重置(北京下午4点), utc8=北京时间午夜重置)
     stats_timezone: str = "server"
     
