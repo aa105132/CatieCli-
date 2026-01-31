@@ -211,7 +211,57 @@ async def list_models(
     db: AsyncSession = Depends(get_db)
 ):
     """列出可用模型 (OpenAI 兼容)"""
-    models = await get_available_models()
+    # 尝试获取一个可用凭证来拉取官方模型列表
+    # 优先使用 Team 账号，因为 Team 账号可以看到更多模型（如 gpt-5.2-pro）
+    access_token = None
+    account_id = ""
+    
+    try:
+        # 优先查找 Team 账号凭证
+        team_cred_query = (
+            select(Credential)
+            .where(Credential.api_type == "codex")
+            .where(Credential.is_active == True)
+            .where(Credential.account_type == "team")
+            .order_by(Credential.last_used_at.asc().nulls_first())
+            .limit(1)
+        )
+        result = await db.execute(team_cred_query)
+        credential = result.scalars().first()
+        
+        # 如果没有 Team 凭证，尝试获取用户的任意可用凭证
+        if not credential:
+            credential = await get_codex_credential(db, user.id)
+        
+        if credential:
+            # 先刷新 token（OAuth access_token 通常有效期很短）
+            refresh_token_val = decrypt_credential(credential.refresh_token) if credential.refresh_token else ""
+            if refresh_token_val:
+                token_data = await refresh_with_retry(refresh_token_val)
+                if token_data:
+                    # 更新凭证
+                    from app.services.crypto import encrypt_credential as enc_cred
+                    credential.api_key = enc_cred(token_data.access_token)
+                    if token_data.refresh_token:
+                        credential.refresh_token = enc_cred(token_data.refresh_token)
+                    credential.project_id = token_data.account_id
+                    credential.is_active = True
+                    credential.last_error = None
+                    await db.commit()
+                    
+                    access_token = token_data.access_token
+                    account_id = token_data.account_id
+                    print(f"[Codex Proxy] 🔍 使用凭证拉取模型列表: {credential.email} (type={credential.account_type})", flush=True)
+                else:
+                    print(f"[Codex Proxy] ⚠️ Token 刷新失败: {credential.email}", flush=True)
+            else:
+                # 没有 refresh_token，直接用 access_token（可能会失败）
+                access_token, account_id = await get_access_token_and_account(credential, db)
+                print(f"[Codex Proxy] 🔍 使用凭证拉取模型列表（无刷新）: {credential.email}", flush=True)
+    except Exception as e:
+        print(f"[Codex Proxy] ⚠️ 获取凭证失败，使用静态模型列表: {e}", flush=True)
+    
+    models = await get_available_models(access_token, account_id)
     
     return {
         "object": "list",

@@ -570,10 +570,14 @@ async def fetch_models_from_codex(access_token: str, account_id: str = "") -> Li
     try:
         headers = get_codex_headers(access_token, account_id)
         # 尝试从 Codex API 获取模型列表
+        # 需要 client_version 查询参数
         models_url = f"{CODEX_API_BASE}/models"
+        params = {"client_version": "0.50.0"}
+        
+        print(f"[Codex Client] 🔍 请求模型列表: {models_url}", flush=True)
         
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(models_url, headers=headers)
+            response = await client.get(models_url, headers=headers, params=params)
             
             if response.status_code == 200:
                 data = response.json()
@@ -596,7 +600,8 @@ async def fetch_models_from_codex(access_token: str, account_id: str = "") -> Li
                     print(f"[Codex Client] ✅ 动态获取到 {len(models)} 个模型", flush=True)
                     return models
             else:
-                print(f"[Codex Client] ⚠️ 获取模型列表失败: {response.status_code}", flush=True)
+                response_text = response.text[:500] if response.text else "(empty)"
+                print(f"[Codex Client] ⚠️ 获取模型列表失败: {response.status_code} - {response_text}", flush=True)
     
     except Exception as e:
         print(f"[Codex Client] ⚠️ 获取模型列表异常: {e}", flush=True)
