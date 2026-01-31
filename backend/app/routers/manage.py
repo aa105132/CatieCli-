@@ -1255,13 +1255,14 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
             "last_update": now.isoformat() + "Z"
         }
     
+    print(f"[全站额度] 开始获取 {len(creds)} 个凭证的额度", flush=True)
+    
     # 并发获取凭证额度
     async def fetch_single_quota(cred):
         try:
             access_token = await CredentialPool.get_access_token(cred, db)
             if not access_token or not cred.project_id:
-                print(f"[全站额度] 凭证 {cred.id} 无 token 或 project_id", flush=True)
-                return None
+                return {"error": "no_token"}
             
             # 使用 AntigravityClient 的 fetch_quota_info 方法
             client = AntigravityClient(access_token, cred.project_id)
@@ -1270,7 +1271,7 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
             if quota_result.get("success"):
                 models = quota_result.get("models", {})
                 if not models:
-                    return None
+                    return {"error": "no_models"}
                 
                 # 直接使用 remaining 字段（已经是 0-1 的比例）
                 formatted_models = {}
@@ -1280,25 +1281,43 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
                         "resetTime": info.get("resetTime", "")
                     }
                 
-                return _aggregate_quota_by_category(formatted_models)
+                return {"success": True, "data": _aggregate_quota_by_category(formatted_models)}
             else:
-                print(f"[全站额度] 凭证 {cred.id} 额度查询失败: {quota_result.get('error')}", flush=True)
-                return None
+                return {"error": quota_result.get("error", "unknown")}
+        except asyncio.TimeoutError:
+            return {"error": "timeout"}
         except Exception as e:
-            print(f"[全站额度] 获取凭证 {cred.id} 额度异常: {e}", flush=True)
-        return None
+            return {"error": str(e)[:50]}
     
     # 并发执行，限制并发数为20
     semaphore = asyncio.Semaphore(20)
     
     async def limited_fetch(cred):
         async with semaphore:
-            return await fetch_single_quota(cred)
+            try:
+                return await asyncio.wait_for(fetch_single_quota(cred), timeout=60.0)
+            except asyncio.TimeoutError:
+                return {"error": "timeout"}
     
-    results = await asyncio.gather(*[limited_fetch(c) for c in creds])
+    results = await asyncio.gather(*[limited_fetch(c) for c in creds], return_exceptions=True)
     
-    # 过滤有效结果并按类别汇总
-    valid_results = [r for r in results if r is not None]
+    # 统计结果
+    success_count = 0
+    error_counts = {}
+    valid_results = []
+    
+    for r in results:
+        if isinstance(r, Exception):
+            error_counts["exception"] = error_counts.get("exception", 0) + 1
+        elif isinstance(r, dict):
+            if r.get("success"):
+                valid_results.append(r["data"])
+                success_count += 1
+            else:
+                error_type = r.get("error", "unknown")
+                error_counts[error_type] = error_counts.get(error_type, 0) + 1
+    
+    print(f"[全站额度] 获取完成: 成功 {success_count}/{len(creds)}, 错误分布: {error_counts}", flush=True)
     
     # 汇总各类别的平均额度
     aggregated = {
