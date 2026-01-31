@@ -1230,7 +1230,7 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
                 "next_refresh_minutes": round(cache_minutes - cache_age, 1)
             }
     
-    # 查询所有公开且活跃的 Antigravity 凭证（限制数量以避免过多请求）
+    # 查询所有公开且活跃的 Antigravity 凭证
     result = await db.execute(
         select(Credential)
         .where(
@@ -1239,7 +1239,6 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
             Credential.api_type == "antigravity"
         )
         .order_by(Credential.last_used_at.desc())
-        .limit(20)  # 限制最多查询20个凭证
     )
     creds = result.scalars().all()
     
@@ -1289,8 +1288,8 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
             print(f"[全站额度] 获取凭证 {cred.id} 额度异常: {e}", flush=True)
         return None
     
-    # 并发执行，限制并发数
-    semaphore = asyncio.Semaphore(5)
+    # 并发执行，限制并发数为20
+    semaphore = asyncio.Semaphore(20)
     
     async def limited_fetch(cred):
         async with semaphore:
