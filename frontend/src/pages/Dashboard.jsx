@@ -129,6 +129,10 @@ export default function Dashboard() {
   const [globalQuota, setGlobalQuota] = useState(null);
   const [globalQuotaLoading, setGlobalQuotaLoading] = useState(false);
 
+  // CLI 全站额度相关
+  const [cliGlobalQuota, setCliGlobalQuota] = useState(null);
+  const [cliGlobalQuotaLoading, setCliGlobalQuotaLoading] = useState(false);
+
   // 奖励配置（从后端获取）
   const [rewardConfig, setRewardConfig] = useState({
     // CLI 奖励
@@ -519,6 +523,24 @@ export default function Dashboard() {
       console.error("获取全站额度失败", err);
     } finally {
       setGlobalQuotaLoading(false);
+    }
+  };
+
+  // 获取 CLI 全站额度
+  const fetchCliGlobalQuota = async (forceRefresh = false) => {
+    setCliGlobalQuotaLoading(true);
+    try {
+      let res;
+      if (forceRefresh) {
+        res = await api.post("/api/manage/cli-global-quota/refresh");
+      } else {
+        res = await api.get("/api/manage/cli-global-quota");
+      }
+      setCliGlobalQuota(res.data);
+    } catch (err) {
+      console.error("获取CLI全站额度失败", err);
+    } finally {
+      setCliGlobalQuotaLoading(false);
     }
   };
 
@@ -1166,6 +1188,7 @@ export default function Dashboard() {
     }
     if (mainTab === "cli" && myCredentials.length === 0) {
       fetchMyCredentials();
+      fetchCliGlobalQuota();  // 获取 CLI 全站额度
     }
     if (mainTab === "codex" && codexEnabled && codexCredentials.length === 0) {
       fetchCodexCredentials();
@@ -1401,6 +1424,95 @@ export default function Dashboard() {
                 <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">公开凭证</div>
               </div>
             </div>
+
+            {/* CLI 全站凭证额度 */}
+            {cliGlobalQuota?.enabled && cliGlobalQuota?.quotas && (
+              <div className="rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 size={16} className="text-wisteria-500 dark:text-wisteria-400" />
+                    <span className="text-sm font-medium text-inkbrown-500 dark:text-sand-200">全站凭证额度</span>
+                    {cliGlobalQuota.cached && (
+                      <span className="text-xs text-inkbrown-200 dark:text-sand-600">
+                        (缓存 {cliGlobalQuota.cache_age_minutes?.toFixed(0)}分钟前)
+                      </span>
+                    )}
+                  </div>
+                  {/* 只有管理员可以刷新 */}
+                  {user?.is_admin && (
+                    <button
+                      onClick={() => fetchCliGlobalQuota(true)}
+                      disabled={cliGlobalQuotaLoading}
+                      className="text-xs px-2 py-1 text-wisteria-600 dark:text-wisteria-400 bg-wisteria-100 dark:bg-wisteria-600/20 border border-wisteria-300 dark:border-wisteria-500/50 rounded-md hover:bg-wisteria-200 dark:hover:bg-wisteria-600/30 transition-all flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={cliGlobalQuotaLoading ? "animate-spin" : ""} />
+                      刷新
+                    </button>
+                  )}
+                </div>
+                
+                {/* 分类额度条 */}
+                <div className="space-y-2.5">
+                  {/* Pro (2.5 Pro / 3.0 Pro) */}
+                  {cliGlobalQuota.quotas.pro?.count > 0 && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-goldenrod-500 dark:text-goldenrod-400 w-12 text-sm font-medium">Pro</span>
+                      <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            cliGlobalQuota.quotas.pro.remaining >= 60 ? 'bg-goldenrod-500' :
+                            cliGlobalQuota.quotas.pro.remaining >= 30 ? 'bg-goldenrod-400' :
+                            cliGlobalQuota.quotas.pro.remaining >= 10 ? 'bg-goldenrod-500' : 'bg-cinnabar-500'
+                          }`}
+                          style={{ width: `${Math.min(cliGlobalQuota.quotas.pro.remaining, 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-bold w-12 text-right ${
+                        cliGlobalQuota.quotas.pro.remaining >= 60 ? 'text-goldenrod-500 dark:text-goldenrod-400' :
+                        cliGlobalQuota.quotas.pro.remaining >= 30 ? 'text-goldenrod-400 dark:text-goldenrod-300' :
+                        cliGlobalQuota.quotas.pro.remaining >= 10 ? 'text-goldenrod-500 dark:text-goldenrod-400' : 'text-cinnabar-500 dark:text-cinnabar-400'
+                      }`}>
+                        {cliGlobalQuota.quotas.pro.remaining}%
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Flash */}
+                  {cliGlobalQuota.quotas.flash?.count > 0 && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-indigo-500 dark:text-indigo-400 w-12 text-sm font-medium">Flash</span>
+                      <div className="flex-1 bg-parchment-300 dark:bg-night-50 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            cliGlobalQuota.quotas.flash.remaining >= 60 ? 'bg-indigo-500' :
+                            cliGlobalQuota.quotas.flash.remaining >= 30 ? 'bg-indigo-400' :
+                            cliGlobalQuota.quotas.flash.remaining >= 10 ? 'bg-goldenrod-500' : 'bg-cinnabar-500'
+                          }`}
+                          style={{ width: `${Math.min(cliGlobalQuota.quotas.flash.remaining, 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-bold w-12 text-right ${
+                        cliGlobalQuota.quotas.flash.remaining >= 60 ? 'text-indigo-500 dark:text-indigo-400' :
+                        cliGlobalQuota.quotas.flash.remaining >= 30 ? 'text-indigo-400 dark:text-indigo-300' :
+                        cliGlobalQuota.quotas.flash.remaining >= 10 ? 'text-goldenrod-500 dark:text-goldenrod-400' : 'text-cinnabar-500 dark:text-cinnabar-400'
+                      }`}>
+                        {cliGlobalQuota.quotas.flash.remaining}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* 管理员显示采样信息和下次刷新时间 */}
+                {user?.is_admin && (
+                  <div className="flex items-center justify-between mt-2 text-xs text-inkbrown-200 dark:text-sand-600">
+                    <span>基于 {cliGlobalQuota.total_creds} 个凭证计算</span>
+                    {cliGlobalQuota.cached && cliGlobalQuota.next_refresh_minutes && (
+                      <span>下次自动刷新: {cliGlobalQuota.next_refresh_minutes?.toFixed(0)}分钟后</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 凭证列表 */}
             <div className="rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">

@@ -2411,3 +2411,183 @@ async def get_error_stats(
         "page_size": page_size,
         "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
     }
+
+
+# CLI 全站额度缓存
+_cli_global_quota_cache = {
+    "data": None,
+    "last_update": None
+}
+
+
+def _get_cli_credential_quota(model_tier: str, account_type: str) -> dict:
+    """根据凭证类型计算单个 CLI 凭证的每日额度
+    
+    CLI额度规则：
+    - 免费账号且申请3.0未通过 (model_tier="2.5"):
+        - 2.5 pro: 250次
+        - Flash (2.5 flash / 2.5 flash lite / 2.0 flash): 1500次
+    
+    - 免费账号且申请3.0通过 (model_tier="3", account_type="free"):
+        - Premium (3 pro / 2.5 pro): 100次
+        - Flash (2.5 flash / 2.5 flash lite / 2.0 flash): 1000次
+    
+    - Pro账号 (account_type="pro"):
+        - Premium (3 pro / 2.5 pro): 250次
+        - Flash (2.5 flash / 2.5 flash lite / 2.0 flash): 1500次
+    """
+    if account_type == "pro":
+        # Pro 账号
+        return {
+            "pro": 250,    # 3 pro / 2.5 pro 共享
+            "flash": 1500  # Flash 系列共享
+        }
+    elif model_tier == "3":
+        # 免费账号，3.0 通过
+        return {
+            "pro": 100,    # 3 pro / 2.5 pro 共享
+            "flash": 1000  # Flash 系列共享
+        }
+    else:
+        # 免费账号，3.0 未通过 (2.5)
+        return {
+            "pro": 250,    # 2.5 pro
+            "flash": 1500  # Flash 系列共享
+        }
+
+
+@router.get("/cli-global-quota")
+async def get_cli_global_quota(db: AsyncSession = Depends(get_db)):
+    """获取 CLI 全站公开凭证的剩余额度百分比（带缓存），按 Pro/Flash 分类显示"""
+    from app.config import settings
+    
+    if not settings.global_quota_enabled:
+        return {"enabled": False}
+    
+    # 检查缓存是否有效
+    now = datetime.utcnow()
+    cache_minutes = settings.global_quota_refresh_minutes
+    
+    if _cli_global_quota_cache["data"] and _cli_global_quota_cache["last_update"]:
+        cache_age = (now - _cli_global_quota_cache["last_update"]).total_seconds() / 60
+        if cache_age < cache_minutes:
+            return {
+                "enabled": True,
+                **_cli_global_quota_cache["data"],
+                "cached": True,
+                "cache_age_minutes": round(cache_age, 1),
+                "next_refresh_minutes": round(cache_minutes - cache_age, 1)
+            }
+    
+    # 查询所有公开且活跃的 CLI 凭证（api_type 为空或 geminicli）
+    result = await db.execute(
+        select(Credential)
+        .where(
+            Credential.is_active == True,
+            Credential.is_public == True,
+            sqlalchemy.or_(
+                Credential.api_type == None,
+                Credential.api_type == "",
+                Credential.api_type == "geminicli"
+            )
+        )
+    )
+    creds = result.scalars().all()
+    
+    if not creds:
+        return {
+            "enabled": True,
+            "quotas": {
+                "pro": {"remaining": 0, "count": 0},
+                "flash": {"remaining": 0, "count": 0},
+            },
+            "total_creds": 0,
+            "last_update": now.isoformat() + "Z"
+        }
+    
+    print(f"[CLI全站额度] 开始计算 {len(creds)} 个凭证的额度", flush=True)
+    
+    # 今天的开始时间
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # 汇总各类别的总额度和已使用量
+    total_pro_quota = 0
+    total_flash_quota = 0
+    total_pro_used = 0
+    total_flash_used = 0
+    
+    # 获取每个凭证的额度和今日使用量
+    for cred in creds:
+        # 计算该凭证的额度
+        quota = _get_cli_credential_quota(cred.model_tier or "2.5", cred.account_type or "free")
+        total_pro_quota += quota["pro"]
+        total_flash_quota += quota["flash"]
+        
+        # 查询该凭证今日的使用量（按模型分类）
+        usage_result = await db.execute(
+            select(UsageLog.model, func.count(UsageLog.id).label("count"))
+            .where(
+                UsageLog.credential_id == cred.id,
+                UsageLog.created_at >= start_of_day,
+                UsageLog.status_code == 200
+            )
+            .group_by(UsageLog.model)
+        )
+        
+        for row in usage_result.all():
+            model = (row[0] or "").lower()
+            count = row[1]
+            
+            # 判断模型类型
+            if "pro" in model:
+                total_pro_used += count
+            elif "flash" in model:
+                total_flash_used += count
+    
+    # 计算剩余百分比
+    pro_remaining = 0 if total_pro_quota == 0 else round(max(0, (total_pro_quota - total_pro_used) / total_pro_quota) * 100, 1)
+    flash_remaining = 0 if total_flash_quota == 0 else round(max(0, (total_flash_quota - total_flash_used) / total_flash_quota) * 100, 1)
+    
+    print(f"[CLI全站额度] Pro: {total_pro_used}/{total_pro_quota} ({pro_remaining}%), Flash: {total_flash_used}/{total_flash_quota} ({flash_remaining}%)", flush=True)
+    
+    # 更新缓存
+    cache_data = {
+        "quotas": {
+            "pro": {
+                "remaining": pro_remaining,
+                "count": len(creds),
+                "used": total_pro_used,
+                "total": total_pro_quota
+            },
+            "flash": {
+                "remaining": flash_remaining,
+                "count": len(creds),
+                "used": total_flash_used,
+                "total": total_flash_quota
+            },
+        },
+        "total_creds": len(creds),
+        "last_update": now.isoformat() + "Z"
+    }
+    _cli_global_quota_cache["data"] = cache_data
+    _cli_global_quota_cache["last_update"] = now
+    
+    return {
+        "enabled": True,
+        **cache_data,
+        "cached": False
+    }
+
+
+@router.post("/cli-global-quota/refresh")
+async def refresh_cli_global_quota(
+    user: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db)
+):
+    """强制刷新 CLI 全站额度缓存（管理员）"""
+    # 清空缓存
+    _cli_global_quota_cache["data"] = None
+    _cli_global_quota_cache["last_update"] = None
+    
+    # 重新获取
+    return await get_cli_global_quota(db)
