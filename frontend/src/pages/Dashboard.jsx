@@ -180,6 +180,7 @@ export default function Dashboard() {
           codex_quota_team: res.data.codex_quota_team || 250,
           codex_base_rpm: res.data.codex_base_rpm || 5,
           codex_contributor_rpm: res.data.codex_contributor_rpm || 10,
+          cursor_quota_per_cred: res.data.cursor_quota_per_cred || 50,
         });
       })
       .catch(() => {});
@@ -1721,11 +1722,24 @@ export default function Dashboard() {
                       <span className="text-goldenrod-500 dark:text-goldenrod-400 mt-0.5">3.</span>
                       <span>API 端点：<code className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-goldenrod-600 dark:text-goldenrod-400">{window.location.origin}/agy/v1</code></span>
                     </li>
+                    {agyStats?.cursor_enabled && (
+                      <li className="flex items-start gap-2">
+                        <span className="text-goldenrod-500 dark:text-goldenrod-400 mt-0.5">4.</span>
+                        <span>Cursor API 端点：<code className="px-1.5 py-0.5 rounded bg-parchment-300 dark:bg-night-50 text-blue-600 dark:text-blue-400">{window.location.origin}/v1</code>（模型名以 cursor- 开头）</span>
+                      </li>
+                    )}
                     <li className="flex items-start gap-2">
-                      <span className="text-goldenrod-500 dark:text-goldenrod-400 mt-0.5">4.</span>
+                      <span className="text-goldenrod-500 dark:text-goldenrod-400 mt-0.5">{agyStats?.cursor_enabled ? '5.' : '4.'}</span>
                       <span>支持上传 JSON 凭证文件（格式：access_token, refresh_token, client_id, client_secret, project_id）</span>
                     </li>
                   </ul>
+                  {agyStats?.cursor_enabled && (
+                    <div className="mt-4 p-2 bg-blue-500/10 rounded-lg border border-blue-500/20 text-center">
+                      <div className="text-lg font-bold text-blue-400">
+                        ✨ 特别感谢 Alicia 小姐提供的 Cursor 渠道支持 ✨
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1748,6 +1762,13 @@ export default function Dashboard() {
                     <>
                       <span className="text-inkbrown-400 dark:text-sand-400">/ Banana(image系列模型) 额外增加</span>
                       <span className="px-1.5 py-0.5 rounded bg-yellow-200 dark:bg-yellow-600/30 text-yellow-700 dark:text-yellow-300 font-medium">{rewardConfig.banana_quota_per_cred}</span>
+                      <span className="text-inkbrown-400 dark:text-sand-400">次</span>
+                    </>
+                  )}
+                  {agyStats?.cursor_enabled && (
+                    <>
+                      <span className="text-inkbrown-400 dark:text-sand-400">/ Cursor 额外增加</span>
+                      <span className="px-1.5 py-0.5 rounded bg-blue-200 dark:bg-blue-600/30 text-blue-700 dark:text-blue-300 font-medium">{rewardConfig.cursor_quota_per_cred || 50}</span>
                       <span className="text-inkbrown-400 dark:text-sand-400">次</span>
                     </>
                   )}
@@ -1797,6 +1818,15 @@ export default function Dashboard() {
                     <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{agyStats?.banana_quota || 0}</span>
                   </div>
                   <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">Banana 额度</div>
+                </div>
+              )}
+              {agyStats?.cursor_enabled && (
+                <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                    {agyStats?.cursor_used || 0}
+                    <span className="text-sm font-normal text-inkbrown-200 dark:text-sand-500">/{agyStats?.cursor_quota || 0}</span>
+                  </div>
+                  <div className="text-xs text-inkbrown-200 dark:text-sand-500 mt-1">Cursor 额度</div>
                 </div>
               )}
               <div className="p-4 rounded-lg border border-parchment-400 dark:border-night-50 bg-parchment-100 dark:bg-night-100">

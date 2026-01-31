@@ -1,4 +1,4 @@
-import { ArrowLeft, Save, Settings as SettingsIcon, Users, Coins, Database, Bell, Globe, Code, Rocket, Terminal } from "lucide-react";
+import { ArrowLeft, Save, Settings as SettingsIcon, Users, Coins, Database, Bell, Globe, Code, Rocket, Terminal, MousePointer2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api";
@@ -154,6 +154,16 @@ export default function Settings() {
       // 全站额度显示配置
       formData.append("global_quota_enabled", config.global_quota_enabled ?? false);
       formData.append("global_quota_refresh_minutes", config.global_quota_refresh_minutes ?? 30);
+      // Cursor 配置
+      formData.append("cursor_enabled", config.cursor_enabled ?? false);
+      formData.append("cursor_api_url", config.cursor_api_url ?? "");
+      formData.append("cursor_api_key", config.cursor_api_key ?? "");
+      formData.append("cursor_models", config.cursor_models ?? "");
+      formData.append("cursor_model_prefix", config.cursor_model_prefix ?? "cursor-");
+      formData.append("cursor_quota_enabled", config.cursor_quota_enabled ?? true);
+      formData.append("cursor_quota_default", config.cursor_quota_default ?? 100);
+      formData.append("cursor_quota_per_cred", config.cursor_quota_per_cred ?? 50);
+      formData.append("cursor_base_rpm", config.cursor_base_rpm ?? 10);
 
       await api.post("/api/manage/config", formData);
       setMessage({ type: "success", text: "配置已保存！" });
@@ -184,6 +194,7 @@ export default function Settings() {
     { id: "cli", label: "CLI 设置", icon: Terminal },
     { id: "antigravity", label: "Antigravity", icon: Rocket },
     { id: "codex", label: "Codex 设置", icon: Code },
+    { id: "cursor", label: "Cursor", icon: MousePointer2 },
   ];
 
   return (
@@ -1944,6 +1955,240 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
                           贡献凭证用户每分钟请求数
                         </p>
                       </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Cursor 设置 */}
+          {activeTab === "cursor" && (
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold flex items-center gap-2 text-blue-400">
+                <MousePointer2 size={24} />
+                Cursor 设置
+              </h2>
+
+              {/* Cursor 开关 */}
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-semibold">启用 Cursor 反代</h3>
+                  <p className="text-gray-400 text-sm">
+                    启用 Cursor API 反代功能（通过配置的第三方 API）
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={config?.cursor_enabled || false}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        cursor_enabled: e.target.checked,
+                      })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {config?.cursor_enabled && (
+                <>
+                  {/* API 配置 */}
+                  <div className="bg-gray-700/30 rounded-lg p-4">
+                    <h3 className="text-sm font-medium mb-3">🔑 API 配置</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-gray-400 mb-1 block">
+                          API URL
+                        </label>
+                        <input
+                          type="text"
+                          value={config?.cursor_api_url || ""}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              cursor_api_url: e.target.value,
+                            })
+                          }
+                          placeholder="https://apis.lumilys.moe/v1"
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-gray-500 text-xs mt-1">
+                          第三方 OpenAI 兼容 API 地址
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 mb-1 block">
+                          API Key
+                        </label>
+                        <input
+                          type="password"
+                          value={config?.cursor_api_key || ""}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              cursor_api_key: e.target.value,
+                            })
+                          }
+                          placeholder="sk-..."
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-gray-500 text-xs mt-1">
+                          第三方 API 的密钥
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 模型配置 */}
+                  <div className="bg-gray-700/30 rounded-lg p-4">
+                    <h3 className="text-sm font-medium mb-3">🤖 模型配置</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-gray-400 mb-1 block">
+                          可用模型列表
+                        </label>
+                        <textarea
+                          value={config?.cursor_models || ""}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              cursor_models: e.target.value,
+                            })
+                          }
+                          placeholder="claude-4.5-sonnet, claude-4.5-opus, grok-4"
+                          rows={3}
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        />
+                        <p className="text-gray-500 text-xs mt-1">
+                          用逗号分隔的模型名列表（不含前缀）
+                        </p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-400 mb-1 block">
+                          模型前缀
+                        </label>
+                        <input
+                          type="text"
+                          value={config?.cursor_model_prefix || "cursor-"}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              cursor_model_prefix: e.target.value,
+                            })
+                          }
+                          placeholder="cursor-"
+                          className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-gray-500 text-xs mt-1">
+                          用户请求时使用带前缀的模型名，如 cursor-claude-4.5-sonnet
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 配额限制 */}
+                  <div className="bg-gray-700/30 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <div>
+                        <label className="block text-sm font-medium">
+                          📊 Cursor 配额限制
+                        </label>
+                        <p className="text-gray-400 text-xs">
+                          限制用户每日 Cursor API 调用次数
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={config?.cursor_quota_enabled ?? true}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              cursor_quota_enabled: e.target.checked,
+                            })
+                          }
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    {config?.cursor_quota_enabled && (
+                      <>
+                        <div>
+                          <label className="text-sm text-gray-400 mb-1 block">
+                            默认配额（无凭证用户）
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={config?.cursor_quota_default ?? 100}
+                            onChange={(e) =>
+                              setConfig({
+                                ...config,
+                                cursor_quota_default:
+                                  parseInt(e.target.value) || 0,
+                              })
+                            }
+                            className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-gray-500 text-xs mt-1">
+                            未上传反重力凭证的用户每日可调用次数
+                          </p>
+                        </div>
+                        <div className="mt-3">
+                          <label className="text-sm text-gray-400 mb-1 block">
+                            凭证奖励配额
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={config?.cursor_quota_per_cred ?? 50}
+                            onChange={(e) =>
+                              setConfig({
+                                ...config,
+                                cursor_quota_per_cred:
+                                  parseInt(e.target.value) || 0,
+                              })
+                            }
+                            className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-gray-500 text-xs mt-1">
+                            每上传一个公开反重力凭证奖励的额度
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* 速率限制 */}
+                  <div className="bg-gray-700/30 rounded-lg p-4">
+                    <label className="block text-sm font-medium mb-3">
+                      ⏱️ Cursor 速率限制 (RPM)
+                    </label>
+                    <div>
+                      <label className="text-sm text-gray-400 mb-1 block">
+                        默认 RPM
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={config?.cursor_base_rpm ?? 10}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            cursor_base_rpm: parseInt(e.target.value) || 1,
+                          })
+                        }
+                        className="w-full bg-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="text-gray-500 text-xs mt-1">
+                        每个用户每分钟请求数
+                      </p>
                     </div>
                   </div>
                 </>

@@ -1087,6 +1087,16 @@ async def get_config(user: User = Depends(get_current_admin)):
         # 全站额度显示配置
         "global_quota_enabled": settings.global_quota_enabled,
         "global_quota_refresh_minutes": settings.global_quota_refresh_minutes,
+        # Cursor 配置
+        "cursor_enabled": settings.cursor_enabled,
+        "cursor_api_url": settings.cursor_api_url,
+        "cursor_api_key": settings.cursor_api_key,
+        "cursor_models": settings.cursor_models,
+        "cursor_model_prefix": settings.cursor_model_prefix,
+        "cursor_quota_enabled": settings.cursor_quota_enabled,
+        "cursor_quota_default": settings.cursor_quota_default,
+        "cursor_quota_per_cred": settings.cursor_quota_per_cred,
+        "cursor_base_rpm": settings.cursor_base_rpm,
     }
 
 
@@ -1153,6 +1163,14 @@ async def get_public_config():
         # 全站额度显示配置
         "global_quota_enabled": settings.global_quota_enabled,
         "global_quota_refresh_minutes": settings.global_quota_refresh_minutes,
+        # Cursor 配置
+        "cursor_enabled": settings.cursor_enabled,
+        "cursor_models": settings.cursor_models,
+        "cursor_model_prefix": settings.cursor_model_prefix,
+        "cursor_quota_enabled": settings.cursor_quota_enabled,
+        "cursor_quota_default": settings.cursor_quota_default,
+        "cursor_quota_per_cred": settings.cursor_quota_per_cred,
+        "cursor_base_rpm": settings.cursor_base_rpm,
     }
 
 
@@ -1496,6 +1514,16 @@ async def update_config(
     # 全站额度配置
     global_quota_enabled: Optional[bool] = Form(None),
     global_quota_refresh_minutes: Optional[int] = Form(None),
+    # Cursor 配置
+    cursor_enabled: Optional[bool] = Form(None),
+    cursor_api_url: Optional[str] = Form(None),
+    cursor_api_key: Optional[str] = Form(None),
+    cursor_models: Optional[str] = Form(None),
+    cursor_model_prefix: Optional[str] = Form(None),
+    cursor_quota_enabled: Optional[bool] = Form(None),
+    cursor_quota_default: Optional[int] = Form(None),
+    cursor_quota_per_cred: Optional[int] = Form(None),
+    cursor_base_rpm: Optional[int] = Form(None),
     user: User = Depends(get_current_admin)
 ):
     """更新配置（持久化保存到数据库）"""
@@ -1822,6 +1850,44 @@ async def update_config(
         settings.global_quota_refresh_minutes = global_quota_refresh_minutes
         await save_config_to_db("global_quota_refresh_minutes", global_quota_refresh_minutes)
         updated["global_quota_refresh_minutes"] = global_quota_refresh_minutes
+    
+    # Cursor 配置
+    if cursor_enabled is not None:
+        settings.cursor_enabled = cursor_enabled
+        await save_config_to_db("cursor_enabled", cursor_enabled)
+        updated["cursor_enabled"] = cursor_enabled
+    if cursor_api_url is not None:
+        settings.cursor_api_url = cursor_api_url
+        await save_config_to_db("cursor_api_url", cursor_api_url)
+        updated["cursor_api_url"] = cursor_api_url
+    if cursor_api_key is not None:
+        settings.cursor_api_key = cursor_api_key
+        await save_config_to_db("cursor_api_key", cursor_api_key)
+        updated["cursor_api_key"] = cursor_api_key
+    if cursor_models is not None:
+        settings.cursor_models = cursor_models
+        await save_config_to_db("cursor_models", cursor_models)
+        updated["cursor_models"] = cursor_models
+    if cursor_model_prefix is not None:
+        settings.cursor_model_prefix = cursor_model_prefix
+        await save_config_to_db("cursor_model_prefix", cursor_model_prefix)
+        updated["cursor_model_prefix"] = cursor_model_prefix
+    if cursor_quota_enabled is not None:
+        settings.cursor_quota_enabled = cursor_quota_enabled
+        await save_config_to_db("cursor_quota_enabled", cursor_quota_enabled)
+        updated["cursor_quota_enabled"] = cursor_quota_enabled
+    if cursor_quota_default is not None:
+        settings.cursor_quota_default = cursor_quota_default
+        await save_config_to_db("cursor_quota_default", cursor_quota_default)
+        updated["cursor_quota_default"] = cursor_quota_default
+    if cursor_quota_per_cred is not None:
+        settings.cursor_quota_per_cred = cursor_quota_per_cred
+        await save_config_to_db("cursor_quota_per_cred", cursor_quota_per_cred)
+        updated["cursor_quota_per_cred"] = cursor_quota_per_cred
+    if cursor_base_rpm is not None:
+        settings.cursor_base_rpm = cursor_base_rpm
+        await save_config_to_db("cursor_base_rpm", cursor_base_rpm)
+        updated["cursor_base_rpm"] = cursor_base_rpm
     
     return {"message": "配置已保存", "updated": updated}
 

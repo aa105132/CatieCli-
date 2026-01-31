@@ -650,6 +650,13 @@ async def list_models(request: Request, user: User = Depends(get_user_from_api_k
             for model_id in codex_models:
                 models.append({"id": model_id, "object": "model", "owned_by": "openai"})
     
+    # ===== Cursor 模型（从配置获取，无需凭证）=====
+    if settings.cursor_enabled and settings.cursor_models:
+        from app.services.cursor_client import get_cursor_models
+        cursor_models = get_cursor_models()
+        for model_id in cursor_models:
+            models.append({"id": model_id, "object": "model", "owned_by": "cursor"})
+    
     return {"object": "list", "data": models}
 
 
@@ -747,6 +754,23 @@ async def chat_completions(
         new_request = StarletteRequest(scope=request.scope, receive=receive)
         
         return await codex_chat_completions(new_request, background_tasks, user, db)
+    
+    # 检测是否是 Cursor 请求（模型名以配置的后缀结尾，如 -cursor）
+    from app.services.cursor_client import is_cursor_model, parse_cursor_model
+    if settings.cursor_enabled and is_cursor_model(model):
+        # 转发到 Cursor 代理
+        from app.routers.cursor_proxy import cursor_chat_completions
+        from starlette.requests import Request as StarletteRequest
+        
+        # Cursor 模型使用完整模型名（包含后缀）
+        body["model"] = model
+        modified_body = json.dumps(body).encode()
+        
+        async def receive():
+            return {"type": "http.request", "body": modified_body}
+        
+        new_request = StarletteRequest(scope=request.scope, receive=receive)
+        return await cursor_chat_completions(new_request, background_tasks, user, db)
     
     # 检测是否是 Antigravity 请求（模型名包含 agy- 前缀）
     is_antigravity = channel_prefix == "agy-"

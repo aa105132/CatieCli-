@@ -13,6 +13,7 @@ import {
     ToggleRight,
     Trash2,
     X,
+    Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -440,6 +441,14 @@ export default function AntigravityCredentials() {
                   {stats.banana_used}/{stats.banana_quota}
                 </div>
                 <div className="text-xs text-gray-400">Banana 额度</div>
+              </div>
+            )}
+            {(stats.cursor_enabled || stats.cursor_quota !== undefined) && (
+              <div className="card p-4">
+                <div className="text-2xl font-bold text-blue-400">
+                  {stats.cursor_used}/{stats.cursor_quota}
+                </div>
+                <div className="text-xs text-gray-400">Cursor 额度</div>
               </div>
             )}
           </div>

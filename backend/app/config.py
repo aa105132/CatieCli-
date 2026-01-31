@@ -184,6 +184,17 @@ You are Antigravity, a powerful agentic AI coding assistant designed by the Goog
     # "full_shared" - 大锅饭模式（捐赠凭证即可用所有公共池）
     codex_pool_mode: str = "full_shared"
     
+    # Cursor API 反代配置（第三方 OpenAI 兼容 API）
+    cursor_enabled: bool = False                     # 是否启用 Cursor API 反代
+    cursor_api_url: str = ""                         # Cursor API 地址（如 https://apis.lumilys.moe/v1）
+    cursor_api_key: str = ""                         # Cursor API Key
+    cursor_models: str = ""                          # Cursor 模型列表（逗号分隔，如 claude-4.5-sonnet,grok-4）
+    cursor_model_prefix: str = "cursor-"             # 模型前缀（用于区分渠道）
+    cursor_quota_enabled: bool = True                # 是否启用配额限制
+    cursor_quota_default: int = 100                  # 默认每日配额（无凭证用户）
+    cursor_quota_per_cred: int = 50                  # 每个公开反重力凭证奖励的额度
+    cursor_base_rpm: int = 10                        # 默认 RPM
+    
     # 全站额度显示配置
     global_quota_enabled: bool = False               # 是否启用全站额度显示
     global_quota_refresh_minutes: int = 30           # 刷新间隔（分钟）
@@ -314,6 +325,15 @@ PERSISTENT_CONFIG_KEYS = [
     "codex_base_rpm",
     "codex_contributor_rpm",
     "codex_pool_mode",
+    # Cursor 配置
+    "cursor_enabled",
+    "cursor_api_url",
+    "cursor_api_key",
+    "cursor_models",
+    "cursor_model_prefix",
+    "cursor_quota_enabled",
+    "cursor_quota_default",
+    "cursor_base_rpm",
 ]
 
 

@@ -1453,6 +1453,23 @@ async def get_antigravity_stats(
             banana_quota = None
             banana_used = 0
         
+        # 计算 Cursor 配额（只要 Cursor 启用就显示）
+        if settings.cursor_enabled:
+            cursor_quota = settings.cursor_quota_default + user_public_creds * settings.cursor_quota_per_cred
+            
+            # 查询今天的 Cursor 使用量
+            cursor_usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.endpoint.like('%cursor%'))
+                .where(UsageLog.status_code == 200)
+            )
+            cursor_used = cursor_usage_result.scalar() or 0
+        else:
+            cursor_quota = None
+            cursor_used = 0
+        
         return {
             "total": total,
             "active": active,
@@ -1462,7 +1479,10 @@ async def get_antigravity_stats(
             "enabled": settings.antigravity_enabled,
             "banana_quota": banana_quota,
             "banana_used": banana_used,
-            "banana_enabled": settings.banana_quota_enabled
+            "banana_enabled": settings.banana_quota_enabled,
+            "cursor_quota": cursor_quota,
+            "cursor_used": cursor_used,
+            "cursor_enabled": settings.cursor_enabled
         }
     else:
         # 普通用户：只显示自己的凭证统计
@@ -1522,6 +1542,23 @@ async def get_antigravity_stats(
             banana_quota = None
             banana_used = 0
         
+        # 计算 Cursor 配额（只要 Cursor 启用就显示）
+        if settings.cursor_enabled:
+            cursor_quota = settings.cursor_quota_default + user_public * settings.cursor_quota_per_cred
+            
+            # 查询今天的 Cursor 使用量
+            cursor_usage_result = await db.execute(
+                select(func.count(UsageLog.id))
+                .where(UsageLog.user_id == user.id)
+                .where(UsageLog.created_at >= start_of_day)
+                .where(UsageLog.endpoint.like('%cursor%'))
+                .where(UsageLog.status_code == 200)
+            )
+            cursor_used = cursor_usage_result.scalar() or 0
+        else:
+            cursor_quota = None
+            cursor_used = 0
+        
         return {
             "total": user_total,
             "active": user_active,
@@ -1531,5 +1568,8 @@ async def get_antigravity_stats(
             "enabled": settings.antigravity_enabled,
             "banana_quota": banana_quota,
             "banana_used": banana_used,
-            "banana_enabled": settings.banana_quota_enabled
+            "banana_enabled": settings.banana_quota_enabled,
+            "cursor_quota": cursor_quota,
+            "cursor_used": cursor_used,
+            "cursor_enabled": settings.cursor_enabled
         }
