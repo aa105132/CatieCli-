@@ -1257,15 +1257,40 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
     
     print(f"[全站额度] 开始获取 {len(creds)} 个凭证的额度", flush=True)
     
-    # 并发获取凭证额度
-    async def fetch_single_quota(cred):
+    # 预先获取所有 access token（避免并发时数据库 session 冲突）
+    cred_tokens = []
+    for cred in creds:
         try:
             access_token = await CredentialPool.get_access_token(cred, db)
-            if not access_token or not cred.project_id:
-                return {"error": "no_token"}
-            
+            if access_token and cred.project_id:
+                cred_tokens.append({
+                    "id": cred.id,
+                    "access_token": access_token,
+                    "project_id": cred.project_id
+                })
+        except Exception as e:
+            print(f"[全站额度] 凭证 {cred.id} 获取 token 失败: {e}", flush=True)
+    
+    print(f"[全站额度] 成功获取 {len(cred_tokens)}/{len(creds)} 个凭证的 token", flush=True)
+    
+    if not cred_tokens:
+        return {
+            "enabled": True,
+            "quotas": {
+                "claude": {"remaining": 0, "count": 0},
+                "gemini": {"remaining": 0, "count": 0},
+                "banana": {"remaining": 0, "count": 0},
+            },
+            "total_creds": len(creds),
+            "sampled_creds": 0,
+            "last_update": now.isoformat() + "Z"
+        }
+    
+    # 并发获取凭证额度（不再访问数据库）
+    async def fetch_single_quota(cred_info):
+        try:
             # 使用 AntigravityClient 的 fetch_quota_info 方法
-            client = AntigravityClient(access_token, cred.project_id)
+            client = AntigravityClient(cred_info["access_token"], cred_info["project_id"])
             quota_result = await client.fetch_quota_info()
             
             if quota_result.get("success"):
@@ -1292,14 +1317,14 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
     # 并发执行，限制并发数为20
     semaphore = asyncio.Semaphore(20)
     
-    async def limited_fetch(cred):
+    async def limited_fetch(cred_info):
         async with semaphore:
             try:
-                return await asyncio.wait_for(fetch_single_quota(cred), timeout=60.0)
+                return await asyncio.wait_for(fetch_single_quota(cred_info), timeout=60.0)
             except asyncio.TimeoutError:
                 return {"error": "timeout"}
     
-    results = await asyncio.gather(*[limited_fetch(c) for c in creds], return_exceptions=True)
+    results = await asyncio.gather(*[limited_fetch(ct) for ct in cred_tokens], return_exceptions=True)
     
     # 统计结果
     success_count = 0
