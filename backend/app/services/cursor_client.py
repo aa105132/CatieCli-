@@ -126,11 +126,32 @@ class CursorClient:
                 error_text = response.text[:500]
                 raise Exception(f"Cursor API Error {response.status_code}: {error_text}")
             
-            # 流式读取
-            async for line in response.aiter_lines():
-                if not line:
-                    continue
-                # SSE 格式
+            # 流式读取 - 使用 aiter_content() 然后手动解析行
+            buffer = ""
+            async for chunk in response.aiter_content():
+                if isinstance(chunk, bytes):
+                    chunk = chunk.decode("utf-8", errors="ignore")
+                buffer += chunk
+                
+                # 按行分割处理
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # SSE 格式
+                    if line.startswith("data:"):
+                        yield f"{line}\n\n"
+                    else:
+                        try:
+                            data = json.loads(line)
+                            yield f"data: {json.dumps(data)}\n\n"
+                        except:
+                            yield f"{line}\n\n"
+            
+            # 处理剩余的 buffer
+            if buffer.strip():
+                line = buffer.strip()
                 if line.startswith("data:"):
                     yield f"{line}\n\n"
                 else:
