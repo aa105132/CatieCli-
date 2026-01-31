@@ -277,10 +277,10 @@ export default function Stats() {
               </div>
             </div>
 
-            {/* 全站额度进度条 */}
-            {globalQuota?.enabled && (
+            {/* 全站额度进度条 - 分类显示 */}
+            {globalQuota?.enabled && globalQuota?.quotas && (
               <div className="bg-gray-700/50 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-gray-300">📊 全站凭证额度</span>
                     {globalQuota.cached && (
@@ -298,31 +298,87 @@ export default function Stats() {
                     刷新
                   </button>
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 bg-gray-600 rounded-full h-4 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        globalQuota.quota_percentage >= 60 ? 'bg-green-500' :
-                        globalQuota.quota_percentage >= 30 ? 'bg-yellow-500' :
-                        globalQuota.quota_percentage >= 10 ? 'bg-orange-500' : 'bg-red-500'
-                      }`}
-                      style={{ width: `${Math.min(globalQuota.quota_percentage, 100)}%` }}
-                    />
-                  </div>
-                  <span className={`text-lg font-bold ${
-                    globalQuota.quota_percentage >= 60 ? 'text-green-400' :
-                    globalQuota.quota_percentage >= 30 ? 'text-yellow-400' :
-                    globalQuota.quota_percentage >= 10 ? 'text-orange-400' : 'text-red-400'
-                  }`}>
-                    {globalQuota.quota_percentage}%
-                  </span>
-                </div>
-                <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
-                  <span>采样 {globalQuota.sampled_creds}/{globalQuota.total_creds} 个凭证</span>
-                  {globalQuota.next_refresh_minutes && (
-                    <span>下次刷新: {globalQuota.next_refresh_minutes?.toFixed(0)}分钟后</span>
+                
+                {/* 分类额度条 */}
+                <div className="space-y-3">
+                  {/* Claude */}
+                  {globalQuota.quotas.claude?.count > 0 && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-purple-400 w-16 text-sm font-medium">Claude</span>
+                      <div className="flex-1 bg-gray-600 rounded-full h-3 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            globalQuota.quotas.claude.remaining >= 60 ? 'bg-purple-500' :
+                            globalQuota.quotas.claude.remaining >= 30 ? 'bg-purple-400' :
+                            globalQuota.quotas.claude.remaining >= 10 ? 'bg-orange-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(globalQuota.quotas.claude.remaining, 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-bold w-14 text-right ${
+                        globalQuota.quotas.claude.remaining >= 60 ? 'text-purple-400' :
+                        globalQuota.quotas.claude.remaining >= 30 ? 'text-purple-300' :
+                        globalQuota.quotas.claude.remaining >= 10 ? 'text-orange-400' : 'text-red-400'
+                      }`}>
+                        {globalQuota.quotas.claude.remaining}%
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Gemini */}
+                  {globalQuota.quotas.gemini?.count > 0 && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-blue-400 w-16 text-sm font-medium">Gemini</span>
+                      <div className="flex-1 bg-gray-600 rounded-full h-3 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            globalQuota.quotas.gemini.remaining >= 60 ? 'bg-blue-500' :
+                            globalQuota.quotas.gemini.remaining >= 30 ? 'bg-blue-400' :
+                            globalQuota.quotas.gemini.remaining >= 10 ? 'bg-orange-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(globalQuota.quotas.gemini.remaining, 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-bold w-14 text-right ${
+                        globalQuota.quotas.gemini.remaining >= 60 ? 'text-blue-400' :
+                        globalQuota.quotas.gemini.remaining >= 30 ? 'text-blue-300' :
+                        globalQuota.quotas.gemini.remaining >= 10 ? 'text-orange-400' : 'text-red-400'
+                      }`}>
+                        {globalQuota.quotas.gemini.remaining}%
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Banana (图片模型) */}
+                  {globalQuota.quotas.banana?.count > 0 && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-yellow-400 w-16 text-sm font-medium">Banana</span>
+                      <div className="flex-1 bg-gray-600 rounded-full h-3 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            globalQuota.quotas.banana.remaining >= 60 ? 'bg-yellow-500' :
+                            globalQuota.quotas.banana.remaining >= 30 ? 'bg-yellow-400' :
+                            globalQuota.quotas.banana.remaining >= 10 ? 'bg-orange-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${Math.min(globalQuota.quotas.banana.remaining, 100)}%` }}
+                        />
+                      </div>
+                      <span className={`text-sm font-bold w-14 text-right ${
+                        globalQuota.quotas.banana.remaining >= 60 ? 'text-yellow-400' :
+                        globalQuota.quotas.banana.remaining >= 30 ? 'text-yellow-300' :
+                        globalQuota.quotas.banana.remaining >= 10 ? 'text-orange-400' : 'text-red-400'
+                      }`}>
+                        {globalQuota.quotas.banana.remaining}%
+                      </span>
+                    </div>
                   )}
                 </div>
+                
+                {globalQuota.cached && globalQuota.next_refresh_minutes && (
+                  <div className="flex items-center justify-end mt-2 text-xs text-gray-500">
+                    <span>下次自动刷新: {globalQuota.next_refresh_minutes?.toFixed(0)}分钟后</span>
+                  </div>
+                )}
               </div>
             )}
 

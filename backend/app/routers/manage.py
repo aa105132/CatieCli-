@@ -1163,13 +1163,54 @@ _global_quota_cache = {
 }
 
 
+def _aggregate_quota_by_category(models: dict) -> dict:
+    """将模型额度数据按类别聚合（Claude/Gemini/Banana）"""
+    result = {
+        "claude": {"total": 0, "count": 0, "reset_time": ""},
+        "gemini": {"total": 0, "count": 0, "reset_time": ""},
+        "banana": {"total": 0, "count": 0, "reset_time": ""},
+    }
+    
+    for model_id, data in models.items():
+        lower = model_id.lower()
+        remaining = data.get("remaining", 0)
+        reset_time = data.get("resetTime", "")
+        
+        if "claude" in lower:
+            result["claude"]["total"] += remaining
+            result["claude"]["count"] += 1
+            if not result["claude"]["reset_time"] and reset_time:
+                result["claude"]["reset_time"] = reset_time
+        elif "image" in lower or "banana" in lower:
+            result["banana"]["total"] += remaining
+            result["banana"]["count"] += 1
+            if not result["banana"]["reset_time"] and reset_time:
+                result["banana"]["reset_time"] = reset_time
+        else:
+            # Gemini 和其他模型归入 gemini 类别
+            result["gemini"]["total"] += remaining
+            result["gemini"]["count"] += 1
+            if not result["gemini"]["reset_time"] and reset_time:
+                result["gemini"]["reset_time"] = reset_time
+    
+    # 计算平均值
+    for category in result:
+        if result[category]["count"] > 0:
+            result[category]["remaining"] = round(result[category]["total"] / result[category]["count"] * 100, 1)
+        else:
+            result[category]["remaining"] = 0
+    
+    return result
+
+
 @router.get("/global-quota")
 async def get_global_quota(db: AsyncSession = Depends(get_db)):
-    """获取全站公开 Antigravity 凭证的额度百分比（按类别：Claude/Gemini/Banana）"""
+    """获取全站公开凭证的平均额度百分比（带缓存），按类别分开显示"""
     from app.config import settings
     from app.services.credential_pool import CredentialPool
     from app.services.antigravity_client import AntigravityClient
     import asyncio
+    import httpx
     
     if not settings.global_quota_enabled:
         return {"enabled": False}
@@ -1189,7 +1230,7 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
                 "next_refresh_minutes": round(cache_minutes - cache_age, 1)
             }
     
-    # 查询所有公开且活跃的 Antigravity 凭证
+    # 查询所有公开且活跃的 Antigravity 凭证（限制数量以避免过多请求）
     result = await db.execute(
         select(Credential)
         .where(
@@ -1205,26 +1246,25 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
     if not creds:
         return {
             "enabled": True,
-            "claude": {"remaining": 0, "count": 0},
-            "gemini": {"remaining": 0, "count": 0},
-            "banana": {"remaining": 0, "count": 0},
+            "quotas": {
+                "claude": {"remaining": 0, "count": 0},
+                "gemini": {"remaining": 0, "count": 0},
+                "banana": {"remaining": 0, "count": 0},
+            },
             "total_creds": 0,
             "sampled_creds": 0,
             "last_update": now.isoformat() + "Z"
         }
-    
-    # 聚合结果
-    claude_totals = []
-    gemini_totals = []
-    banana_totals = []
     
     # 并发获取凭证额度
     async def fetch_single_quota(cred):
         try:
             access_token = await CredentialPool.get_access_token(cred, db)
             if not access_token or not cred.project_id:
+                print(f"[全站额度] 凭证 {cred.id} 无 token 或 project_id", flush=True)
                 return None
             
+            # 使用 AntigravityClient 的 fetch_quota_info 方法
             client = AntigravityClient(access_token, cred.project_id)
             quota_result = await client.fetch_quota_info()
             
@@ -1233,27 +1273,20 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
                 if not models:
                     return None
                 
-                # 按类别聚合
-                result_data = {
-                    "claude": [],
-                    "gemini": [],
-                    "banana": []
-                }
+                # 直接使用 remaining 字段（已经是 0-1 的比例）
+                formatted_models = {}
+                for model_id, info in models.items():
+                    formatted_models[model_id] = {
+                        "remaining": info.get("remaining", 0),
+                        "resetTime": info.get("resetTime", "")
+                    }
                 
-                for model_id, data in models.items():
-                    lower = model_id.lower()
-                    remaining = data.get("remaining", 0) * 100  # 转换为百分比
-                    
-                    if "claude" in lower:
-                        result_data["claude"].append(remaining)
-                    elif "image" in lower or "banana" in lower:
-                        result_data["banana"].append(remaining)
-                    elif "gemini" in lower or "flash" in lower or "pro" in lower:
-                        result_data["gemini"].append(remaining)
-                
-                return result_data
+                return _aggregate_quota_by_category(formatted_models)
+            else:
+                print(f"[全站额度] 凭证 {cred.id} 额度查询失败: {quota_result.get('error')}", flush=True)
+                return None
         except Exception as e:
-            print(f"[全站额度] 获取凭证 {cred.id} 额度失败: {e}", flush=True)
+            print(f"[全站额度] 获取凭证 {cred.id} 额度异常: {e}", flush=True)
         return None
     
     # 并发执行，限制并发数
@@ -1265,27 +1298,41 @@ async def get_global_quota(db: AsyncSession = Depends(get_db)):
     
     results = await asyncio.gather(*[limited_fetch(c) for c in creds])
     
-    # 过滤有效结果并聚合
-    valid_count = 0
-    for r in results:
-        if r is not None:
-            valid_count += 1
-            claude_totals.extend(r["claude"])
-            gemini_totals.extend(r["gemini"])
-            banana_totals.extend(r["banana"])
+    # 过滤有效结果并按类别汇总
+    valid_results = [r for r in results if r is not None]
     
-    # 计算各类别平均值
-    claude_avg = sum(claude_totals) / len(claude_totals) if claude_totals else 0
-    gemini_avg = sum(gemini_totals) / len(gemini_totals) if gemini_totals else 0
-    banana_avg = sum(banana_totals) / len(banana_totals) if banana_totals else 0
+    # 汇总各类别的平均额度
+    aggregated = {
+        "claude": {"total": 0, "count": 0, "reset_time": ""},
+        "gemini": {"total": 0, "count": 0, "reset_time": ""},
+        "banana": {"total": 0, "count": 0, "reset_time": ""},
+    }
+    
+    for result in valid_results:
+        for category in ["claude", "gemini", "banana"]:
+            if result[category]["count"] > 0:
+                aggregated[category]["total"] += result[category]["remaining"]
+                aggregated[category]["count"] += 1
+                if not aggregated[category]["reset_time"] and result[category]["reset_time"]:
+                    aggregated[category]["reset_time"] = result[category]["reset_time"]
+    
+    # 计算最终平均值
+    final_quotas = {}
+    for category in ["claude", "gemini", "banana"]:
+        if aggregated[category]["count"] > 0:
+            final_quotas[category] = {
+                "remaining": round(aggregated[category]["total"] / aggregated[category]["count"], 1),
+                "count": aggregated[category]["count"],
+                "reset_time": aggregated[category]["reset_time"]
+            }
+        else:
+            final_quotas[category] = {"remaining": 0, "count": 0, "reset_time": ""}
     
     # 更新缓存
     cache_data = {
-        "claude": {"remaining": round(claude_avg, 1), "count": len(claude_totals)},
-        "gemini": {"remaining": round(gemini_avg, 1), "count": len(gemini_totals)},
-        "banana": {"remaining": round(banana_avg, 1), "count": len(banana_totals)},
+        "quotas": final_quotas,
         "total_creds": len(creds),
-        "sampled_creds": valid_count,
+        "sampled_creds": len(valid_results),
         "last_update": now.isoformat() + "Z"
     }
     _global_quota_cache["data"] = cache_data
