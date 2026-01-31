@@ -2736,6 +2736,12 @@ export default function Dashboard() {
                     {window.location.origin}/agy/v1
                   </code>
                 </div>
+                <div>
+                  <div className="text-xs text-inkbrown-200 dark:text-sand-600 mb-1.5">Codex 端点</div>
+                  <code className="block p-2.5 rounded-lg text-sm text-green-600 dark:text-green-400 font-mono bg-parchment-50 dark:bg-night-200 border border-parchment-300 dark:border-night-50">
+                    {window.location.origin}/codex/v1
+                  </code>
+                </div>
               </div>
             </div>
 
